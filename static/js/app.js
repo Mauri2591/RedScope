@@ -104,7 +104,7 @@ $(document).ready(function () {
 
         // Abrir modal
         const modal = new bootstrap.Modal(
-            document.getElementById('mdlEjecutarEscaneoCloudAws')
+            document.getElementById('mdlEjecutarEscaneo')
         );
         modal.show();
 
@@ -332,7 +332,7 @@ function ejecutarAccionCloud() {
                     // 🔹 SOLO refrescá estados actuales
                     cargarResultadosCloud();
 
-                    $('#mdlEjecutarEscaneoCloudAws').modal('hide');
+                    $('#mdlEjecutarEscaneo').modal('hide');
 
                 } else {
                     alert("Error al ejecutar");

@@ -176,7 +176,7 @@ class Proyecto:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         query="""
-        SELECT servicios_aws.id,servicios_aws.nombre,servicios_aws.descripcion FROM servicios_aws WHERE tipos_servicio_id=%s;
+        SELECT servicios_aws.id,servicios_aws.nombre,servicios_aws.descripcion, servicios_aws.tipos_servicio_id FROM servicios_aws WHERE tipos_servicio_id=%s;
         """
         cursor.execute(query,(tipo_servicio_id,))
         servicios_aws=cursor.fetchall()

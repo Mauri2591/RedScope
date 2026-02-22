@@ -204,7 +204,7 @@ th {
     border-radius: .3rem;
     background-color: #198754;
     color: var(--color-blanco-primario);
-    padding: .1rem .3rem;
+    padding: .2rem .3rem;
     font-size: .7rem;
     font-weight: bold;
 }
@@ -213,7 +213,7 @@ th {
     border-radius: .3rem;
     background-color: #198754;
     color: var(--color-blanco-primario);
-    padding: .1rem .5rem;
+    padding: .2rem .5rem;
     font-size: .7rem;
     font-weight: bold;
 }
@@ -222,7 +222,7 @@ th {
     border-radius: .3rem;
     background-color: #007bff;
     color: var(--color-blanco-primario);
-    padding: .1rem .3rem;
+    padding: .2rem .3rem;
     font-size: .7rem;
     font-weight: bold;
 }
@@ -231,7 +231,7 @@ th {
     border-radius: .3rem;
     background-color: #17a2b8;
     color: var(--color-blanco-primario);
-    padding: .1rem .3rem;
+    padding: .2rem .3rem;
     font-size: .7rem;
     font-weight: bold;
 }

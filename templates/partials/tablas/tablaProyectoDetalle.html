@@ -71,7 +71,7 @@
             <td>
                 {% if proyecto.configuracion == 'CLOUD_CONFIGURADO' %}
                 <a target="_blank" href="{{ url_for('proyecto.proyecto_cloud_workspace', proyecto_id=proyecto.id) }}"
-                    class="btn btn-sm btn-success" title="Trabajar">
+                    class="btn btn-sm btn-success py-0 px-1" title="Trabajar">
                     <i class="bi bi-rocket-takeoff-fill"></i>
                 </a>
                 {% else %}
