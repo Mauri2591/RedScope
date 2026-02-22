@@ -1,0 +1,26 @@
+<table id="tabla_proyectos" class="table-center table-light table table-striped table-hover">
+    <thead>
+        <tr>
+            <th>Titulo</th>
+            <th>Cliente</th>
+            <th>Creador</th>
+            <th>Servicio</th>
+            <th>Tipo</th>
+            <th>Estado</th>
+            <th>Accion</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for proyecto in proyectos %}
+        <tr>
+            <td>{{ proyecto.titulo }}</td>
+            <td>{{ proyecto.cliente }}</td>
+            <td>{{ proyecto.email }}</td>
+            <td>{{ proyecto.tipo_proyecto }}</td>
+            <td>{{ proyecto.tipo_servicio }}</td>
+            <td><span class="badge-estado-activo">{{ proyecto.estado }}</span></td>
+            <td><a href="{{ url_for('proyecto.proyecto_detalle', proyecto_id=proyecto.id) }}" type="button" title="Configurar" class="badge bg-primary text-light"><i class="bi bi-skip-end-fill"></i></a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

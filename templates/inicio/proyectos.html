@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Red Scope{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-start">
+    <span class="badge border border-secondary bg-dark fw-bold text-light m-2">Proyectos</span>
+</div>
+
+<div class="card p-3">
+    {% include 'partials/tablas/tablaProyectos.html' %}
+</div>
+{% include 'partials/modals/mdlAltaProyecto.html' %}
+<script>
+    const serviciosCloud = {{ tipos_servicio|tojson }};
+</script>
+
+{% endblock %}

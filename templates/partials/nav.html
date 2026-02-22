@@ -1,0 +1,24 @@
+<section class="contenedor-nav">
+    <h5 class="titulo_sidebar">Red Scope</h5>
+
+    <ul id="nav_principal" class="nav justify-content-end">
+       
+        <li class="nav-item">
+            <span class="nav-link disabled text-light">
+                {{ session['email'] }} {{ session['sector'] }}
+            </span>
+        </li>
+
+          <li class="nav-item">
+            <a class="nav-link" href="#">
+                <span type="button" onclick="actualizarPerfil()" class="badge bg-light text-dark">Mi Perfil</span>
+            </a>
+        </li>
+
+        <li class="nav-item mx-2">
+            <a class="nav-link" href="{{ url_for('auth.logout') }}">
+                <span class="badge bg-dark text-light border border-light">Salir</span>
+            </a>
+        </li>
+    </ul>
+</section>

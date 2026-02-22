@@ -1,0 +1,95 @@
+<table id="tabla_proyecto_detalle" class="table-center table-light table table-striped table-hover">
+
+    <thead>
+        <tr>
+            <th>Titulo</th>
+            <th>Cliente</th>
+            <th>Creador</th>
+            <th>Servicio</th>
+            <th>Tipo</th>
+            <th>Estado Proyecto</th>
+            <th>Configuración</th>
+            <th>Acción</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {% if proyecto %}
+        <tr>
+
+            <td class="fw-semibold">
+                {{ proyecto.titulo }}
+            </td>
+
+            <td>{{ proyecto.cliente }}</td>
+
+            <td>
+                <span class="text-muted">
+                    {{ proyecto.email }}
+                </span>
+            </td>
+
+            <td>
+                <span class="badge-tipo-proyecto">
+                    {{ proyecto.tipo_proyecto }}
+                </span>
+            </td>
+            <td>
+                <span class="badge-tipo_servicio">
+                    {{ proyecto.tipo_servicio }}
+                </span>
+            </td>
+
+            <td>
+                <span class="badge-estado-activo">
+                    {{ proyecto.estado_proyecto }}
+                </span>
+            </td>
+
+            <!-- SI ES CLOUD -->
+            {% if proyecto.tipo_proyecto == 'CLOUD' %}
+            <!-- CONFIGURACIÓN GENERAL -->
+            <td>
+                {% if proyecto.configuracion == 'CLOUD_CONFIGURADO' %}
+                <span class="badge-estado-success">
+                    <i class="bi bi-check-circle-fill"></i>
+                    OK
+                </span>
+                {% else %}
+                <span type="button" onclick="gestionarConfiguracion('{{ proyecto.id }}', '{{ proyecto.tipo_proyecto }}')"
+                    class="badge-servicio-pendiente badge">
+                    <i class="bi bi-gear-fill"></i>
+                    Pendiente
+                </span>
+                {% endif %}
+                
+            </td>
+            {% endif %}
+            <!-- FINAL SI ES CLOUD -->
+
+            <!-- ACCIÓN -->
+            <td>
+                {% if proyecto.configuracion == 'CLOUD_CONFIGURADO' %}
+                <a target="_blank" href="{{ url_for('proyecto.proyecto_cloud_workspace', proyecto_id=proyecto.id) }}"
+                    class="btn btn-sm btn-success" title="Trabajar">
+                    <i class="bi bi-rocket-takeoff-fill"></i>
+                </a>
+                {% else %}
+                <button class="badge-servicio-pendiente btn btn-sm" data-bs-toggle="modal" data-bs-target="#mdlConfigProyecto"
+                    title="Debe configurar el proyecto">
+                    <i class="bi bi-gear-fill"></i>
+                </button>
+                {% endif %}
+            </td>
+
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="8" class="text-center">
+                No se encontró el proyecto
+            </td>
+        </tr>
+        {% endif %}
+    </tbody>
+
+</table>

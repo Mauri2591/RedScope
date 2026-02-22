@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+{% block title %}Red Scope{% endblock %}
+
+{% block content %}
+<div id="cloudWorkspace" data-proyecto-id="{{ proyecto.id }}"></div>
+<meta name="csrf-token" content="{{ csrf_token() }}">
+
+<div id="cloudWorkspace" data-proyecto-id="{{ proyecto.id }}"></div>
+
+<div class="toast-container position-fixed end-0" style="z-index: 1100;margin-right: 2rem;">
+    <div id="toastEscaneo" class="toast align-items-center text-bg-dark border-0" role="alert">
+        <div class="d-flex">
+            <div class="toast-body">
+                ¡Ejecución exitosa!
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex justify-content-start">
+    <span class="badge border border-secondary bg-dark fw-bold text-light m-2">Workspace <span
+            class="badge badge-logo-aws">{{ proyecto.tipo_servicio }}</span> </span>
+</div>
+
+<div class="contenedor-terminal-escaneos card p-3">
+    <div class="container overflow-hidden">
+        <div class="row gx-5">
+            <div class="col-4">
+
+                <div class="terminal-herramientas">
+                    {% for servicio_aws in servicios_aws %}
+                    <button value="{{ servicio_aws.id }}" type="button" title="{{servicio_aws.descripcion}}"
+                        class="btn btn-sm px-3 m-1 btn-servicio-aws {{ servicio_aws.nombre|lower|replace(' ', '-') }}">
+                        {{ servicio_aws.nombre }}
+                    </button>
+                    {% endfor %}
+                </div>
+
+
+                <div class="mt-3" style="max-height: 20rem; overflow-y: auto;">
+
+                    <table class="table table-sm table-bordered text-center align-middle" id="tablaEjecuciones">
+
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Acción</th>
+                                <th>Estado</th>
+                                <th>Gestion</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                        </tbody>
+
+                    </table>
+                </div>
+            </div>
+
+            <div class="col-8">
+                <div class="d-flex justify-content-start">
+                    <span id="nombreProyectoyCliente" class="span-cliente-titulo badge mb-1"> {{ proyecto.cliente }} - {{ proyecto.titulo }} - Cuenta ({{ proyecto.cuenta_id }})
+                    </span>
+                </div>
+
+                <div class="borde-terminal-salida p-3 border bg-light">
+                    <pre class="terminal-salida-herramienta"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% include 'partials/modals/mdlEjecutarEscaneoCloudAws.html' %}
+{% endblock %}

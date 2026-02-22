@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Red Scope{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-start">
+    <span class="badge border border-secondary bg-dark fw-bold text-light m-2">Detalle del Proyecto</span>
+</div>
+
+<div class="card p-3">
+    {% include 'partials/tablas/tablaProyectoDetalle.html'%}
+    {% include 'partials/modals/mdlGestionarConfiguracionCloud.html' %}
+</div>
+
+{% endblock %}

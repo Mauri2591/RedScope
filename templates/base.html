@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-store">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+
+    <title>{% block title %}{% endblock %}</title>
+
+    <!-- Bootstrap -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}">
+
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/datatables/datatables.min.css') }}">
+
+    <!-- App styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!--Iconos-->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+
+    {% block extra_css %}{% endblock %}
+</head>
+
+<body>
+
+    <!-- Top navigation -->
+    {% include 'partials/nav.html' %}
+
+    <!-- Layout -->
+    <div class="app-layout d-flex">
+
+        <!-- Sidebar -->
+        {% include 'partials/sidebar.html' %}
+
+        {% if session.get('bienvenido') %}
+        <div class="toast-container position-fixed end-0"
+            style="z-index: 1100; margin-top: 1.6rem; margin-right: 2rem;">
+            <div id="toastBienvenida" class="toast align-items-center text-bg-dark border-0" role="alert">
+                <div class="d-flex">
+                    <div class="toast-body">
+                        {{ session.bienvenido }}
+                    </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto"
+                        data-bs-dismiss="toast"></button>
+                </div>
+            </div>
+        </div>
+        {% set _ = session.pop('bienvenido', None) %}
+        {% endif %}
+
+
+        <!-- Main content -->
+        <main id="contenedor-main" class="content flex-grow-1 p-2">
+            {% block content %}{% endblock %}
+        </main>
+        {% include 'partials/modals/mdlPerfilUsuario.html' %}
+
+    </div>
+
+    <!-- jQuery (OBLIGATORIO para DataTables) -->
+    <script src="{{ url_for('static', filename='vendor/jquery/jquery-4.0.0.js') }}"></script>
+
+    <!-- Bootstrap JS -->
+    <script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+
+    <!-- DataTables JS -->
+    <script src="{{ url_for('static', filename='vendor/datatables/datatables.min.js') }}"></script>
+
+    <!-- Chart JS -->
+    <script src="{{ url_for('static', filename='js/ChartJs/>chart.js') }}"></script>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+
+    {% block extra_js %}{% endblock %}
+</body>
+
+</html>

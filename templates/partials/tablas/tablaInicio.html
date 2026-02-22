@@ -1,0 +1,26 @@
+<table id="tabla_inicio" class="table-center table-light table table-striped table-hover">
+    <thead>
+        <tr>
+            <th>Tipo</th>
+            <th>Acción</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for proyecto in proyectos %}
+        <tr>
+            <td>{{ proyecto.tipo }}</td>
+            <td>
+                <button title="Crear proyecto" class="btn-crear-proyecto btn btn-sm bg-primary text-light py-0 px-1"
+                    data-bs-toggle="modal" data-bs-target="#mdlAltaProyecto" data-tipo-id="{{ proyecto.id }}"
+                    data-tipo-nombre="{{ proyecto.tipo }}">
+                    <i class="bi bi-plus-lg"></i>
+                </button>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="3">No hay datos</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
