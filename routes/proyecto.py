@@ -2,10 +2,11 @@ from flask import Blueprint, render_template, session, redirect, url_for, reques
 from functools import wraps
 from routes.utils import abort
 from models.proyecto import Proyecto
+from models.cloud_ejecucion import CloudEjecucion
 from cryptography.fernet import Fernet
 import mysql.connector
 import boto3
-from botocore.exceptions import ClientError,EndpointConnectionError
+from botocore.exceptions import ClientError, EndpointConnectionError
 import importlib
 from db import get_db_connection  # asegurate de tenerlo arriba
 
@@ -192,7 +193,6 @@ def guardar_cloud_config(proyecto_id):
             access_key = None
             secret_key_encrypted = None
 
-
         # ==========================================================
         # 🔑 MODO ACCESS KEYS
         # ==========================================================
@@ -307,6 +307,7 @@ def proyecto_cloud_workspace(proyecto_id):
         servicios_aws=servicios_aws
     )
 
+
 @proyecto_bp.route('/cloud/acciones/<int:servicio_id>')
 @login_required
 def obtener_acciones_cloud(servicio_id):
@@ -411,3 +412,28 @@ def obtener_resultados_cloud(proyecto_id):
         "success": True,
         "data": data
     })
+
+
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud/ejecucion/<int:ejecucion_id>', methods=['GET'])
+@login_required
+def obtener_detalle_ejecucion(proyecto_id, ejecucion_id):
+
+    sector_id = session.get('sector_id')
+    proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
+
+    if not proyecto:
+        abort(404)
+
+    data = Proyecto.get_data_ejecuciones_para_analisis(
+        proyecto_id,
+        ejecucion_id
+    )
+
+    if not data:
+        return jsonify({"error": "No encontrado"}), 404
+
+    # TRAIGO LOS INFDINGS
+    findings = CloudEjecucion.extract_interesting(data["resultado"])
+    data["interesting"] = findings
+
+    return jsonify(data)

@@ -47,7 +47,7 @@
                                 <th>Estado</th>
                                 <th>Gestion</th>
                                 <th><span class="badge bg-info text-light" title="Analizar todas" type="button"
-                                        onclick="gestionarResultadoEscaneo('{{ proyecto.id }}')"><i
+                                        onclick="gestionarResultadoChecks('{{ proyecto.id }}')"><i
                                             class="bi bi-rocket-takeoff-fill"></i>
                                     </span></th>
                             </tr>
@@ -73,4 +73,5 @@
     </div>
 </div>
 {% include 'partials/modals/cloud/aws/mdlEjecutarEscaneo.html' %}
+{% include 'partials/modals/cloud/aws/mdlGestionarChecks.html' %}
 {% endblock %}

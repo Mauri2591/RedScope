@@ -2,6 +2,19 @@ from db import get_db_connection
 import json
 
 class CloudEjecucion:
+    
+    RISK_KEYWORDS = [
+        "public",
+        "exposed",
+        "wildcard",
+        "dangerous",
+        "cross_account",
+        "privilege",
+        "ingress",
+        "anonymous",
+        "write"
+    ]
+     
     @staticmethod
     def mark_running(ejecucion_id):
         try:
@@ -105,3 +118,41 @@ class CloudEjecucion:
         finally:
             cursor.close()
             conn.close()
+            
+
+    @staticmethod
+    def extract_interesting(resultado):
+        if isinstance(resultado, str):
+            try:
+                resultado = json.loads(resultado)
+            except:
+                return []
+
+        interesting = []
+        # 🔴 Si la ejecución falló por permisos
+        if resultado.get("status") == "FAILED":
+            error = resultado.get("error", "")
+            if "AccessDenied" in error or "Unauthorized" in error:
+                interesting.append({
+                    "type": "ENUMERATION_BLOCKED",
+                    "details": "Insufficient permissions to enumerate this service"
+                })
+            return interesting
+
+        for r in resultado.get("resources", []):
+            analysis = r.get("analysis", {})
+
+            for key, value in analysis.items():
+
+                if value is True:
+                    key_lower = key.lower()
+
+                    for keyword in CloudEjecucion.RISK_KEYWORDS:
+                        if keyword in key_lower:
+                            interesting.append({
+                                "resource_id": r.get("resource_id"),
+                                "flag": key
+                            })
+                            break
+        return interesting
+    

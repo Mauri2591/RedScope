@@ -172,30 +172,30 @@ $(document).ready(function () {
     });
 
     document.getElementById("actualizarPerfilUsuario")
-.addEventListener("submit", function (e) {
+        .addEventListener("submit", function (e) {
 
-    const emailValue = document.querySelector("input[name='email']").value.trim();
-    const switchChecked = document.getElementById("flexSwitchCheckChecked").checked;
-    const passwordValue = document.getElementById("password").value.trim();
+            const emailValue = document.querySelector("input[name='email']").value.trim();
+            const switchChecked = document.getElementById("flexSwitchCheckChecked").checked;
+            const passwordValue = document.getElementById("password").value.trim();
 
-    // Validar email obligatorio
-    if (emailValue === "") {
-        e.preventDefault();
-        alert("El email es obligatorio.");
-        return false;
-    }
+            // Validar email obligatorio
+            if (emailValue === "") {
+                e.preventDefault();
+                alert("El email es obligatorio.");
+                return false;
+            }
 
-    // Validar password si switch activado
-    if (switchChecked && passwordValue === "") {
-        e.preventDefault();
-        alert("Debe ingresar un password si habilita el cambio.");
-        return false;
-    }
+            // Validar password si switch activado
+            if (switchChecked && passwordValue === "") {
+                e.preventDefault();
+                alert("Debe ingresar un password si habilita el cambio.");
+                return false;
+            }
 
-    // Si pasa validaciones
-    alert("Perfil actualizado correctamente.");
+            // Si pasa validaciones
+            alert("Perfil actualizado correctamente.");
 
-});
+        });
 
 
 
@@ -475,7 +475,6 @@ async function cargarResultadosCloud() {
 function actualizarTablaCloud(data) {
 
     const tbody = document.querySelector("#tablaEjecuciones tbody");
-    console.log(data);
 
     if (!tbody) return;
 
@@ -507,7 +506,7 @@ function actualizarTablaCloud(data) {
                 badgeClass = "bg-dark";
         }
 
-        const habilitarBtnGestionarResultadoEscaneo = contenido.estado == "RUNNING" || contenido.estado == "QUEUED" ? "" : `class="badge bg-success text-light" type=button onclick=gestionarResultadoEscaneo('${contenido.id}')`;
+        const habilitarBtngestionarResultadoChecks = contenido.estado == "RUNNING" || contenido.estado == "QUEUED" ? "" : `class="badge bg-success text-light" type=button onclick=gestionarResultadoChecks('${contenido.id}')`;
         tbody.innerHTML += `
             <tr>
                 <td>${accion}</td>
@@ -517,7 +516,7 @@ function actualizarTablaCloud(data) {
                     </span>
                 </td>
                 <td>
-                <span ${habilitarBtnGestionarResultadoEscaneo} class="badge bg-light text-secondary"><i class="bi bi-rocket-takeoff-fill"></i>
+                <span ${habilitarBtngestionarResultadoChecks} class="badge bg-light text-secondary"><i class="bi bi-rocket-takeoff-fill"></i>
                     </span>
                 </td>
             </tr>
@@ -525,8 +524,73 @@ function actualizarTablaCloud(data) {
     }
 }
 
-function gestionarResultadoEscaneo(id) {
-    alert(id)
+function gestionarResultadoChecks(cloud_ejecuciones_id) {
+
+    const proyectoId = document
+        .getElementById("cloudWorkspace")
+        .dataset.proyectoId;
+
+    fetch(`/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error("Error en la respuesta");
+            }
+            return response.json();
+        })
+        .then(data => {
+
+            const texto =
+`CLIENTE: ${data.cliente}
+PROYECTO: ${data.titulo}
+CHECK: ${data.nombre_ui}
+DESCRIPCIÓN: ${data.descripcion}
+FECHA: ${data.creacion}
+`;
+
+            document.getElementById("detalleTexto").value = texto;
+
+
+            // 🔎 FINDINGS INTERESANTES
+            let findingsText = "";
+
+            if (data.interesting && data.interesting.length > 0) {
+
+data.interesting.forEach(f => {
+
+    if (f.flag) {
+        findingsText +=
+`RESOURCE: ${f.resource_id}
+FLAG: ${f.flag}
+------------------------------------
+`;
+    }
+
+    else if (f.type) {
+        findingsText +=
+`TYPE: ${f.type}
+DETAILS: ${f.details}
+------------------------------------
+`;
+    }
+
+});
+
+            } else {
+                findingsText = "No se detectaron hallazgos interesantes.";
+            }
+
+            document.getElementById("detalleFindings").value = findingsText;
+
+
+            bootstrap.Modal
+                .getOrCreateInstance(
+                    document.getElementById("mdlGestionarChecks")
+                )
+                .show();
+        })
+        .catch(error => {
+            console.error("Error:", error);
+        });
 }
 
 function mostrarToast() {

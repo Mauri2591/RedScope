@@ -176,7 +176,7 @@ class Proyecto:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         query="""
-        SELECT servicios_aws.id,servicios_aws.nombre,servicios_aws.descripcion, servicios_aws.tipos_servicio_id FROM servicios_aws WHERE tipos_servicio_id=%s;
+        SELECT servicios_aws.id,servicios_aws.nombre,servicios_aws.descripcion FROM servicios_aws WHERE tipos_servicio_id=%s;
         """
         cursor.execute(query,(tipo_servicio_id,))
         servicios_aws=cursor.fetchall()
@@ -269,7 +269,33 @@ class Proyecto:
                 "error": row["error"],
                 "fecha_fin": str(row["fecha_fin"]) if row["fecha_fin"] else None
             }
-
         return data
 
+    @staticmethod
+    def get_data_ejecuciones_para_analisis(proyecto_id, cloud_ejecuciones_id):
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        query = """
+       SELECT 
+    saa.nombre_ui,
+    saa.descripcion,
+    ce.estado,
+    ce.error,
+    ce.fecha_creacion AS creacion,
+    ce.resultado,
+    p.titulo,
+    p.cliente
+    FROM cloud_ejecuciones ce
+    INNER JOIN servicios_aws_acciones saa
+        ON ce.accion_id = saa.id
+    INNER JOIN proyectos p
+        ON p.id = ce.proyecto_id
+    WHERE ce.proyecto_id = %s
+    AND ce.id = %s;
+            """
+        cursor.execute(query, (proyecto_id, cloud_ejecuciones_id))
+        accion = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return accion
         

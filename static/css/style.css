@@ -52,6 +52,10 @@ label {
     font-size: .8rem;
     font-family: var(--fuente-texto);
 }
+textarea {
+    font-size: .8rem;
+    font-family: var(--fuente-texto);
+}
 
 ul,
 li {
