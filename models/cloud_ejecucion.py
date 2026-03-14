@@ -151,7 +151,7 @@ class CloudEjecucion:
                         if keyword in key_lower:
                             interesting.append({
                                 "resource_id": r.get("resource_id"),
-                                "flag": key
+                                "check_id": key
                             })
                             break
         return interesting

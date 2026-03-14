@@ -1341,7 +1341,6 @@ def apigateway_review_authorizers_job(ejecucion_id, proyecto_id):
 
                 for route_page in routes_paginator.paginate(ApiId=api_id):
                     for route in route_page.get("Items", []):
-
                         routes_data.append({
                             "route_key": route.get("RouteKey"),
                             "authorization_type": route.get("AuthorizationType"),

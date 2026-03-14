@@ -279,6 +279,7 @@ class Proyecto:
        SELECT 
     saa.nombre_ui,
     saa.descripcion,
+    ce.id AS cloud_ejecuciones_id,
     ce.estado,
     ce.error,
     ce.fecha_creacion AS creacion,
@@ -299,3 +300,23 @@ class Proyecto:
         conn.close()
         return accion
         
+@staticmethod
+def insert_cloud_findings(ejecucion_id, findings):
+    if not findings:
+        return
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    data = []
+    for f in findings:
+        data.append((
+            ejecucion_id,
+            f.get("resource_id"),
+            f.get("check_id")
+        ))
+    cursor.executemany("""
+        INSERT INTO cloud_ejecucion_findings
+        (cloud_ejecucion_id, resource_id, check_id)
+        VALUES (%s, %s, %s)
+    """, data)
+    conn.commit()
+    conn.close()

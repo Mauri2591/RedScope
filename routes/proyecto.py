@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, session, redirect, url_for, request, jsonify, current_app
+from config import Config
 from functools import wraps
 from routes.utils import abort
 from models.proyecto import Proyecto
@@ -366,8 +367,7 @@ def run_roles():
     cursor.close()
     conn.close()
 
-    redis_conn = Redis(host='localhost', port=6379)
-    q = Queue(connection=redis_conn)
+    q = Queue(connection=Config.redis_conn)
 
     accion = Proyecto.get_accion_by_id(accion_id)
     if not accion:
@@ -437,3 +437,30 @@ def obtener_detalle_ejecucion(proyecto_id, ejecucion_id):
     data["interesting"] = findings
 
     return jsonify(data)
+
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud/ejecucion/<int:ejecucion_id>/hallazgos')
+@login_required
+def gestionar_hallazgos(proyecto_id, ejecucion_id):
+
+    sector_id = session.get('sector_id')
+    proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
+
+    if not proyecto:
+        abort(404)
+
+    data = Proyecto.get_data_ejecuciones_para_analisis(
+        proyecto_id,
+        ejecucion_id
+    )
+
+    if not data:
+        abort(404)
+
+    findings = CloudEjecucion.extract_interesting(data["resultado"])
+
+    return render_template(
+        'proyecto/proyectos-cloud/GestionHallazgos.html',
+        proyecto=proyecto,
+        ejecucion=data,
+        findings=findings
+    )

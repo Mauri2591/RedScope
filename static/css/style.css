@@ -309,3 +309,27 @@ th {
     color: #000;
     border: .1rem solid var(--color-blanco-terciario);
 }
+
+.container-gestion-checks{
+    color: var(--color-blanco-primario);
+}
+
+.contenedor-table-checks{
+    max-height: 15rem;
+    overflow-y: scroll;
+    
+}
+
+.container-gestion-checks-tabla{
+    padding: .5rem;
+    border-radius: .3rem;
+    border: .1rem solid var(--color-blanco-primario);
+}
+
+.titulo-hallazgos{
+    color: var(--color-blanco-primario);
+    border: .1rem solid var(--color-blanco-terciario);
+    border-radius: .3rem;
+    padding: .2rem .5rem 0 .5rem;
+
+}

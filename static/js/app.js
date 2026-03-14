@@ -525,72 +525,14 @@ function actualizarTablaCloud(data) {
 }
 
 function gestionarResultadoChecks(cloud_ejecuciones_id) {
-
     const proyectoId = document
         .getElementById("cloudWorkspace")
         .dataset.proyectoId;
+    window.location.href = `/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}/hallazgos`;
+}
 
-    fetch(`/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}`)
-        .then(response => {
-            if (!response.ok) {
-                throw new Error("Error en la respuesta");
-            }
-            return response.json();
-        })
-        .then(data => {
-
-            const texto =
-`CLIENTE: ${data.cliente}
-PROYECTO: ${data.titulo}
-CHECK: ${data.nombre_ui}
-DESCRIPCIÓN: ${data.descripcion}
-FECHA: ${data.creacion}
-`;
-
-            document.getElementById("detalleTexto").value = texto;
-
-
-            // 🔎 FINDINGS INTERESANTES
-            let findingsText = "";
-
-            if (data.interesting && data.interesting.length > 0) {
-
-data.interesting.forEach(f => {
-
-    if (f.flag) {
-        findingsText +=
-`RESOURCE: ${f.resource_id}
-FLAG: ${f.flag}
-------------------------------------
-`;
-    }
-
-    else if (f.type) {
-        findingsText +=
-`TYPE: ${f.type}
-DETAILS: ${f.details}
-------------------------------------
-`;
-    }
-
-});
-
-            } else {
-                findingsText = "No se detectaron hallazgos interesantes.";
-            }
-
-            document.getElementById("detalleFindings").value = findingsText;
-
-
-            bootstrap.Modal
-                .getOrCreateInstance(
-                    document.getElementById("mdlGestionarChecks")
-                )
-                .show();
-        })
-        .catch(error => {
-            console.error("Error:", error);
-        });
+function gestionarCheck(CLOUD_EJECUCION_ID) {
+    alert(CLOUD_EJECUCION_ID)
 }
 
 function mostrarToast() {
@@ -603,4 +545,10 @@ function mostrarToast() {
 
 function actualizarPerfil() {
     $("#mdlPerfilUsuario").modal("show")
+}
+
+function verificarHallazgo(p1, p2, p3) {  
+    alert(p1);
+    alert(p2);
+    alert(p3);
 }
