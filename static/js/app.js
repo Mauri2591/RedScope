@@ -554,19 +554,32 @@ function actualizarPerfil() {
 // ABRIR MODAL Y CARGAR RULE
 // ===============================
 function verificarHallazgo(proyecto_id, cloud_ejecucion_id, resource_id, check_id) {
-
     limpiarModalFinding();
+
+    $("#check_id").val(check_id);
 
     $("#proyecto_id").val(proyecto_id);
     $("#cloud_ejecucion_id").val(cloud_ejecucion_id);
     $("#resource_id").val(resource_id);
     $("#check_id").text(check_id);
 
+    // 🔹 Traer el finding existente si ya fue creado
+    fetch(`/proyecto/finding/${proyecto_id}/${check_id}`)
+        .then(res => res.json())    
+        .then(resp => {
+            if (resp.success && resp.data) {
+                $("#estados_findings_id").val(resp.data.estados_findings_id);
+                $("#finding_comment").val(resp.data.finding_comment);
+            } else {
+                $("#estados_findings_id").val(1);
+                $("#finding_comment").val("");
+            }
+        })
+        .catch(err => console.error("Error cargando finding:", err));
+
     fetch(`/proyecto/security-rule/${check_id}`)
         .then(response => response.json())
         .then(res => {
-            console.log(res);
-
 
             // 🔹 Select de severidad
             let selectSeverity = $("#rule_severity");
@@ -579,12 +592,12 @@ function verificarHallazgo(proyecto_id, cloud_ejecucion_id, resource_id, check_i
             // llenar select de estados de hallazgo
             let selectStatus = $("#estados_findings_id");
             selectStatus.empty();
-            selectStatus.append(`<option value="">Seleccionar estado</option>`);
             res.combo_findings.forEach(e => {
                 selectStatus.append(`<option value="${e.id}">${e.nombre}</option>`);
             });
 
             if (!res.rule_exists) {
+                $("#span_check_id").text(check_id);
                 $("#text-regla, #icono-regla")
                     .removeClass("text-info")
                     .addClass("text-warning");
@@ -594,7 +607,8 @@ function verificarHallazgo(proyecto_id, cloud_ejecucion_id, resource_id, check_i
                     .addClass("bi bi-shield-exclamation");
             } else {
                 let dataRule = res.data;
-
+                $("#span_check_id").text(check_id);
+                
                 $("#text-regla, #icono-regla")
                     .removeClass("text-warning")
                     .addClass("text-info");
@@ -782,12 +796,17 @@ function guardarFinding() {
 
     })
 
+    let checkId = $("#check_id").val().trim(); // no parseInt
+    if (!checkId) {
+        console.error("check_id vacío")
+        return
+    }
 
     let data = {
         proyecto_id: parseInt($("#proyecto_id").val()),
         cloud_ejecucion_id: parseInt($("#cloud_ejecucion_id").val()),
         security_rules_id: parseInt($("#rule_id").val()),
-        check_id: parseInt($("#check_id").text()),
+        check_id: checkId, // 🔹 string
         provider: "aws",
         service: "s3",
         resource_id: $("#resource_id").val(),

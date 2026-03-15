@@ -523,3 +523,18 @@ def api_get_finding(finding_id):
         "combo_findings": combo_findings
     })
     
+@proyecto_bp.route('/proyecto/finding/<int:proyecto_id>/<string:check_id>', methods=['GET'])
+def get_finding_by_check(proyecto_id, check_id):
+    # Llamamos al método que obtiene el finding
+    finding = Proyecto.get_finding(check_id=check_id, proyecto_id=proyecto_id)
+    
+    if not finding:
+        return jsonify({
+            "success": False,
+            "message": "No se encontró el finding"
+        }), 404
+
+    return jsonify({
+        "success": True,
+        "data": finding
+    })
