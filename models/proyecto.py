@@ -357,6 +357,19 @@ class Proyecto:
         return data
     
     @staticmethod
+    def get_combo_estados_findings():
+        conn=get_db_connection()
+        cursor=conn.cursor(dictionary=True)
+        query="""
+        SELECT * FROM estados_findings WHERE estado_id=1
+        """
+        cursor.execute(query)
+        data = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return data
+    
+    @staticmethod
     def insert_security_rule(data):
 
         conn = get_db_connection()
@@ -412,95 +425,57 @@ class Proyecto:
     
     @staticmethod
     def insert_finding(data, usuario_id):
+        conn = get_db_connection()
+        conn.autocommit = True  # 🔹 evita locks prolongados
+        cursor = conn.cursor()
 
-            conn = get_db_connection()
-            cursor = conn.cursor()
+        query_insert = """
+        INSERT INTO findings(
+            proyecto_id,
+            usuario_id,
+            cloud_ejecucion_id,
+            security_rules_id,
+            check_id,
+            provider,
+            service,
+            resource_id,
+            severidad_id,
+            estados_findings_id,
+            inventory_data,
+            finding_comment,
+            estado_id
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
+        ON DUPLICATE KEY UPDATE
+            usuario_id = VALUES(usuario_id),
+            severidad_id = VALUES(severidad_id),
+            estados_findings_id = VALUES(estados_findings_id),
+            finding_comment = VALUES(finding_comment),
+            inventory_data = VALUES(inventory_data),
+            actualizacion = CURRENT_TIMESTAMP
+        """
 
-            query_check = """
-            SELECT id
-            FROM findings
-            WHERE proyecto_id = %s
-            AND cloud_ejecucion_id = %s
-            AND security_rules_id = %s
-            AND resource_id = %s
-            """
+        cursor.execute(query_insert, (
+            data['proyecto_id'],
+            usuario_id,
+            data['cloud_ejecucion_id'],
+            data['security_rules_id'],
+            data['check_id'],
+            data['provider'],
+            data['service'],
+            data['resource_id'],
+            data['severidad_id'],
+            data['estados_findings_id'],
+            data.get('inventory_data'),
+            data.get('finding_comment')
+        ))
 
-            cursor.execute(query_check, (
-                data['proyecto_id'],
-                data['cloud_ejecucion_id'],
-                data['security_rules_id'],
-                data['resource_id']
-            ))
+        finding_id = cursor.lastrowid
 
-            row = cursor.fetchone()
+        cursor.close()
+        conn.close()
 
-            if row:
-
-                finding_id = row[0]
-
-                query_update = """
-                UPDATE findings
-                SET
-                    usuario_id = %s,
-                    status = %s,
-                    severidad_id = %s,
-                    finding_comment = %s,
-                    inventory_data = %s,
-                    actualizacion = CURRENT_TIMESTAMP
-                WHERE id = %s
-                """
-
-                cursor.execute(query_update, (
-                    usuario_id,
-                    data['status'],
-                    data['severidad_id'],
-                    data.get('finding_comment'),
-                    data.get('inventory_data'),
-                    finding_id
-                ))
-
-            else:
-
-                query_insert = """
-                INSERT INTO findings(
-                    proyecto_id,
-                    usuario_id,
-                    cloud_ejecucion_id,
-                    security_rules_id,
-                    provider,
-                    service,
-                    resource_id,
-                    severidad_id,
-                    status,
-                    inventory_data,
-                    finding_comment,
-                    estado_id
-                )
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
-                """
-
-                cursor.execute(query_insert, (
-                    data['proyecto_id'],
-                    usuario_id,
-                    data['cloud_ejecucion_id'],
-                    data['security_rules_id'],
-                    data['provider'],
-                    data['service'],
-                    data['resource_id'],
-                    data['severidad_id'],
-                    data['status'],
-                    data.get('inventory_data'),
-                    data.get('finding_comment')
-                ))
-
-                finding_id = cursor.lastrowid
-
-            conn.commit()
-
-            cursor.close()
-            conn.close()
-
-            return finding_id
+        return finding_id
 
     @staticmethod
     def insert_evidences(finding_id, evidencias):
@@ -537,3 +512,39 @@ class Proyecto:
         cursor.close()
         conn.close()
 
+    @staticmethod
+    def get_finding(finding_id):
+        """
+        Devuelve la info principal de un hallazgo
+        """
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        query = """
+            SELECT usuario_id, estados_findings_id, finding_comment
+            FROM findings
+            WHERE id=%s
+        """
+        cursor.execute(query, (finding_id,))
+        data = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return data
+
+    @staticmethod
+    def get_finding_evidencias(finding_id):
+        """
+        Devuelve todas las evidencias activas de un hallazgo
+        """
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        query = """
+            SELECT file_path
+            FROM findings_evidence
+            WHERE finding_id=%s AND estado_id=1
+            ORDER BY id
+        """
+        cursor.execute(query, (finding_id,))
+        data = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return data

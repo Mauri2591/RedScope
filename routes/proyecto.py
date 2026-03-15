@@ -461,21 +461,23 @@ def gestionar_hallazgos(proyecto_id, ejecucion_id):
     )
 
 
-@proyecto_bp.route('/api/security-rule/<check_id>')
+@proyecto_bp.route('/proyecto/security-rule/<check_id>')
 @login_required
 def gestionar_findings(check_id):
 
     data = Proyecto.get_security_rules(check_id)
     severidades = Proyecto.get_severidades()
+    combo_findings = Proyecto.get_combo_estados_findings()  # devuelve lista de estados
 
     return jsonify({
         'success': True,
         'rule_exists': True if data else False,
         'data': data,
-        'severidades': severidades
+        'severidades': severidades,
+        'combo_findings': combo_findings       # 🔹 agregamos los estados aquí
     })
     
-@proyecto_bp.route('/api/security-rule', methods=['POST'])
+@proyecto_bp.route('/proyecto/security-rule', methods=['POST'])
 @login_required
 def insert_security_rule():
 
@@ -489,7 +491,7 @@ def insert_security_rule():
     })
     
 
-@proyecto_bp.route('/api/finding', methods=['POST'])
+@proyecto_bp.route('/proyecto/finding', methods=['POST'])
 @login_required
 def insert_finding():
 
@@ -506,5 +508,18 @@ def insert_finding():
         "success": True
     })
     
-    
+
+@proyecto_bp.route("/proyecto/finding/<int:finding_id>")
+@login_required
+def api_get_finding(finding_id):
+    hallazgo = Proyecto.get_finding(finding_id)
+    evidencias = Proyecto.get_finding_evidencias(finding_id)
+    combo_findings = Proyecto.get_combo_estados_findings()
+
+    return jsonify({
+        "success": True,
+        "hallazgo": hallazgo,
+        "evidencias": [e["file_path"] for e in evidencias],
+        "combo_findings": combo_findings
+    })
     

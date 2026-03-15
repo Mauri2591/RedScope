@@ -555,70 +555,82 @@ function actualizarPerfil() {
 // ===============================
 function verificarHallazgo(proyecto_id, cloud_ejecucion_id, resource_id, check_id) {
 
-    limpiarModalFinding()
+    limpiarModalFinding();
 
-    $("#proyecto_id").val(proyecto_id)
-    $("#cloud_ejecucion_id").val(cloud_ejecucion_id)
-    $("#resource_id").val(resource_id)
+    $("#proyecto_id").val(proyecto_id);
+    $("#cloud_ejecucion_id").val(cloud_ejecucion_id);
+    $("#resource_id").val(resource_id);
+    $("#check_id").text(check_id);
 
-    $("#check_id").text(check_id)
-
-    fetch(`/api/security-rule/${check_id}`)
+    fetch(`/proyecto/security-rule/${check_id}`)
         .then(response => response.json())
         .then(res => {
+            console.log(res);
 
-            let select = $("#rule_severity")
 
-            select.empty()
-
-            select.append(`
-            <option class="bg-dark text-light" value="0">
-                Seleccionar
-            </option>
-        `)
-
+            // 🔹 Select de severidad
+            let selectSeverity = $("#rule_severity");
+            selectSeverity.empty();
+            selectSeverity.append(`<option value="0" class="bg-dark text-light">Seleccionar</option>`);
             res.severidades.forEach(s => {
+                selectSeverity.append(`<option value="${s.id}" style="background-color:${s.color}">${s.nombre}</option>`);
+            });
 
-                select.append(`
-                <option style="background-color:${s.color}" value="${s.id}">
-                    ${s.nombre}
-                </option>
-            `)
-
-            })
+            // llenar select de estados de hallazgo
+            let selectStatus = $("#estados_findings_id");
+            selectStatus.empty();
+            selectStatus.append(`<option value="">Seleccionar estado</option>`);
+            res.combo_findings.forEach(e => {
+                selectStatus.append(`<option value="${e.id}">${e.nombre}</option>`);
+            });
 
             if (!res.rule_exists) {
+                $("#text-regla, #icono-regla")
+                    .removeClass("text-info")
+                    .addClass("text-warning");
 
-                $("#rule_id").val("")
-
-                $("#rule_title").val("")
-                $("#rule_description").val("")
-                $("#rule_condition_logic").val("")
-                $("#rule_remediation").val("")
-                $("#rule_reference").val("")
-                $("#rule_severity").val("0")
-
+                $("#icono-regla")
+                    .removeClass("bi-check-circle bi-shield-exclamation")
+                    .addClass("bi bi-shield-exclamation");
             } else {
+                let dataRule = res.data;
 
-                let data = res.data
+                $("#text-regla, #icono-regla")
+                    .removeClass("text-warning")
+                    .addClass("text-info");
 
-                $("#rule_id").val(data.id)
-
-                $("#rule_title").val(data.title)
-                $("#rule_description").val(data.description)
-                $("#rule_condition_logic").val(data.condition_logic)
-                $("#rule_remediation").val(data.remediation)
-                $("#rule_reference").val(data.reference)
-                $("#rule_severity").val(data.severidad_id)
-
+                $("#icono-regla")
+                    .removeClass("bi-shield-exclamation bi-check-circle")
+                    .addClass("bi bi-check-circle");
             }
 
-            $("#rule_severity").trigger("change")
+            if (!res.rule_exists) {
+                $("#rule_id").val("");
+                $("#rule_title").val("");
+                $("#rule_description").val("");
+                $("#rule_condition_logic").val("");
+                $("#rule_remediation").val("");
+                $("#rule_reference").val("");
+                $("#rule_severity").val("0");
+                $("#text-regla, #icono-regla").addClass("text-warning");
+                $("#icono-regla").addClass("bi bi-shield-exclamation")
+            } else {
+                let dataRule = res.data;
+                $("#rule_id").val(dataRule.id);
+                $("#rule_title").val(dataRule.title);
+                $("#rule_description").val(dataRule.description);
+                $("#rule_condition_logic").val(dataRule.condition_logic);
+                $("#rule_remediation").val(dataRule.remediation);
+                $("#rule_reference").val(dataRule.reference);
+                $("#rule_severity").val(dataRule.severidad_id);
+                $("#text-regla, #icono-regla").addClass("text-info");
+                $("#icono-regla").addClass("bi bi-check-circle")
+            }
 
-            $("#mdlGestionarChecks").modal("show")
+            $("#rule_severity").trigger("change");
+            $("#mdlGestionarChecks").modal("show");
 
-        })
-
+        }).catch(err => console.error(err));
 }
 
 // ===============================
@@ -708,7 +720,7 @@ function limpiarModalFinding() {
     $("#rule_remediation").val("")
     $("#rule_reference").val("")
     $("#rule_severity").val("0")
-    $("#finding_status").val("OPEN")
+    $("#estados_findings_id").val("1")
     $("#finding_comment").val("")
     $("#paste_evidence").val("")
     $("#evidence_preview").empty()
@@ -740,7 +752,7 @@ function guardarRule() {
 
     }
 
-    fetch("/api/security-rule", {
+    fetch("/proyecto/security-rule", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -751,8 +763,8 @@ function guardarRule() {
         .then(res => res.text()) // 👈 cambiar a text
         .then(res => {
             alert('Rule Information creada exitosamente!')
-        })
 
+        })
 }
 
 
@@ -772,20 +784,21 @@ function guardarFinding() {
 
 
     let data = {
-    proyecto_id: $("#proyecto_id").val(),
-    cloud_ejecucion_id: $("#cloud_ejecucion_id").val(),
-    security_rules_id: $("#rule_id").val(),
-    provider: "aws",
-    service: "s3",
-    resource_id: $("#resource_id").val(),
-    severidad_id: $("#rule_severity").val(),
-    status: $("#finding_status").val(),
-    finding_comment: $("#finding_comment").val(),  // ✅ correcto
-    evidencias: evidencias
-}
+        proyecto_id: parseInt($("#proyecto_id").val()),
+        cloud_ejecucion_id: parseInt($("#cloud_ejecucion_id").val()),
+        security_rules_id: parseInt($("#rule_id").val()),
+        check_id: parseInt($("#check_id").text()),
+        provider: "aws",
+        service: "s3",
+        resource_id: $("#resource_id").val(),
+        severidad_id: parseInt($("#rule_severity").val()),
+        estados_findings_id: parseInt($("#estados_findings_id").val()),
+        finding_comment: $("#finding_comment").val(),
+        evidencias: evidencias
+    }
 
 
-    fetch("/api/finding", {
+    fetch("/proyecto/finding", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -812,4 +825,3 @@ function guardarFinding() {
         })
 
 }
-

@@ -7,9 +7,9 @@
                     <button type="button" class="btn-close btn-close-white"
                         data-bs-dismiss="modal"></button>
                 </div>
-                <input type="text" id="proyecto_id">
-                <input type="text" id="rule_id">
-                <input type="text" id="cloud_ejecucion_id">
+                <input type="hidden" hidden id="proyecto_id">
+                <input type="hidden" hidden id="rule_id">
+                <input type="hidden" hidden id="cloud_ejecucion_id">
 
                 <div class="container-fluid h-100 p-3">
                     <div class="row h-100">
@@ -18,8 +18,8 @@
                             <div class="card bg-black border-secondary shadow-sm h-100 overflow-auto">
                                 <div class="card-body bg-dark">
 
-                                    <h5 class="text-warning mb-3">
-                                        <i class="bi bi-shield-exclamation"></i>
+                                    <h5 id="text-regla" class="mb-3">
+                                        <i id="icono-regla"></i>
                                         Rule Information
                                         (<span id="check_id" class="h5"></span>)
                                     </h5>
@@ -75,7 +75,7 @@
                                     <div class="d-flex justify-content-end">
                                         <button class="btn btn-success btn-sm" onclick="guardarRule()">
                                             <i class="bi bi-save"></i>
-                                            Guardar Rule
+                                            Save Rule
                                         </button>
                                     </div>
 
@@ -106,12 +106,7 @@
                 <div class="mb-3">
                     <label class="text-secondary small">Status</label>
                     <select class="form-select form-select-sm bg-dark text-light border-secondary"
-                            id="finding_status">
-
-                        <option value="OPEN">Open</option>
-                        <option value="MITIGATED">Mitigated</option>
-                        <option value="FALSE_POSITIVE">False Positive</option>
-                        <option value="ACCEPTED_RISK">Accepted Risk</option>
+                            id="estados_findings_id">
 
                     </select>
                 </div>
