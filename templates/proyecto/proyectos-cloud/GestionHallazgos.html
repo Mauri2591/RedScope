@@ -30,61 +30,43 @@ Volver
 <div class="card-body">
 
 <table class="table table-hover table-striped">
-
-<thead class="table-dark">
-<tr>
-<th>CHECK_ID</th>
-<th>RESOURCE_ID</th>
-<th>Verificar</th>
-</tr>
-</thead>
-
-<tbody>
-
-{% if findings %}
-
-{% for f in findings %}
-
-<tr>
-
-<td>
-<span class="badge bg-secondary">
-{{ f.check_id }}
-</span>
-</td>
-
-<td>
-{{ f.resource_id }}
-</td>
-
-    <td>
-   <button onclick="verificarHallazgo({{ proyecto.id }}, '{{ f.resource_id }}', '{{ f.check_id }}')" 
-        class="btn btn-sm btn-secondary">
-    <i class="bi bi-pencil-square"></i>
-    </button>
-    </td>
-    </tr>
-
-{% endfor %}
-
-{% else %}
-
-<tr>
-<td colspan="3" class="text-center">
-No se detectaron hallazgos interesantes
-</td>
-</tr>
-
-{% endif %}
-
-</tbody>
-
+    <thead class="table-dark">
+        <tr>
+            <th>RESOURCE_ID</th>
+            <th>CHECK_ID</th>
+            <th>Verificar</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% if findings %}
+        {% for f in findings %}
+        <tr>
+            <td>
+            {{ f.resource_id }}
+            </td>
+            <td>
+            <span class="badge bg-dark text-warning">
+            {{ f.check_id }}
+            </span>
+            </td>
+                <td>
+                   <button 
+onclick="verificarHallazgo({{ proyecto.id }}, {{ ejecucion.cloud_ejecuciones_id }}, '{{ f.resource_id }}', '{{ f.check_id }}')" 
+class="btn btn-sm btn-secondary">
+<i class="bi bi-pencil-square"></i>
+</button>
+                </td>
+        </tr>
+            {% endfor %}
+            {% else %}
+            <tr>
+            <td colspan="3" class="text-center">No se detectaron hallazgos interesantes</td>
+        </tr>
+        {% endif %}
+    </tbody>
 </table>
-
 </div>
-
 </div>
-
 </div>
-
+{% include 'partials/modals/cloud/aws/mdlGestionarChecks.html' %}
 {% endblock %}

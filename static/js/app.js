@@ -1,3 +1,6 @@
+function getCSRFToken() {
+    return document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+}
 $(document).ready(function () {
 
     if ($('#tabla_inicio').length) {
@@ -547,8 +550,266 @@ function actualizarPerfil() {
     $("#mdlPerfilUsuario").modal("show")
 }
 
-function verificarHallazgo(p1, p2, p3) {  
-    alert(p1);
-    alert(p2);
-    alert(p3);
+// ===============================
+// ABRIR MODAL Y CARGAR RULE
+// ===============================
+function verificarHallazgo(proyecto_id, cloud_ejecucion_id, resource_id, check_id) {
+
+    limpiarModalFinding()
+
+    $("#proyecto_id").val(proyecto_id)
+    $("#cloud_ejecucion_id").val(cloud_ejecucion_id)
+    $("#resource_id").val(resource_id)
+
+    $("#check_id").text(check_id)
+
+    fetch(`/api/security-rule/${check_id}`)
+        .then(response => response.json())
+        .then(res => {
+
+            let select = $("#rule_severity")
+
+            select.empty()
+
+            select.append(`
+            <option class="bg-dark text-light" value="0">
+                Seleccionar
+            </option>
+        `)
+
+            res.severidades.forEach(s => {
+
+                select.append(`
+                <option style="background-color:${s.color}" value="${s.id}">
+                    ${s.nombre}
+                </option>
+            `)
+
+            })
+
+            if (!res.rule_exists) {
+
+                $("#rule_id").val("")
+
+                $("#rule_title").val("")
+                $("#rule_description").val("")
+                $("#rule_condition_logic").val("")
+                $("#rule_remediation").val("")
+                $("#rule_reference").val("")
+                $("#rule_severity").val("0")
+
+            } else {
+
+                let data = res.data
+
+                $("#rule_id").val(data.id)
+
+                $("#rule_title").val(data.title)
+                $("#rule_description").val(data.description)
+                $("#rule_condition_logic").val(data.condition_logic)
+                $("#rule_remediation").val(data.remediation)
+                $("#rule_reference").val(data.reference)
+                $("#rule_severity").val(data.severidad_id)
+
+            }
+
+            $("#rule_severity").trigger("change")
+
+            $("#mdlGestionarChecks").modal("show")
+
+        })
+
 }
+
+// ===============================
+// COLOR DEL SELECT SEVERITY
+// ===============================
+$("#rule_severity").change(function () {
+
+    let color = $(this).find("option:selected").css("background-color")
+
+    $(this).css({
+        "background-color": color,
+        "color": "#fff",
+        "border-color": color
+    })
+})
+
+
+// ===============================
+// BLOQUEAR ESCRITURA
+// ===============================
+$("#paste_evidence").on("keydown", function (e) {
+    // permitir CTRL+V
+    if (e.ctrlKey && e.key.toLowerCase() === "v") {
+        return
+    }
+    e.preventDefault()
+})
+
+
+// ===============================
+// PEGAR CAPTURAS
+// ===============================
+$("#paste_evidence").on("paste", function (e) {
+    e.preventDefault()
+    let clipboard = e.originalEvent.clipboardData || e.clipboardData
+    let items = clipboard.items
+    let imageFound = false
+    for (let i = 0; i < items.length; i++) {
+        let type = items[i].type
+
+        if (type.startsWith("image/")) {
+            imageFound = true
+            let file = items[i].getAsFile()
+            let reader = new FileReader()
+
+            reader.onload = function (event) {
+                let img = `
+                <div class="evidence-item position-relative">
+                    <img src="${event.target.result}"
+                        width="300"
+                        height="300"
+                        style="object-fit:cover;border:1px solid #444;border-radius:6px;">
+                    <button type="button"
+                        class="btn btn-danger btn-sm position-absolute top-0 end-0 m-1 delete-evidence">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>`
+                $("#evidence_preview").append(img)
+            }
+            reader.readAsDataURL(file)
+        }
+    }
+
+    if (!imageFound) {
+        alert("Solo puedes pegar capturas de pantalla.")
+    }
+
+})
+
+
+// ===============================
+// ELIMINAR CAPTURA
+// ===============================
+$(document).on("click", ".delete-evidence", function () {
+    $(this).closest(".evidence-item").remove()
+})
+
+
+// ===============================
+// LIMPIAR MODAL
+// ===============================
+function limpiarModalFinding() {
+    $("#rule_id").val("")
+    $("#rule_title").val("")
+    $("#rule_description").val("")
+    $("#rule_condition_logic").val("")
+    $("#rule_remediation").val("")
+    $("#rule_reference").val("")
+    $("#rule_severity").val("0")
+    $("#finding_status").val("OPEN")
+    $("#finding_comment").val("")
+    $("#paste_evidence").val("")
+    $("#evidence_preview").empty()
+}
+
+
+// ===============================
+// LIMPIAR AL CERRAR MODAL
+// ===============================
+$("#mdlGestionarChecks").on("hidden.bs.modal", function () {
+    limpiarModalFinding()
+});
+
+
+function guardarRule() {
+
+    let data = {
+
+        provider: "aws",
+        service: "iam",
+
+        check_id: $("#check_id").text(),
+        title: $("#rule_title").val(),
+        description: $("#rule_description").val(),
+        severidad_id: $("#rule_severity").val(),
+        condition_logic: $("#rule_condition_logic").val(),
+        remediation: $("#rule_remediation").val(),
+        reference: $("#rule_reference").val()
+
+    }
+
+    fetch("/api/security-rule", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": document.querySelector('meta[name="csrf-token"]').content
+            },
+            body: JSON.stringify(data)
+        })
+        .then(res => res.text()) // 👈 cambiar a text
+        .then(res => {
+            alert('Rule Information creada exitosamente!')
+        })
+
+}
+
+
+/* =====================================================
+   GUARDAR FINDING
+===================================================== */
+
+function guardarFinding() {
+
+    let evidencias = []
+
+    $("#evidence_preview img").each(function () {
+
+        evidencias.push($(this).attr("src"))
+
+    })
+
+
+    let data = {
+    proyecto_id: $("#proyecto_id").val(),
+    cloud_ejecucion_id: $("#cloud_ejecucion_id").val(),
+    security_rules_id: $("#rule_id").val(),
+    provider: "aws",
+    service: "s3",
+    resource_id: $("#resource_id").val(),
+    severidad_id: $("#rule_severity").val(),
+    status: $("#finding_status").val(),
+    finding_comment: $("#finding_comment").val(),  // ✅ correcto
+    evidencias: evidencias
+}
+
+
+    fetch("/api/finding", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCSRFToken()
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => {
+
+            if (!response.ok) {
+                return response.text().then(text => {
+                    throw new Error(text)
+                })
+            }
+
+            return response.json()
+
+        })
+        .then(res => {
+            console.log(res)
+        })
+        .catch(err => {
+            console.error("ERROR:", err)
+        })
+
+}
+

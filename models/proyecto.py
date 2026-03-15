@@ -1,5 +1,7 @@
+import os
+import base64
+import uuid
 from db import get_db_connection
-
 
 class Proyecto:
     @staticmethod
@@ -300,23 +302,238 @@ class Proyecto:
         conn.close()
         return accion
         
-@staticmethod
-def insert_cloud_findings(ejecucion_id, findings):
-    if not findings:
-        return
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    data = []
-    for f in findings:
-        data.append((
-            ejecucion_id,
-            f.get("resource_id"),
-            f.get("check_id")
+    @staticmethod
+    def insert_cloud_findings(ejecucion_id, findings):
+        if not findings:
+            return
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        data = []
+        for f in findings:
+            data.append((
+                ejecucion_id,
+                f.get("resource_id"),
+                f.get("check_id")
+            ))
+        cursor.executemany("""
+            INSERT INTO cloud_ejecucion_findings
+            (cloud_ejecucion_id, resource_id, check_id)
+            VALUES (%s, %s, %s)
+        """, data)
+        conn.commit()
+        conn.close()
+    
+    @staticmethod
+    def get_security_rules(check_id):
+
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        query = """
+        SELECT *
+        FROM security_rules
+        WHERE check_id = %s
+        AND estado_id = 1
+        """
+
+        cursor.execute(query, (check_id,))
+        data = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        return data
+
+    @staticmethod
+    def get_severidades():
+        conn=get_db_connection()
+        cursor=conn.cursor(dictionary=True)
+        query="""
+        SELECT * FROM severidades WHERE estado_id = 1
+        """
+        cursor.execute(query)
+        data = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return data
+    
+    @staticmethod
+    def insert_security_rule(data):
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        query = """
+        INSERT INTO security_rules
+        (
+        provider,
+        service,
+        check_id,
+        title,
+        description,
+        severidad_id,
+        condition_logic,
+        remediation,
+        reference,
+        estado_id
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
+
+        ON DUPLICATE KEY UPDATE
+
+        title = VALUES(title),
+        description = VALUES(description),
+        severidad_id = VALUES(severidad_id),
+        condition_logic = VALUES(condition_logic),
+        remediation = VALUES(remediation),
+        reference = VALUES(reference),
+        actualizacion = CURRENT_TIMESTAMP
+        """
+
+        cursor.execute(query,(
+            data['provider'],
+            data['service'],
+            data['check_id'],
+            data['title'],
+            data['description'],
+            data['severidad_id'],
+            data['condition_logic'],
+            data['remediation'],
+            data['reference']
         ))
-    cursor.executemany("""
-        INSERT INTO cloud_ejecucion_findings
-        (cloud_ejecucion_id, resource_id, check_id)
-        VALUES (%s, %s, %s)
-    """, data)
-    conn.commit()
-    conn.close()
+
+        conn.commit()
+
+        rule_id = cursor.lastrowid
+
+        cursor.close()
+        conn.close()
+
+        return rule_id
+    
+    @staticmethod
+    def insert_finding(data, usuario_id):
+
+            conn = get_db_connection()
+            cursor = conn.cursor()
+
+            query_check = """
+            SELECT id
+            FROM findings
+            WHERE proyecto_id = %s
+            AND cloud_ejecucion_id = %s
+            AND security_rules_id = %s
+            AND resource_id = %s
+            """
+
+            cursor.execute(query_check, (
+                data['proyecto_id'],
+                data['cloud_ejecucion_id'],
+                data['security_rules_id'],
+                data['resource_id']
+            ))
+
+            row = cursor.fetchone()
+
+            if row:
+
+                finding_id = row[0]
+
+                query_update = """
+                UPDATE findings
+                SET
+                    usuario_id = %s,
+                    status = %s,
+                    severidad_id = %s,
+                    finding_comment = %s,
+                    inventory_data = %s,
+                    actualizacion = CURRENT_TIMESTAMP
+                WHERE id = %s
+                """
+
+                cursor.execute(query_update, (
+                    usuario_id,
+                    data['status'],
+                    data['severidad_id'],
+                    data.get('finding_comment'),
+                    data.get('inventory_data'),
+                    finding_id
+                ))
+
+            else:
+
+                query_insert = """
+                INSERT INTO findings(
+                    proyecto_id,
+                    usuario_id,
+                    cloud_ejecucion_id,
+                    security_rules_id,
+                    provider,
+                    service,
+                    resource_id,
+                    severidad_id,
+                    status,
+                    inventory_data,
+                    finding_comment,
+                    estado_id
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
+                """
+
+                cursor.execute(query_insert, (
+                    data['proyecto_id'],
+                    usuario_id,
+                    data['cloud_ejecucion_id'],
+                    data['security_rules_id'],
+                    data['provider'],
+                    data['service'],
+                    data['resource_id'],
+                    data['severidad_id'],
+                    data['status'],
+                    data.get('inventory_data'),
+                    data.get('finding_comment')
+                ))
+
+                finding_id = cursor.lastrowid
+
+            conn.commit()
+
+            cursor.close()
+            conn.close()
+
+            return finding_id
+
+    @staticmethod
+    def insert_evidences(finding_id, evidencias):
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        path_dir = "uploads/findings"
+        os.makedirs(path_dir, exist_ok=True)
+
+        for img in evidencias:
+
+            header, encoded = img.split(",",1)
+
+            binary = base64.b64decode(encoded)
+
+            filename = f"{uuid.uuid4()}.png"
+
+            path = f"{path_dir}/{filename}"
+
+            with open(path,"wb") as f:
+                f.write(binary)
+
+            query = """
+            INSERT INTO findings_evidence
+            (finding_id,file_path,estado_id)
+            VALUES (%s,%s,1)
+            """
+
+            cursor.execute(query,(finding_id,path))
+
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+

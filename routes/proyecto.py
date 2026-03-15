@@ -438,29 +438,73 @@ def obtener_detalle_ejecucion(proyecto_id, ejecucion_id):
 
     return jsonify(data)
 
+
 @proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud/ejecucion/<int:ejecucion_id>/hallazgos')
 @login_required
 def gestionar_hallazgos(proyecto_id, ejecucion_id):
-
     sector_id = session.get('sector_id')
     proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
-
     if not proyecto:
         abort(404)
-
     data = Proyecto.get_data_ejecuciones_para_analisis(
         proyecto_id,
         ejecucion_id
     )
-
     if not data:
         abort(404)
-
     findings = CloudEjecucion.extract_interesting(data["resultado"])
-
     return render_template(
         'proyecto/proyectos-cloud/GestionHallazgos.html',
         proyecto=proyecto,
         ejecucion=data,
         findings=findings
     )
+
+
+@proyecto_bp.route('/api/security-rule/<check_id>')
+@login_required
+def gestionar_findings(check_id):
+
+    data = Proyecto.get_security_rules(check_id)
+    severidades = Proyecto.get_severidades()
+
+    return jsonify({
+        'success': True,
+        'rule_exists': True if data else False,
+        'data': data,
+        'severidades': severidades
+    })
+    
+@proyecto_bp.route('/api/security-rule', methods=['POST'])
+@login_required
+def insert_security_rule():
+
+    data = request.get_json()
+
+    rule_id = Proyecto.insert_security_rule(data)
+
+    return jsonify({
+        "success": True,
+        "rule_id": rule_id
+    })
+    
+
+@proyecto_bp.route('/api/finding', methods=['POST'])
+@login_required
+def insert_finding():
+
+    data = request.get_json()
+
+    usuario_id = session.get("user_id")
+
+    finding_id = Proyecto.insert_finding(data, usuario_id)
+
+    if data.get("evidencias"):
+        Proyecto.insert_evidences(finding_id, data["evidencias"])
+
+    return jsonify({
+        "success": True
+    })
+    
+    
+    
