@@ -564,7 +564,7 @@ class Proyecto:
             SELECT findings.id, findings.estados_findings_id, findings.finding_comment
             FROM findings
             WHERE findings.proyecto_id=%s
-            AND findings.check_id=%s;
+            AND findings.check_id=%s AND findings.estado_id=1;
         """
         cursor.execute(query, (proyecto_id, check_id))
         data = cursor.fetchone()
