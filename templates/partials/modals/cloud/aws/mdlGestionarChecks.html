@@ -1,156 +1,154 @@
-    <!-- Modal -->
-    <div class="modal fade" id="mdlGestionarChecks" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-fullscreen">
-            <div class="modal-content bg-dark border-0">
+<!-- Modal -->
+<div class="modal fade" id="mdlGestionarChecks" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-fullscreen">
+        <div class="modal-content bg-dark border-0">
 
-                <div class="d-flex justify-content-end p-2">
-                    <button type="button" class="btn-close btn-close-white"
-                        data-bs-dismiss="modal"></button>
-                </div>
-                <input type="hidden" hidden id="proyecto_id">
-                <input type="hidden" hidden id="rule_id">
-                <input type="hidden" hidden id="cloud_ejecucion_id">
-                <input type="hidden" hidden id="check_id">
+            <div class="d-flex justify-content-end p-2">
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <input type="hidden" hidden id="proyecto_id">
+            <input type="hidden" hidden id="rule_id">
+            <input type="hidden" hidden id="cloud_ejecucion_id">
+            <input type="hidden" hidden id="check_id">
 
-                <div class="container-fluid h-100 p-3">
-                    <div class="row h-100">
-                        <!-- LEFT COLUMN -->
-                        <div class="col-6 h-100">
-                            <div class="card bg-black border-secondary shadow-sm h-100 overflow-auto">
-                                <div class="card-body bg-dark">
+            <div class="container-fluid h-100 p-3">
+                <div class="row h-100">
+                    <!-- LEFT COLUMN -->
+                    <div class="col-6 h-100">
+                        <div class="card bg-black border-secondary shadow-sm h-100 overflow-auto">
+                            <div class="card-body bg-dark">
 
-                                    <h5 id="text-regla" class="mb-3">
-                                        <i id="icono-regla"></i>
-                                        Rule Information
-                                        (<span id="span_check_id" class="h5"></span>)
-                                    </h5>
+                                <h5 id="text-regla" class="mb-3">
+                                    <i id="icono-regla"></i>
+                                    Rule Information
+                                    (<span id="span_check_id" class="h5"></span>)
+                                </h5>
 
-                                    <!-- TITLE -->
-                                    <div class="mb-3">
-                                        <label class="text-secondary small">Title</label>
-                                        <input type="text"
-                                            class="form-control form-control-sm bg-dark text-light border-secondary"
-                                            id="rule_title">
-                                    </div>
-
-                                    <!-- DESCRIPTION -->
-                                    <div class="mb-3">
-                                        <label class="text-secondary small">Description</label>
-                                        <textarea
-                                            class="form-control form-control-sm bg-dark text-light border-secondary"
-                                            id="rule_description" rows="3"></textarea>
-                                    </div>
-
-                                    <!-- SEVERITY -->
-                                    <div class="mb-3">
-                                        <label class="text-secondary small">Severity</label>
-                                        <select class="form-select form-select-sm text-light border-secondary"
-                                            id="rule_severity">
-                                        </select>
-                                    </div>
-
-                                    <!-- CONDITION LOGIC -->
-                                    <div class="mb-3">
-                                        <label class="text-secondary small">Condition Logic</label>
-                                        <textarea
-                                            class="form-control form-control-sm bg-dark text-info border-secondary"
-                                            id="rule_condition_logic" rows="3"></textarea>
-                                    </div>
-
-                                    <!-- REMEDIATION -->
-                                    <div class="mb-3">
-                                        <label class="text-secondary small">Remediation</label>
-                                        <textarea
-                                            class="form-control form-control-sm bg-dark text-light border-secondary"
-                                            id="rule_remediation" rows="3"></textarea>
-                                    </div>
-
-                                    <!-- REFERENCE -->
-                                    <div class="mb-3">
-                                        <label class="text-secondary small">Reference</label>
-                                        <input type="text"
-                                            class="form-control form-control-sm bg-dark text-light border-secondary"
-                                            id="rule_reference">
-                                    </div>
-
-                                    <div class="d-flex justify-content-end">
-                                        <button class="btn btn-success btn-sm" onclick="guardarRule()">
-                                            <i class="bi bi-save"></i>
-                                            Save Rule
-                                        </button>
-                                    </div>
-
+                                <!-- TITLE -->
+                                <div class="mb-3">
+                                    <label class="text-secondary small">Titulo</label>
+                                    <input type="text"
+                                        class="form-control form-control-sm bg-dark text-light border-secondary"
+                                        id="rule_title">
                                 </div>
+
+                                <!-- DESCRIPTION -->
+                                <div class="mb-3">
+                                    <label class="text-secondary small">Descripcion</label>
+                                    <textarea class="form-control form-control-sm bg-dark text-light border-secondary"
+                                        id="rule_description" rows="3"></textarea>
+                                </div>
+
+                                <div class="row border border-secondary mx-1 border-secondary rounded">
+                                    <div class="col-4"> <!-- SEVERITY -->
+                                        <div class="mb-3">
+                                            <label class="text-secondary small">Risk Level</label>
+                                            <select class="form-select form-select-sm text-light border-secondary"
+                                                id="rule_severity">
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-8"> <!-- CONDITION LOGIC -->
+                                        <div class="mb-3">
+                                            <label class="text-secondary small">Condicion Logica <i class="bi bi-question-circle text-info" title="Define la condición lógica que determina cuándo una regla de seguridad se considera incumplida."></i></label>
+                                            <textarea
+                                                class="form-control form-control-sm bg-dark text-light border-secondary"
+                                                id="rule_condition_logic" rows="3"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- REMEDIATION -->
+                                <div class="mb-3">
+                                    <label class="text-secondary small">Remediacion</label>
+                                    <textarea class="form-control form-control-sm bg-dark text-light border-secondary"
+                                        id="rule_remediation" rows="3"></textarea>
+                                </div>
+
+                                <!-- REFERENCE -->
+                                <div class="mb-3">
+                                    <label class="text-secondary small">Referencias</label>
+                                    <textarea type="text"
+                                        class="form-control form-control-sm bg-dark text-light border-secondary"
+                                        id="rule_reference">
+                                    </textarea>
+                                    
+                                </div>
+
+                                <div class="d-flex justify-content-end">
+                                    <button class="btn btn-success btn-sm" onclick="guardarRule()">
+                                        <i class="bi bi-save"></i>
+                                        Guardar Rule
+                                    </button>
+                                </div>
+
                             </div>
                         </div>
-
-    <!-- RIGHT COLUMN -->
-    <div class="col-6 h-100">
-        <div class="card bg-black border-secondary h-100 overflow-auto">
-            <div class="card-body">
-
-                <h5 class="text-info mb-3">
-                    <i class="bi bi-search"></i>
-                    Finding Analysis
-                </h5>
-
-                <!-- RESOURCE -->
-                <div class="mb-3">
-                    <label class="text-secondary small">Resource</label>
-                    <input type="text"
-                        class="form-control form-control-sm bg-dark text-light border-secondary"
-                        id="resource_id"
-                        readonly>
-                </div>
-
-                <!-- STATUS -->
-                <div class="mb-3">
-                    <label class="text-secondary small">Status</label>
-                    <select class="form-select form-select-sm bg-dark text-light border-secondary"
-                            id="estados_findings_id">
-
-                    </select>
-                </div>
-
-                <!-- ANALYST COMMENT -->
-                <div class="mb-3">
-                    <label class="text-secondary small">Analyst Notes</label>
-                    <textarea
-                        class="form-control form-control-sm bg-dark text-light border-secondary"
-                        id="finding_comment"
-                        rows="4"
-                        placeholder="Describe el análisis realizado..."></textarea>
-                </div>
-
-            <div class="mb-3">
-                <label class="text-secondary small">Evidence (paste screenshots)</label>
-
-                <input type="text"
-                    class="form-control form-control-sm bg-dark text-light border-secondary"
-                    id="paste_evidence"
-                    placeholder="Press CTRL + V to paste screenshot">
-
-                <!-- PREVIEW -->
-                <div id="evidence_preview" class="mt-3 d-flex flex-wrap gap-2 p-2 bg-light"></div>
-            </div>
-
-                
-
-                <!-- SAVE -->
-                <div class="d-flex justify-content-end">
-                    <button class="btn btn-success btn-sm" onclick="guardarFinding()">
-                        <i class="bi bi-check-circle"></i>
-                        Save Analysis
-                    </button>
-                </div>
-
-            </div>
-        </div>
-    </div>
-
                     </div>
-                </div>
 
+                    <!-- RIGHT COLUMN -->
+                    <div class="col-6 h-100">
+                        <div class="card bg-black border-secondary h-100 overflow-auto">
+                            <div class="card-body">
+
+                                <h5 class="text-info mb-3">
+                                    <i class="bi bi-search"></i>
+                                    Finding Analysis
+                                </h5>
+
+                                <!-- RESOURCE -->
+                                <div class="mb-3">
+                                    <label class="text-secondary small">Recurso</label>
+                                    <input type="text"
+                                        class="form-control form-control-sm bg-dark text-light border-secondary"
+                                        id="resource_id" readonly>
+                                </div>
+
+                                <!-- STATUS -->
+                                <div class="mb-3">
+                                    <label class="text-secondary small">Status</label>
+                                    <select class="form-select form-select-sm bg-dark text-light border-secondary"
+                                        id="estados_findings_id">
+
+                                    </select>
+                                </div>
+
+                                <!-- ANALYST COMMENT -->
+                                <div class="mb-3">
+                                    <label class="text-secondary small">Notas de Analisis</label>
+                                    <textarea class="form-control form-control-sm bg-dark text-light border-secondary"
+                                        id="finding_comment" rows="4"
+                                        placeholder="Describe el análisis realizado..."></textarea>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="text-secondary small">Evidencia (paste screenshots)</label>
+
+                                    <input type="text"
+                                        class="form-control form-control-sm bg-dark text-light border-secondary"
+                                        id="paste_evidence" placeholder="Press CTRL + V to paste screenshot">
+
+                                    <!-- PREVIEW -->
+                                    <div id="evidence_preview" class="mt-3 d-flex flex-wrap gap-2 p-2 bg-light"></div>
+                                </div>
+
+
+
+                                <!-- SAVE -->
+                                <div class="d-flex justify-content-end">
+                                    <button class="btn btn-success btn-sm" onclick="guardarFinding()">
+                                        <i class="bi bi-check-circle"></i>
+                                        Guardar Analisis
+                                    </button>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
             </div>
+
         </div>
     </div>
+</div>
