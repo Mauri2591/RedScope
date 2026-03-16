@@ -1,5 +1,7 @@
-from flask import Blueprint, render_template, session, redirect, url_for, request, jsonify, current_app
+from flask import Blueprint, render_template, session, redirect, url_for, request, jsonify, current_app,send_from_directory
+
 from config import Config
+
 from functools import wraps
 from routes.utils import abort
 from models.proyecto import Proyecto
@@ -525,7 +527,7 @@ def api_get_finding(finding_id):
     
 @proyecto_bp.route('/proyecto/finding/<int:proyecto_id>/<string:check_id>', methods=['GET'])
 def get_finding_by_check(proyecto_id, check_id):
-    # Llamamos al método que obtiene el finding
+    # Obtenemos el finding principal
     finding = Proyecto.get_finding(check_id=check_id, proyecto_id=proyecto_id)
     
     if not finding:
@@ -534,7 +536,24 @@ def get_finding_by_check(proyecto_id, check_id):
             "message": "No se encontró el finding"
         }), 404
 
+    # Obtenemos el finding_id desde el finding devuelto
+    finding_id = finding['id']  # asumimos que get_finding devuelve un dict con 'id'
+
+    # Traemos las evidencias asociadas
+    evidencias_img = Proyecto.get_finding_evidencias_img(finding_id)
+
     return jsonify({
         "success": True,
-        "data": finding
+        "data": {
+            "finding": finding,
+            "evidencias_img": evidencias_img
+        }
     })
+    
+@proyecto_bp.route("/uploads/findings/<path:filename>")
+@login_required
+def serve_evidencias(filename):
+    import os
+    from flask import send_from_directory
+    path = os.path.join(Config.BASE_DIR, "uploads", "findings")
+    return send_from_directory(path, filename)

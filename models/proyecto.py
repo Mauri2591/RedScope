@@ -1,3 +1,4 @@
+from config import Config
 import os
 import base64
 import uuid
@@ -424,85 +425,98 @@ class Proyecto:
         return rule_id
     
     @staticmethod
-    def insert_finding(data, usuario_id):
+    def insert_evidences(finding_id, evidencias):
+        import os, base64, uuid
+        from config import Config
+
+        if not evidencias:
+            return
+
         conn = get_db_connection()
-        conn.autocommit = True
         cursor = conn.cursor()
 
-        # 1️⃣ Revisar existencia del hallazgo
+        path_dir = os.path.join(Config.BASE_DIR, "uploads", "findings")
+        os.makedirs(path_dir, exist_ok=True)
+
+        for img in evidencias:
+            if not img.startswith("data:image"):
+                continue
+
+            header, encoded = img.split(",", 1)
+            binary = base64.b64decode(encoded)
+
+            # Nombre único por imagen
+            filename = f"{uuid.uuid4()}.png"
+            path = os.path.join(path_dir, filename)
+
+            # Guardar en disco
+            with open(path, "wb") as f:
+                f.write(binary)
+
+            relative_path = f"uploads/findings/{filename}"
+
+            # Insertar directamente en DB
+            cursor.execute("""
+                INSERT INTO findings_evidence(finding_id, file_path, estado_id)
+                VALUES (%s, %s, 1)
+            """, (finding_id, relative_path))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+    @staticmethod
+    def insert_finding(data, usuario_id):
+        """
+        Inserta un hallazgo o actualiza si ya existe.
+        Luego inserta las evidencias asociadas en uploads/findings/
+        """
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        check_id = data['check_id'].strip()
+        resource_id = data['resource_id'].strip()
+
+        # Verificar si ya existe el finding exacto
         cursor.execute("""
-            SELECT id, check_id
-            FROM findings
+            SELECT id FROM findings
             WHERE proyecto_id = %s
             AND cloud_ejecucion_id = %s
             AND security_rules_id = %s
             AND resource_id = %s
+            AND check_id = %s
         """, (
             data['proyecto_id'],
             data['cloud_ejecucion_id'],
             data['security_rules_id'],
-            data['resource_id']
+            resource_id,
+            check_id
         ))
         row = cursor.fetchone()
 
         if row:
-            existing_id, existing_check_id = row
-            if existing_check_id == data['check_id']:
-                # ✅ mismo check_id → update solo campos permitidos
-                cursor.execute("""
-                    UPDATE findings
-                    SET
-                        usuario_id = %s,
-                        severidad_id = %s,
-                        estados_findings_id = %s,
-                        finding_comment = %s,
-                        inventory_data = %s,
-                        actualizacion = CURRENT_TIMESTAMP
-                    WHERE id = %s
-                """, (
-                    usuario_id,
-                    data['severidad_id'],
-                    data['estados_findings_id'],
-                    data.get('finding_comment'),
-                    data.get('inventory_data'),
-                    existing_id
-                ))
-                finding_id = existing_id
-            else:
-                # ⚡ check_id distinto → insertar nuevo registro
-                cursor.execute("""
-                    INSERT INTO findings(
-                        proyecto_id,
-                        usuario_id,
-                        cloud_ejecucion_id,
-                        security_rules_id,
-                        check_id,
-                        provider,
-                        service,
-                        resource_id,
-                        severidad_id,
-                        estados_findings_id,
-                        inventory_data,
-                        finding_comment,
-                        estado_id
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
-                """, (
-                    data['proyecto_id'],
-                    usuario_id,
-                    data['cloud_ejecucion_id'],
-                    data['security_rules_id'],
-                    data['check_id'],
-                    data['provider'],
-                    data['service'],
-                    data['resource_id'],
-                    data['severidad_id'],
-                    data['estados_findings_id'],
-                    data.get('inventory_data'),
-                    data.get('finding_comment')
-                ))
-                finding_id = cursor.lastrowid
+            # Actualizar hallazgo existente
+            finding_id = row[0]
+            cursor.execute("""
+                UPDATE findings
+                SET
+                    usuario_id = %s,
+                    severidad_id = %s,
+                    estados_findings_id = %s,
+                    finding_comment = %s,
+                    inventory_data = %s,
+                    actualizacion = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (
+                usuario_id,
+                data['severidad_id'],
+                data['estados_findings_id'],
+                data.get('finding_comment'),
+                data.get('inventory_data'),
+                finding_id
+            ))
         else:
-            # ✅ No existe hallazgo → insertar
+            # Insertar nuevo hallazgo
             cursor.execute("""
                 INSERT INTO findings(
                     proyecto_id,
@@ -524,10 +538,10 @@ class Proyecto:
                 usuario_id,
                 data['cloud_ejecucion_id'],
                 data['security_rules_id'],
-                data['check_id'],
+                check_id,
                 data['provider'],
                 data['service'],
-                data['resource_id'],
+                resource_id,
                 data['severidad_id'],
                 data['estados_findings_id'],
                 data.get('inventory_data'),
@@ -535,45 +549,13 @@ class Proyecto:
             ))
             finding_id = cursor.lastrowid
 
+        conn.commit()
         cursor.close()
         conn.close()
+
         return finding_id
 
-    @staticmethod
-    def insert_evidences(finding_id, evidencias):
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        path_dir = "uploads/findings"
-        os.makedirs(path_dir, exist_ok=True)
-
-        for img in evidencias:
-
-            header, encoded = img.split(",",1)
-
-            binary = base64.b64decode(encoded)
-
-            filename = f"{uuid.uuid4()}.png"
-
-            path = f"{path_dir}/{filename}"
-
-            with open(path,"wb") as f:
-                f.write(binary)
-
-            query = """
-            INSERT INTO findings_evidence
-            (finding_id,file_path,estado_id)
-            VALUES (%s,%s,1)
-            """
-
-            cursor.execute(query,(finding_id,path))
-
-        conn.commit()
-
-        cursor.close()
-        conn.close()
-
+    
     @staticmethod
     def get_finding(check_id, proyecto_id):
         conn = get_db_connection()
@@ -592,6 +574,25 @@ class Proyecto:
 
     @staticmethod
     def get_finding_evidencias(finding_id):
+        """
+        Devuelve todas las evidencias activas de un hallazgo
+        """
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        query = """
+            SELECT file_path
+            FROM findings_evidence
+            WHERE finding_id=%s AND estado_id=1
+            ORDER BY id
+        """
+        cursor.execute(query, (finding_id,))
+        data = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return data
+    
+    @staticmethod
+    def get_finding_evidencias_img(finding_id):
         """
         Devuelve todas las evidencias activas de un hallazgo
         """
