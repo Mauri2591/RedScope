@@ -579,7 +579,7 @@
                                 width="300" height="300" 
                                 style="object-fit:cover;border:1px solid #444;border-radius:6px;">
                             <button type="button" 
-                                    class="btn btn-danger btn-sm position-absolute top-0 end-0 m-1 delete-evidence">
+                                    class="btn btn-danger btn-sm btn-delete-evidence delete-evidence">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>`;
@@ -597,10 +597,9 @@
             .then(response => response.json())
             .then(res => {
 
-                // 🔹 Select de severidad
+                // Select de severidad
                 let selectSeverity = $("#rule_severity");
                 selectSeverity.empty();
-                selectSeverity.append(`<option value="0" class="bg-dark text-light">Seleccionar</option>`);
                 res.severidades.forEach(s => {
                     selectSeverity.append(`<option value="${s.id}" style="background-color:${s.color}">${s.nombre}</option>`);
                 });
@@ -641,7 +640,7 @@
                     $("#rule_condition_logic").val("");
                     $("#rule_remediation").val("");
                     $("#rule_reference").val("");
-                    $("#rule_severity").val("0");
+                    $("#rule_severity").val("1");
                     $("#text-regla, #icono-regla").addClass("text-warning");
                     $("#icono-regla").addClass("bi bi-shield-exclamation")
                 } else {
@@ -713,7 +712,7 @@
                                 height="300"
                                 style="object-fit:cover;border:1px solid #444;border-radius:6px;">
                             <button type="button"
-                                class="btn btn-danger btn-sm position-absolute top-0 end-0 m-1 delete-evidence">
+                                class="btn btn-danger btn-sm btn-delete-evidence delete-evidence">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>`;
@@ -747,7 +746,7 @@
         $("#rule_condition_logic").val("")
         $("#rule_remediation").val("")
         $("#rule_reference").val("")
-        $("#rule_severity").val("0")
+        $("#rule_severity").val("1")
         $("#estados_findings_id").val("1")
         $("#finding_comment").val("")
         $("#paste_evidence").val("")
@@ -858,7 +857,7 @@
                             <img src="${event.target.result}" width="300" height="300" 
                                  style="object-fit:cover;border:1px solid #444;border-radius:6px;">
                             <button type="button" 
-                                    class="btn btn-danger btn-sm position-absolute top-0 end-0 m-1 delete-evidence">
+                                    class="btn btn-danger btn-sm btn-delete-evidence delete-evidence">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>`;
