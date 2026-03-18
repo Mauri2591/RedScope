@@ -46,10 +46,19 @@
                                 <th>Security Checks</th>
                                 <th>Estado</th>
                                 <th>Gestion</th>
-                                <th><span class="badge bg-info text-light" title="Analizar todas" type="button"
-                                        onclick="gestionarResultadoChecks('{{ proyecto.id }}')"><i
-                                            class="bi bi-rocket-takeoff-fill"></i>
-                                    </span></th>
+                                <th>
+                                    <div class="d-flex gap-1">
+                                        <span class="badge bg-primary text-light" title="Descargar Docx" type="button"
+                                            onclick="descargarDoc('{{ proyecto.id }}')">
+                                            <i class="bi bi-file-earmark-text text-light"></i>
+                                        </span>
+
+                                        <span class="badge bg-success text-light" title="Descargar Xlsx" type="button"
+                                            onclick="descargarXlsx('{{ proyecto.id }}')">
+                                            <i class="bi bi-filetype-csv"></i>
+                                        </span>
+                                    </div>
+                                </th>
                             </tr>
                         </thead>
                         {% endif %}

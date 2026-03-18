@@ -467,87 +467,68 @@ class Proyecto:
         
     @staticmethod
     def insert_finding(data, usuario_id):
-        """
-        Inserta un hallazgo o actualiza si ya existe.
-        Luego inserta las evidencias asociadas en uploads/findings/
-        """
+
         conn = get_db_connection()
         cursor = conn.cursor()
 
         check_id = data['check_id'].strip()
         resource_id = data['resource_id'].strip()
 
-        # Verificar si ya existe el finding exacto
         cursor.execute("""
-            SELECT id FROM findings
-            WHERE proyecto_id = %s
-            AND cloud_ejecucion_id = %s
-            AND security_rules_id = %s
-            AND resource_id = %s
-            AND check_id = %s
+            INSERT INTO findings(
+                proyecto_id,
+                usuario_id,
+                cloud_ejecucion_id,
+                security_rules_id,
+                check_id,
+                provider,
+                service,
+                resource_id,
+                severidad_id,
+                estados_findings_id,
+                inventory_data,
+                finding_comment,
+                estado_id
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
+
+            ON DUPLICATE KEY UPDATE
+                usuario_id = VALUES(usuario_id),
+                severidad_id = VALUES(severidad_id),
+                estados_findings_id = VALUES(estados_findings_id),
+                finding_comment = VALUES(finding_comment),
+                inventory_data = VALUES(inventory_data),
+                actualizacion = CURRENT_TIMESTAMP
         """, (
             data['proyecto_id'],
+            usuario_id,
             data['cloud_ejecucion_id'],
             data['security_rules_id'],
+            check_id,
+            data['provider'],
+            data['service'],
             resource_id,
-            check_id
+            data['severidad_id'],
+            data['estados_findings_id'],
+            data.get('inventory_data'),
+            data.get('finding_comment')
         ))
-        row = cursor.fetchone()
 
-        if row:
-            # Actualizar hallazgo existente
-            finding_id = row[0]
+        # 🔥 IMPORTANTE: obtener ID correcto SIEMPRE
+        finding_id = cursor.lastrowid
+
+        if finding_id == 0:
             cursor.execute("""
-                UPDATE findings
-                SET
-                    usuario_id = %s,
-                    severidad_id = %s,
-                    estados_findings_id = %s,
-                    finding_comment = %s,
-                    inventory_data = %s,
-                    actualizacion = CURRENT_TIMESTAMP
-                WHERE id = %s
+                SELECT id FROM findings
+                WHERE cloud_ejecucion_id = %s
+                AND resource_id = %s
+                AND check_id = %s
+                AND estado_id = 1
             """, (
-                usuario_id,
-                data['severidad_id'],
-                data['estados_findings_id'],
-                data.get('finding_comment'),
-                data.get('inventory_data'),
-                finding_id
-            ))
-        else:
-            # Insertar nuevo hallazgo
-            cursor.execute("""
-                INSERT INTO findings(
-                    proyecto_id,
-                    usuario_id,
-                    cloud_ejecucion_id,
-                    security_rules_id,
-                    check_id,
-                    provider,
-                    service,
-                    resource_id,
-                    severidad_id,
-                    estados_findings_id,
-                    inventory_data,
-                    finding_comment,
-                    estado_id
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
-            """, (
-                data['proyecto_id'],
-                usuario_id,
                 data['cloud_ejecucion_id'],
-                data['security_rules_id'],
-                check_id,
-                data['provider'],
-                data['service'],
                 resource_id,
-                data['severidad_id'],
-                data['estados_findings_id'],
-                data.get('inventory_data'),
-                data.get('finding_comment')
+                check_id
             ))
-            finding_id = cursor.lastrowid
+            finding_id = cursor.fetchone()[0]
 
         conn.commit()
         cursor.close()
@@ -599,12 +580,69 @@ class Proyecto:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         query = """
-            SELECT file_path
+            SELECT id, file_path
             FROM findings_evidence
             WHERE finding_id=%s AND estado_id=1
             ORDER BY id
         """
         cursor.execute(query, (finding_id,))
+        data = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return data
+    
+    @staticmethod
+    def delete_evidences(ids):
+        if not ids:
+            return
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        format_strings = ','.join(['%s'] * len(ids))
+        query = f"""
+            UPDATE findings_evidence 
+            SET estado_id = %s 
+            WHERE id IN ({format_strings})
+        """
+        cursor.execute(query, tuple([2] + ids))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+
+# *****************************  Reportes  ***************************
+#------------- CSV ------------
+    @staticmethod
+    def get_data_reporte_csv(proyecto_id):
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        query = """
+        SELECT 
+            p.titulo AS proyecto_titulo,
+            f.provider AS proveedor,
+            f.service AS servicio,
+            f.check_id,
+            sr.title AS titulo,
+            sr.description AS descripcion,
+            sev.nombre AS severidad,
+            sr.condition_logic AS condicion_logica,
+            sr.remediation AS remediacion,
+            sr.reference AS referencia,
+            f.resource_id,
+            ef.nombre AS estado
+        FROM findings f
+        INNER JOIN proyectos p 
+            ON p.id = f.proyecto_id
+        LEFT JOIN security_rules sr 
+            ON sr.check_id = f.check_id
+        LEFT JOIN severidades sev 
+            ON sev.id = sr.severidad_id
+        LEFT JOIN estados_findings ef
+            ON ef.id = f.estados_findings_id
+        WHERE f.proyecto_id = %s;
+        """
+
+        cursor.execute(query, (proyecto_id,))
         data = cursor.fetchall()
         cursor.close()
         conn.close()

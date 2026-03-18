@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, session, redirect, url_for, request, jsonify, current_app,send_from_directory
+from flask import Blueprint,Response, render_template, session, redirect, url_for, request, jsonify, current_app,send_from_directory
 
 from config import Config
 
@@ -9,13 +9,28 @@ from models.cloud_ejecucion import CloudEjecucion
 from cryptography.fernet import Fernet
 import mysql.connector
 import boto3
+import csv
+import io
+import re
 from botocore.exceptions import ClientError, EndpointConnectionError
 import importlib
 from db import get_db_connection  # asegurate de tenerlo arriba
-
+from datetime import datetime
 from redis import Redis
 from rq import Queue
 from tasks.cloud.aws import discovery_roles_job
+
+import re
+from datetime import datetime
+from io import BytesIO
+
+from flask import Response, session
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, PatternFill, Font
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment
+from io import BytesIO
 
 proyecto_bp = Blueprint('proyecto', __name__)
 
@@ -496,15 +511,17 @@ def insert_security_rule():
 @proyecto_bp.route('/proyecto/finding', methods=['POST'])
 @login_required
 def insert_finding():
-
     data = request.get_json()
-
     usuario_id = session.get("user_id")
-
     finding_id = Proyecto.insert_finding(data, usuario_id)
 
+    # nuevas evidencias
     if data.get("evidencias"):
         Proyecto.insert_evidences(finding_id, data["evidencias"])
+
+    # eliminadas
+    if data.get("evidencias_eliminadas"):
+        Proyecto.delete_evidences(data["evidencias_eliminadas"])
 
     return jsonify({
         "success": True
@@ -557,3 +574,146 @@ def serve_evidencias(filename):
     from flask import send_from_directory
     path = os.path.join(Config.BASE_DIR, "uploads", "findings")
     return send_from_directory(path, filename)
+
+
+# *****************************  Reportes  ***************************
+#------------- CSV ------------
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/export/xlsx')
+@login_required
+def exportar_xlsx(proyecto_id):
+    sector_id = session.get('sector_id')
+    proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
+
+    if not proyecto:
+        abort(404)
+
+    data = Proyecto.get_data_reporte_csv(proyecto_id)
+
+    # -----------------------------
+    # 🧠 Nombre dinámico PRO
+    # -----------------------------
+    def limpiar(texto):
+        if not texto:
+            return "sin_valor"
+        return re.sub(r'[^a-zA-Z0-9_-]', '_', str(texto))
+
+    if data:
+        titulo = limpiar(data[0].get('proyecto_titulo'))
+        proveedores = {row.get('proveedor', 'sin_proveedor') for row in data}
+        proveedor = limpiar("_".join(proveedores))
+    else:
+        titulo = f"proyecto_{proyecto_id}"
+        proveedor = "sin_proveedor"
+
+    filename = f"{titulo}_{proveedor}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+    # -----------------------------
+    # 📊 Excel
+    # -----------------------------
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Findings"
+
+    headers = [
+        'proveedor','servicio','check_id','titulo','descripcion',
+        'riesgo','condicion logica','remediacion','referencia',
+        'resource_id','estado'
+    ]
+
+    ws.append(headers)
+
+    # -----------------------------
+    # 🎨 Estilos
+    # -----------------------------
+    wrap = Alignment(wrap_text=True, vertical="top")
+
+    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True)
+
+    severity_colors = {
+        "INFORMATIVO": "808080",      # gray
+        "BAJO": "00B050",       # green
+        "MEDIO": "FFA500",    # orange
+        "ALTO": "FF0000",      # red
+        "CRITICO": "800080"   # purple
+    }
+
+    # Header style
+    for col_idx, cell in enumerate(ws[1], start=1):
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = wrap
+
+    # -----------------------------
+    # 📥 Data
+    # -----------------------------
+    for row in data:
+        fila = [
+            row.get('proveedor', ''),
+            row.get('servicio', ''),
+            row.get('check_id', ''),
+            row.get('titulo', ''),
+            row.get('descripcion', ''),
+            row.get('severidad', ''),
+            row.get('condicion_logica', ''),
+            row.get('remediacion', ''),
+            row.get('referencia', ''),
+            row.get('resource_id', ''),
+            row.get('estado', '')
+        ]
+
+        ws.append(fila)
+        current_row = ws.max_row
+
+        for col_idx, value in enumerate(fila, start=1):
+            cell = ws.cell(row=current_row, column=col_idx)
+            cell.alignment = wrap
+
+            # 🎨 Color por severidad
+            if col_idx == 6:  # columna severity
+                sev = str(value).upper()
+                if sev in severity_colors:
+                    cell.fill = PatternFill(
+                        start_color=severity_colors[sev],
+                        end_color=severity_colors[sev],
+                        fill_type="solid"
+                    )
+
+    # -----------------------------
+    # 🔥 AutoFilter (filtros en columnas)
+    # -----------------------------
+    ws.auto_filter.ref = ws.dimensions
+
+    # -----------------------------
+    # 🔒 Freeze header
+    # -----------------------------
+    ws.freeze_panes = "A2"
+
+    # -----------------------------
+    # 📏 Auto width columnas
+    # -----------------------------
+    for col in ws.columns:
+        max_length = 0
+        col_letter = col[0].column_letter
+
+        for cell in col:
+            if cell.value:
+                max_length = max(max_length, len(str(cell.value)))
+
+        ws.column_dimensions[col_letter].width = min(max_length + 2, 50)
+
+    # -----------------------------
+    # 💾 Guardar
+    # -----------------------------
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return Response(
+        output.getvalue(),  # 🔥 bytes reales
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Cache-Control": "no-cache"
+        }
+    )
