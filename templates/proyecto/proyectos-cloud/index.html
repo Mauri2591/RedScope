@@ -48,13 +48,21 @@
                                 <th>Gestion</th>
                                 <th>
                                     <div class="d-flex gap-1">
-                                        <span class="badge bg-primary text-light" title="Descargar Docx" type="button"
+                                      <span class="badge btn-export btn-docx"
+                                            title="Descargar DOCX"
                                             onclick="descargarDoc('{{ proyecto.id }}')">
-                                            <i class="bi bi-file-earmark-text text-light"></i>
+                                            <i class="bi bi-file-earmark-word"></i>
                                         </span>
 
-                                        <span class="badge bg-success text-light" title="Descargar Xlsx" type="button"
+                                        <span class="badge btn-export btn-xlsx"
+                                            title="Descargar XLSX"
                                             onclick="descargarXlsx('{{ proyecto.id }}')">
+                                            <i class="bi bi-file-earmark-excel"></i>
+                                        </span>
+
+                                        <span class="badge btn-export btn-csv"
+                                            title="Descargar CSV para Vulma"
+                                            onclick="descargarCsv('{{ proyecto.id }}')">
                                             <i class="bi bi-filetype-csv"></i>
                                         </span>
                                     </div>

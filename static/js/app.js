@@ -572,12 +572,14 @@
 
         try {
 
-            // 🔥 Ejecuta ambos fetch en paralelo
+            // Ejecuta ambos fetch en paralelo
             const [findingRes, ruleRes] = await Promise.all([
                 fetch(`/proyecto/finding/${proyecto_id}/${check_id}`).then(r => r.json()),
                 fetch(`/proyecto/security-rule/${check_id}`).then(r => r.json())
             ]);
 
+        console.log(ruleRes.severidades);
+        
             let findingData = null;
 
             // ===============================
@@ -619,7 +621,10 @@
             let selectSeverity = $("#rule_severity");
             selectSeverity.empty();
 
+
+
             ruleRes.severidades.forEach(s => {
+                
                 selectSeverity.append(`<option value="${s.id}" style="background-color:${s.color}">${s.nombre}</option>`);
             });
 
@@ -627,7 +632,7 @@
             let selectStatus = $("#estados_findings_id");
             selectStatus.empty();
 
-            ruleRes.combo_findings.forEach(e => {
+            ruleRes.combo_findings.forEach(e => {                
                 selectStatus.append(`<option value="${e.id}">${e.nombre}</option>`);
             });
 
@@ -798,7 +803,7 @@
             provider: "aws",
             service: "iam",
 
-            check_id: $("#check_id").text(),
+            check_id: $("#check_id").val(),
             title: $("#rule_title").val(),
             description: $("#rule_description").val(),
             severidad_id: $("#rule_severity").val(),
@@ -842,7 +847,7 @@
             proyecto_id: parseInt($("#proyecto_id").val()),
             cloud_ejecucion_id: parseInt($("#cloud_ejecucion_id").val()),
             security_rules_id: $("#rule_id").val() ? parseInt($("#rule_id").val()) : null,
-            check_id: $("#check_id").text(),
+            check_id: $("#check_id").val(),
             provider: "aws",
             service: "s3",
             resource_id: $("#resource_id").val(),

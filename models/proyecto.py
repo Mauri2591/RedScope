@@ -346,16 +346,22 @@ class Proyecto:
 
     @staticmethod
     def get_severidades():
-        conn=get_db_connection()
-        cursor=conn.cursor(dictionary=True)
-        query="""
-        SELECT * FROM severidades WHERE estado_id = 1
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        query = """
+        SELECT id, nombre, color, score, orden 
+        FROM severidades 
+        WHERE estado_id = 1 
+        ORDER BY orden
         """
         cursor.execute(query)
         data = cursor.fetchall()
         cursor.close()
         conn.close()
         return data
+
+
+
     
     @staticmethod
     def get_combo_estados_findings():
@@ -612,10 +618,9 @@ class Proyecto:
 # *****************************  Reportes  ***************************
 #------------- CSV ------------
     @staticmethod
-    def get_data_reporte_csv(proyecto_id):
+    def get_data_reporte(proyecto_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-
         query = """
         SELECT 
             p.titulo AS proyecto_titulo,
@@ -641,7 +646,6 @@ class Proyecto:
             ON ef.id = f.estados_findings_id
         WHERE f.proyecto_id = %s;
         """
-
         cursor.execute(query, (proyecto_id,))
         data = cursor.fetchall()
         cursor.close()

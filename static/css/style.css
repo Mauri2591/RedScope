@@ -362,3 +362,31 @@ th {
     padding: 0 0.25rem;
     font-size: .8rem;
 }
+
+.btn-export {
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.btn-xlsx {
+    background-color: #217346; /* Excel */
+    color: #fff;
+}
+
+.btn-csv {
+    background-color: #C8E6C9; /* verde claro */
+    color: #000;
+}
+
+.btn-export:hover {
+    opacity: 0.85;
+    transform: scale(1.05);
+    transition: all 0.2s ease;
+}
+
+/* DOCX */
+.btn-docx {
+    background-color: #2B579A; /* Word blue */
+    color: #fff;
+}
