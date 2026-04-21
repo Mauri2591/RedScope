@@ -461,7 +461,7 @@ def gestionar_hallazgos(proyecto_id, ejecucion_id):
 
     findings = CloudEjecucion.extract_interesting(data["resultado"])
 
-    # ✅ Enriquecer cada finding con su finding_id de DB
+    # Enriquecer cada finding con su finding_id de DB
     findings = Proyecto.enrich_findings_with_ids(findings, proyecto_id, ejecucion_id)
 
     return render_template(
@@ -471,6 +471,25 @@ def gestionar_hallazgos(proyecto_id, ejecucion_id):
         findings=findings
     )
     
+@proyecto_bp.route('/proyecto/finding/<int:finding_id>/verificar', methods=['POST'])
+@login_required
+def verificar_finding(finding_id):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE findings 
+            SET verificado = 'SI'
+            WHERE id = %s
+        """, (finding_id,))
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+        
 @proyecto_bp.route('/proyecto/security-rule/<check_id>', methods=['GET'])
 @login_required
 def gestionar_findings(check_id):
@@ -482,6 +501,7 @@ def gestionar_findings(check_id):
         'success': True,
         'rule_exists': True if data else False,
         'data': data,
+        'display_name': CloudEjecucion.get_display_name(check_id),
         'severidades': severidades,
         'combo_findings': combo_findings
     })
@@ -534,7 +554,8 @@ def insert_finding():
         Proyecto.delete_evidences(data["evidencias_eliminadas"])
 
     return jsonify({
-        "success": True
+        "success": True,
+        "finding_id": finding_id
     })
     
 

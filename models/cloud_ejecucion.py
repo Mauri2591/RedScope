@@ -132,9 +132,6 @@ class CloudEjecucion:
                         estados_findings_id,
                         estado_id
                     ) VALUES (%s,%s,%s,NULL,%s,%s,%s,%s,1,1,1)
-
-                    ON DUPLICATE KEY UPDATE
-                        actualizacion = CURRENT_TIMESTAMP
                 """, (
                     proyecto_id,
                     usuario_id,
@@ -271,3 +268,11 @@ class CloudEjecucion:
                             break
 
         return interesting
+    
+    @staticmethod
+    def get_display_name(check_id):
+        for keyword in CloudEjecucion.RISK_FALSE_KEYWORDS:
+            if keyword in check_id.lower():
+                base = check_id.replace("_enabled", "").replace("_", " ").upper()
+                return f"{base} Disabled"
+        return check_id.replace("_", " ").title()

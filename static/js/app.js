@@ -580,35 +580,35 @@
     // ===============================
     // ABRIR MODAL Y CARGAR RULE
     // ===============================
-async function verificarHallazgo(finding_id) {
+    async function verificarHallazgo(finding_id) {
 
-    limpiarModalFinding();
+        limpiarModalFinding();
 
-    try {
-        const [findingRes, ruleRes_temp] = await Promise.all([
-            fetch(`/proyecto/finding/detail/${finding_id}`).then(r => r.json()),
-            // ruleRes lo cargamos después de tener el check_id
-        ]);
+        try {
+            const [findingRes, ruleRes_temp] = await Promise.all([
+                fetch(`/proyecto/finding/detail/${finding_id}`).then(r => r.json()),
+                // ruleRes lo cargamos después de tener el check_id
+            ]);
 
-        if (!findingRes.success) return;
+            if (!findingRes.success) return;
 
-        const findingData = findingRes.data.finding;
-        const check_id = findingData.check_id;
+            const findingData = findingRes.data.finding;
+            const check_id = findingData.check_id;
 
-        // Ahora cargamos la rule con el check_id real
-        const ruleRes = await fetch(`/proyecto/security-rule/${check_id}`).then(r => r.json());
+            // Ahora cargamos la rule con el check_id real
+            const ruleRes = await fetch(`/proyecto/security-rule/${check_id}`).then(r => r.json());
 
-        // Setear hiddens
-        $("#check_id").val(check_id);
-        $("#proyecto_id").val(findingData.proyecto_id);
-        $("#cloud_ejecucion_id").val(findingData.cloud_ejecucion_id);
-        $("#resource_id").val(findingData.resource_id);
-        $("#finding_id").val(finding_id);
+            // Setear hiddens
+            $("#check_id").val(check_id);
+            $("#proyecto_id").val(findingData.proyecto_id);
+            $("#cloud_ejecucion_id").val(findingData.cloud_ejecucion_id);
+            $("#resource_id").val(findingData.resource_id);
+            $("#finding_id").val(finding_id);
 
-        // Evidencias
-        $("#evidence_preview").empty();
-        (findingRes.data.evidencias_img || []).forEach(ev => {
-            $("#evidence_preview").append(`
+            // Evidencias
+            $("#evidence_preview").empty();
+            (findingRes.data.evidencias_img || []).forEach(ev => {
+                $("#evidence_preview").append(`
                 <div class="evidence-item position-relative" data-id="${ev.id}">
                     <img src="/${ev.file_path}" width="300" height="300"
                         style="object-fit:cover;border:1px solid #444;border-radius:6px;">
@@ -616,77 +616,77 @@ async function verificarHallazgo(finding_id) {
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>`);
-        });
+            });
 
-        $("#finding_comment").val(findingData.finding_comment);
+            $("#finding_comment").val(findingData.finding_comment);
 
-        // Severidades
-        let selectSeverity = $("#rule_severity");
-        selectSeverity.empty();
-        ruleRes.severidades.forEach(s => {
-            selectSeverity.append(`<option value="${s.id}" style="background-color:${s.color}">${s.nombre}</option>`);
-        });
+            // Severidades
+            let selectSeverity = $("#rule_severity");
+            selectSeverity.empty();
+            ruleRes.severidades.forEach(s => {
+                selectSeverity.append(`<option value="${s.id}" style="background-color:${s.color}">${s.nombre}</option>`);
+            });
 
-        // Estados
-        let selectStatus = $("#estados_findings_id");
-        selectStatus.empty();
-        ruleRes.combo_findings.forEach(e => {
-            selectStatus.append(`<option value="${e.id}">${e.nombre}</option>`);
-        });
-        selectStatus.val(findingData.estados_findings_id);
+            // Estados
+            let selectStatus = $("#estados_findings_id");
+            selectStatus.empty();
+            ruleRes.combo_findings.forEach(e => {
+                selectStatus.append(`<option value="${e.id}">${e.nombre}</option>`);
+            });
+            selectStatus.val(findingData.estados_findings_id);
 
-        // Rule
-        if (!ruleRes.rule_exists) {
-            $("#btnGuardarFinding").prop("disabled", true);
-            $("#span_check_id").text(check_id);
-            $("#text-regla, #icono-regla").removeClass("text-info").addClass("text-warning");
-            $("#icono-regla").removeClass("bi-check-circle bi-shield-exclamation").addClass("bi bi-shield-exclamation");
-            $("#rule_id").val("");
-            $("#rule_title, #rule_description, #rule_condition_logic, #rule_remediation, #rule_reference").val("");
-        } else {
-            $("#btnGuardarFinding").prop("disabled", false);
-            const dataRule = ruleRes.data;
-            $("#span_check_id").text(check_id);
-            $("#text-regla, #icono-regla").removeClass("text-warning").addClass("text-info");
-            $("#icono-regla").removeClass("bi-shield-exclamation bi-check-circle").addClass("bi bi-check-circle");
-            $("#rule_id").val(dataRule.id);
-            $("#rule_title").val(dataRule.title);
-            $("#rule_description").val(dataRule.description);
-            $("#rule_condition_logic").val(dataRule.condition_logic);
-            $("#rule_remediation").val(dataRule.remediation);
-            $("#rule_reference").val(dataRule.reference);
-            $("#rule_severity").val(dataRule.severidad_id);
+            // Rule
+            if (!ruleRes.rule_exists) {
+                $("#btnGuardarFinding").prop("disabled", true);
+                $("#span_check_id").text(ruleRes.display_name);
+                $("#text-regla, #icono-regla").removeClass("text-info").addClass("text-warning");
+                $("#icono-regla").removeClass("bi-check-circle bi-shield-exclamation").addClass("bi bi-shield-exclamation");
+                $("#rule_id").val("");
+                $("#rule_title, #rule_description, #rule_condition_logic, #rule_remediation, #rule_reference").val("");
+            } else {
+                $("#btnGuardarFinding").prop("disabled", false);
+                const dataRule = ruleRes.data;
+                $("#span_check_id").text(ruleRes.display_name);
+                $("#text-regla, #icono-regla").removeClass("text-warning").addClass("text-info");
+                $("#icono-regla").removeClass("bi-shield-exclamation bi-check-circle").addClass("bi bi-check-circle");
+                $("#rule_id").val(dataRule.id);
+                $("#rule_title").val(dataRule.title);
+                $("#rule_description").val(dataRule.description);
+                $("#rule_condition_logic").val(dataRule.condition_logic);
+                $("#rule_remediation").val(dataRule.remediation);
+                $("#rule_reference").val(dataRule.reference);
+                $("#rule_severity").val(dataRule.severidad_id);
+            }
+
+            $("#rule_severity").trigger("change");
+            $("#mdlGestionarChecks").modal("show");
+
+        } catch (err) {
+            console.error("Error cargando datos:", err);
         }
-
-        $("#rule_severity").trigger("change");
-        $("#mdlGestionarChecks").modal("show");
-
-    } catch (err) {
-        console.error("Error cargando datos:", err);
     }
-}
 
-function eliminarHallazgo(finding_id) {
-    if (!confirm("¿Estás seguro que querés eliminar este hallazgo?")) return;
+    function eliminarHallazgo(finding_id) {
+        if (!confirm("¿Estás seguro que querés eliminar este hallazgo?")) return;
 
-    fetch(`/proyecto/finding/eliminar/${finding_id}`, {
-        method: 'POST',
-        headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": getCSRFToken()
-        }
-    })
-    .then(res => res.json())
-    .then(res => {
-        if (res.success) {
-            alert("Hallazgo eliminado correctamente");
-            location.reload();
-        } else {
-            alert("Error al eliminar");
-        }
-    })
-    .catch(err => console.error("ERROR:", err));
-}
+        fetch(`/proyecto/finding/eliminar/${finding_id}`, {
+                method: 'POST',
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": getCSRFToken()
+                }
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    alert("Hallazgo eliminado correctamente");
+                    location.reload();
+                } else {
+                    alert("Error al eliminar");
+                }
+            })
+            .catch(err => console.error("ERROR:", err));
+    }
 
     // ===============================
     // COLOR DEL SELECT SEVERITY
@@ -788,40 +788,40 @@ function eliminarHallazgo(finding_id) {
     });
 
 
-function guardarRule() {
-    let data = {
-        provider: "aws",
-        service: "iam",
-        check_id: $("#check_id").val(),
-        title: $("#rule_title").val(),
-        description: $("#rule_description").val(),
-        severidad_id: $("#rule_severity").val(),
-        condition_logic: $("#rule_condition_logic").val(),
-        remediation: $("#rule_remediation").val(),
-        reference: $("#rule_reference").val()
-    }
-
-    fetch("/proyecto/security-rule", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": document.querySelector('meta[name="csrf-token"]').content
-        },
-        body: JSON.stringify(data)
-    })
-    .then(res => res.json())
-    .then(res => {
-        if (res.success) {
-            // ✅ Asignar rule_id para que guardarFinding lo use
-            $("#rule_id").val(res.rule_id);
-
-            // ✅ Habilitar botón guardar
-            $("#btnGuardarFinding").prop("disabled", false);
-
-            alert('Rule Information guardada correctamente!');
+    function guardarRule() {
+        let data = {
+            provider: "aws",
+            service: "iam",
+            check_id: $("#check_id").val(),
+            title: $("#rule_title").val(),
+            description: $("#rule_description").val(),
+            severidad_id: $("#rule_severity").val(),
+            condition_logic: $("#rule_condition_logic").val(),
+            remediation: $("#rule_remediation").val(),
+            reference: $("#rule_reference").val()
         }
-    })
-}
+
+        fetch("/proyecto/security-rule", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": document.querySelector('meta[name="csrf-token"]').content
+                },
+                body: JSON.stringify(data)
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    // ✅ Asignar rule_id para que guardarFinding lo use
+                    $("#rule_id").val(res.rule_id);
+
+                    // ✅ Habilitar botón guardar
+                    $("#btnGuardarFinding").prop("disabled", false);
+
+                    alert('Rule Information guardada correctamente!');
+                }
+            })
+    }
 
 
     /* =====================================================
@@ -861,10 +861,19 @@ function guardarRule() {
                 },
                 body: JSON.stringify(data)
             })
-            .then(res => res.text())
+            .then(res => res.json())
             .then(res => {
-                alert("Finding guardado correctamente!");
-                evidenciasEliminadas = []; // reset
+                const finding_id = res.finding_id; // 👈 viene del backend
+                return fetch(`/proyecto/finding/${finding_id}/verificar`, {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": getCSRFToken()
+                    }
+                });
+            })
+            .then(res => res.json())
+            .then(data => {
+                evidenciasEliminadas = [];
                 $("#mdlGestionarChecks").modal('hide');
                 location.reload();
             })
