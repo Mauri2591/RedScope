@@ -74,24 +74,25 @@
             authSwitch.addEventListener("change", function () {
 
                 if (this.checked) {
-
                     roleSection.style.display = "block";
                     keysSection.style.display = "none";
                     authMethodInput.value = "role";
 
+                    // Limpiar keysSection
                     $('#access_key').val('');
                     $('#secret_key').val('');
 
                 } else {
-
                     roleSection.style.display = "none";
                     keysSection.style.display = "block";
                     authMethodInput.value = "keys";
 
+                    // Limpiar roleSection
                     $('#arn_role').val('');
                     $('#external_id').val('');
+                    $('#role_access_key').val('');
+                    $('#role_secret_key').val('');
                 }
-
             });
         }
 
@@ -264,13 +265,30 @@
     function ConfiguracionCloud() {
         $('#formGestionarConfiguracionCloud').on('submit', function (e) {
             e.preventDefault();
+
+            const usaRole = document.getElementById('authSwitch').checked;
+
+            // Deshabilitar inputs del bloque que NO se usa
+            // para evitar que jQuery serialize envíe valores vacíos o duplicados
+            if (usaRole) {
+                $('#keysSection input').prop('disabled', true);
+                $('#roleSection input').prop('disabled', false);
+            } else {
+                $('#roleSection input').prop('disabled', true);
+                $('#keysSection input').prop('disabled', false);
+            }
+
             const proyectoId = $('#cloud_proyecto_id').val();
+
             $.ajax({
                 type: "POST",
                 url: `/proyecto/${proyectoId}/cloud-config`,
                 data: $(this).serialize(),
                 dataType: "json",
                 success: function (response) {
+                    // Re-habilitar todos al terminar (por si el modal se vuelve a abrir)
+                    $('#keysSection input, #roleSection input').prop('disabled', false);
+
                     if (response.success) {
                         alert(response.message);
                         $('#mdlGestionarConfiguracionCloud').modal('hide');
@@ -280,6 +298,8 @@
                     }
                 },
                 error: function (xhr) {
+                    // Re-habilitar en caso de error también
+                    $('#keysSection input, #roleSection input').prop('disabled', false);
                     console.log("STATUS:", xhr.status);
                     console.log("RESPONSE:", xhr.responseText);
                     alert("Error en el servidor");
@@ -560,141 +580,113 @@
     // ===============================
     // ABRIR MODAL Y CARGAR RULE
     // ===============================
-    async function verificarHallazgo(proyecto_id, cloud_ejecucion_id, resource_id, check_id) {
+async function verificarHallazgo(finding_id) {
 
-        limpiarModalFinding();
+    limpiarModalFinding();
 
+    try {
+        const [findingRes, ruleRes_temp] = await Promise.all([
+            fetch(`/proyecto/finding/detail/${finding_id}`).then(r => r.json()),
+            // ruleRes lo cargamos después de tener el check_id
+        ]);
+
+        if (!findingRes.success) return;
+
+        const findingData = findingRes.data.finding;
+        const check_id = findingData.check_id;
+
+        // Ahora cargamos la rule con el check_id real
+        const ruleRes = await fetch(`/proyecto/security-rule/${check_id}`).then(r => r.json());
+
+        // Setear hiddens
         $("#check_id").val(check_id);
-        $("#proyecto_id").val(proyecto_id);
-        $("#cloud_ejecucion_id").val(cloud_ejecucion_id);
-        $("#resource_id").val(resource_id);
-        $("#check_id").text(check_id);
+        $("#proyecto_id").val(findingData.proyecto_id);
+        $("#cloud_ejecucion_id").val(findingData.cloud_ejecucion_id);
+        $("#resource_id").val(findingData.resource_id);
+        $("#finding_id").val(finding_id);
 
-        try {
+        // Evidencias
+        $("#evidence_preview").empty();
+        (findingRes.data.evidencias_img || []).forEach(ev => {
+            $("#evidence_preview").append(`
+                <div class="evidence-item position-relative" data-id="${ev.id}">
+                    <img src="/${ev.file_path}" width="300" height="300"
+                        style="object-fit:cover;border:1px solid #444;border-radius:6px;">
+                    <button type="button" class="btn btn-danger btn-sm delete-evidence">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>`);
+        });
 
-            // Ejecuta ambos fetch en paralelo
-            const [findingRes, ruleRes] = await Promise.all([
-                fetch(`/proyecto/finding/${proyecto_id}/${check_id}`).then(r => r.json()),
-                fetch(`/proyecto/security-rule/${check_id}`).then(r => r.json())
-            ]);
+        $("#finding_comment").val(findingData.finding_comment);
 
-        console.log(ruleRes.severidades);
-        
-            let findingData = null;
+        // Severidades
+        let selectSeverity = $("#rule_severity");
+        selectSeverity.empty();
+        ruleRes.severidades.forEach(s => {
+            selectSeverity.append(`<option value="${s.id}" style="background-color:${s.color}">${s.nombre}</option>`);
+        });
 
-            // ===============================
-            // FINDING
-            // ===============================
-            if (findingRes.success && findingRes.data) {
+        // Estados
+        let selectStatus = $("#estados_findings_id");
+        selectStatus.empty();
+        ruleRes.combo_findings.forEach(e => {
+            selectStatus.append(`<option value="${e.id}">${e.nombre}</option>`);
+        });
+        selectStatus.val(findingData.estados_findings_id);
 
-                findingData = findingRes.data.finding;
-
-                $("#finding_comment").val(findingData.finding_comment);
-
-                $("#evidence_preview").empty();
-
-                let imagenes = findingRes.data.evidencias_img || [];
-
-                imagenes.forEach(ev => {
-                    let img = `
-                    <div class="evidence-item position-relative" data-id="${ev.id}">
-                        <img src="/${ev.file_path}" 
-                            width="300" height="300" 
-                            style="object-fit:cover;border:1px solid #444;border-radius:6px;">
-                        <button type="button" 
-                                class="btn btn-danger btn-sm btn-delete-evidence delete-evidence">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </div>`;
-                    $("#evidence_preview").append(img);
-                });
-
-            } else {
-                $("#finding_comment").val("");
-            }
-
-            // ===============================
-            // RULE + COMBOS
-            // ===============================
-
-            // 🔹 severidades
-            let selectSeverity = $("#rule_severity");
-            selectSeverity.empty();
-
-
-
-            ruleRes.severidades.forEach(s => {
-                
-                selectSeverity.append(`<option value="${s.id}" style="background-color:${s.color}">${s.nombre}</option>`);
-            });
-
-            // 🔹 estados finding
-            let selectStatus = $("#estados_findings_id");
-            selectStatus.empty();
-
-            ruleRes.combo_findings.forEach(e => {                
-                selectStatus.append(`<option value="${e.id}">${e.nombre}</option>`);
-            });
-
-            // 🔥 AHORA SI aplica el valor correcto
-            if (findingData) {
-                selectStatus.val(findingData.estados_findings_id);
-            }
-
-            // ===============================
-            // UI REGLA
-            // ===============================
-            if (!ruleRes.rule_exists) {
-
-                $("#span_check_id").text(check_id);
-
-                $("#text-regla, #icono-regla")
-                    .removeClass("text-info")
-                    .addClass("text-warning");
-
-                $("#icono-regla")
-                    .removeClass("bi-check-circle bi-shield-exclamation")
-                    .addClass("bi bi-shield-exclamation");
-
-                $("#rule_id").val("");
-                $("#rule_title").val("");
-                $("#rule_description").val("");
-                $("#rule_condition_logic").val("");
-                $("#rule_remediation").val("");
-                $("#rule_reference").val("");
-                $("#rule_severity").val("1");
-
-            } else {
-
-                let dataRule = ruleRes.data;
-
-                $("#span_check_id").text(check_id);
-
-                $("#text-regla, #icono-regla")
-                    .removeClass("text-warning")
-                    .addClass("text-info");
-
-                $("#icono-regla")
-                    .removeClass("bi-shield-exclamation bi-check-circle")
-                    .addClass("bi bi-check-circle");
-
-                $("#rule_id").val(dataRule.id);
-                $("#rule_title").val(dataRule.title);
-                $("#rule_description").val(dataRule.description);
-                $("#rule_condition_logic").val(dataRule.condition_logic);
-                $("#rule_remediation").val(dataRule.remediation);
-                $("#rule_reference").val(dataRule.reference);
-                $("#rule_severity").val(dataRule.severidad_id);
-            }
-
-            $("#rule_severity").trigger("change");
-
-            $("#mdlGestionarChecks").modal("show");
-
-        } catch (err) {
-            console.error("Error cargando datos:", err);
+        // Rule
+        if (!ruleRes.rule_exists) {
+            $("#btnGuardarFinding").prop("disabled", true);
+            $("#span_check_id").text(check_id);
+            $("#text-regla, #icono-regla").removeClass("text-info").addClass("text-warning");
+            $("#icono-regla").removeClass("bi-check-circle bi-shield-exclamation").addClass("bi bi-shield-exclamation");
+            $("#rule_id").val("");
+            $("#rule_title, #rule_description, #rule_condition_logic, #rule_remediation, #rule_reference").val("");
+        } else {
+            $("#btnGuardarFinding").prop("disabled", false);
+            const dataRule = ruleRes.data;
+            $("#span_check_id").text(check_id);
+            $("#text-regla, #icono-regla").removeClass("text-warning").addClass("text-info");
+            $("#icono-regla").removeClass("bi-shield-exclamation bi-check-circle").addClass("bi bi-check-circle");
+            $("#rule_id").val(dataRule.id);
+            $("#rule_title").val(dataRule.title);
+            $("#rule_description").val(dataRule.description);
+            $("#rule_condition_logic").val(dataRule.condition_logic);
+            $("#rule_remediation").val(dataRule.remediation);
+            $("#rule_reference").val(dataRule.reference);
+            $("#rule_severity").val(dataRule.severidad_id);
         }
+
+        $("#rule_severity").trigger("change");
+        $("#mdlGestionarChecks").modal("show");
+
+    } catch (err) {
+        console.error("Error cargando datos:", err);
     }
+}
+
+function eliminarHallazgo(finding_id) {
+    if (!confirm("¿Estás seguro que querés eliminar este hallazgo?")) return;
+
+    fetch(`/proyecto/finding/eliminar/${finding_id}`, {
+        method: 'POST',
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCSRFToken()
+        }
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            alert("Hallazgo eliminado correctamente");
+            location.reload();
+        } else {
+            alert("Error al eliminar");
+        }
+    })
+    .catch(err => console.error("ERROR:", err));
+}
 
     // ===============================
     // COLOR DEL SELECT SEVERITY
@@ -796,37 +788,40 @@
     });
 
 
-    function guardarRule() {
-
-        let data = {
-
-            provider: "aws",
-            service: "iam",
-
-            check_id: $("#check_id").val(),
-            title: $("#rule_title").val(),
-            description: $("#rule_description").val(),
-            severidad_id: $("#rule_severity").val(),
-            condition_logic: $("#rule_condition_logic").val(),
-            remediation: $("#rule_remediation").val(),
-            reference: $("#rule_reference").val()
-
-        }
-
-        fetch("/proyecto/security-rule", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-CSRFToken": document.querySelector('meta[name="csrf-token"]').content
-                },
-                body: JSON.stringify(data)
-            })
-            .then(res => res.text()) // 👈 cambiar a text
-            .then(res => {
-                alert('Rule Information creada exitosamente!')
-
-            })
+function guardarRule() {
+    let data = {
+        provider: "aws",
+        service: "iam",
+        check_id: $("#check_id").val(),
+        title: $("#rule_title").val(),
+        description: $("#rule_description").val(),
+        severidad_id: $("#rule_severity").val(),
+        condition_logic: $("#rule_condition_logic").val(),
+        remediation: $("#rule_remediation").val(),
+        reference: $("#rule_reference").val()
     }
+
+    fetch("/proyecto/security-rule", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: JSON.stringify(data)
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            // ✅ Asignar rule_id para que guardarFinding lo use
+            $("#rule_id").val(res.rule_id);
+
+            // ✅ Habilitar botón guardar
+            $("#btnGuardarFinding").prop("disabled", false);
+
+            alert('Rule Information guardada correctamente!');
+        }
+    })
+}
 
 
     /* =====================================================

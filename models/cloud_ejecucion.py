@@ -14,6 +14,16 @@ class CloudEjecucion:
         "anonymous",
         "write"
     ]
+    
+    RISK_FALSE_KEYWORDS = [
+    "lifecycle_enabled",
+    "replication_enabled", 
+    "encryption_enabled",
+    "versioning_enabled",
+    "logging_enabled",
+    "mfa_enabled",
+    "rotation_enabled"
+    ]
      
     @staticmethod
     def mark_running(ejecucion_id):
@@ -38,20 +48,109 @@ class CloudEjecucion:
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
-            query = """
+            cursor.execute("""
                 UPDATE cloud_ejecuciones
                 SET estado='COMPLETED',
                     resultado=%s,
                     fecha_fin=NOW()
                 WHERE id=%s
-            """
-            cursor.execute(query, (resultado_json, ejecucion_id))
+            """, (resultado_json, ejecucion_id))
             conn.commit()
         except Exception as e:
             print(f"Error al marcar como 'COMPLETED': {e}")
         finally:
             cursor.close()
             conn.close()
+
+        # ✅ AUTO-INSERT findings luego de completar
+        CloudEjecucion.auto_insert_findings(ejecucion_id, resultado_json)
+
+
+    @staticmethod
+    def auto_insert_findings(ejecucion_id, resultado_json):
+        """
+        Parsea el resultado del escaneo y auto-inserta un finding por cada
+        check interesante detectado. security_rules_id queda NULL hasta que
+        el usuario la complete manualmente.
+        """
+        try:
+            # Obtener proyecto_id, usuario_id, provider y service de la ejecución
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT ce.proyecto_id, ce.usuario_id,
+                    sa.nombre AS service_nombre
+                FROM cloud_ejecuciones ce
+                LEFT JOIN servicios_aws_acciones saa ON saa.id = ce.accion_id
+                LEFT JOIN servicios_aws sa ON sa.id = saa.servicios_aws_id
+                WHERE ce.id = %s
+            """, (ejecucion_id,))
+            ejecucion = cursor.fetchone()
+            cursor.close()
+            conn.close()
+
+            if not ejecucion:
+                return
+
+            proyecto_id = ejecucion['proyecto_id']
+            usuario_id  = ejecucion['usuario_id']
+
+            # Parsear resultado para extraer checks interesantes
+            resultado = resultado_json
+            if isinstance(resultado, str):
+                resultado = json.loads(resultado)
+
+            interesting = CloudEjecucion.extract_interesting(resultado)
+            if not interesting:
+                return
+
+            # Provider y service vienen del envelope del resultado
+            provider = resultado.get('provider', 'aws').lower()
+            service  = resultado.get('service', '').lower()
+
+            conn = get_db_connection()
+            cursor = conn.cursor()
+
+            for item in interesting:
+                resource_id = item.get('resource_id', '')
+                check_id    = item.get('check_id', '')
+
+                if not resource_id or not check_id:
+                    continue
+
+                cursor.execute("""
+                    INSERT INTO findings (
+                        proyecto_id,
+                        usuario_id,
+                        cloud_ejecucion_id,
+                        security_rules_id,
+                        check_id,
+                        provider,
+                        service,
+                        resource_id,
+                        severidad_id,
+                        estados_findings_id,
+                        estado_id
+                    ) VALUES (%s,%s,%s,NULL,%s,%s,%s,%s,1,1,1)
+
+                    ON DUPLICATE KEY UPDATE
+                        actualizacion = CURRENT_TIMESTAMP
+                """, (
+                    proyecto_id,
+                    usuario_id,
+                    ejecucion_id,
+                    check_id,
+                    provider,
+                    service,
+                    resource_id
+                ))
+
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+        except Exception as e:
+            print(f"[auto_insert_findings] Error: {e}")
 
     @staticmethod
     def mark_failed(error, ejecucion_id):
@@ -129,6 +228,7 @@ class CloudEjecucion:
                 return []
 
         interesting = []
+
         # 🔴 Si la ejecución falló por permisos
         if resultado.get("status") == "FAILED":
             error = resultado.get("error", "")
@@ -141,18 +241,33 @@ class CloudEjecucion:
 
         for r in resultado.get("resources", []):
             analysis = r.get("analysis", {})
+            added_keys = set()  # evitar duplicados por recurso
 
             for key, value in analysis.items():
+                key_lower = key.lower()
 
+                # ✅ Hallazgo cuando algo riesgoso ES True
                 if value is True:
-                    key_lower = key.lower()
-
                     for keyword in CloudEjecucion.RISK_KEYWORDS:
                         if keyword in key_lower:
-                            interesting.append({
-                                "resource_id": r.get("resource_id"),
-                                "check_id": key
-                            })
+                            if key not in added_keys:
+                                interesting.append({
+                                    "resource_id": r.get("resource_id"),
+                                    "check_id": key
+                                })
+                                added_keys.add(key)
                             break
+
+                # ✅ Hallazgo cuando algo importante NO está habilitado
+                if value is False:
+                    for keyword in CloudEjecucion.RISK_FALSE_KEYWORDS:
+                        if keyword in key_lower:
+                            if key not in added_keys:
+                                interesting.append({
+                                    "resource_id": r.get("resource_id"),
+                                    "check_id": key
+                                })
+                                added_keys.add(key)
+                            break
+
         return interesting
-    

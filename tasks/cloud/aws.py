@@ -8,47 +8,136 @@ from botocore.exceptions import ClientError
 from datetime import datetime, timezone
 
 
-#Helper session AWS
+# ══════════════════════════════════════════════════════════════════
+# HELPERS GLOBALES
+# ══════════════════════════════════════════════════════════════════
+
 def _get_aws_session(proyecto_id):
+    """Crea y retorna una sesión AWS autenticada para el proyecto dado."""
     config = Proyecto.get_cloud_config(proyecto_id)
     if not config:
         raise Exception("No existe configuración Cloud para este proyecto")
 
     fernet = Fernet(Config.FERNET_KEY)
-    secret_key = fernet.decrypt(config['secret_key'].encode()).decode()
+    region = config["region"]
 
-    return boto3.Session(
-        aws_access_key_id=config['access_key'],
-        aws_secret_access_key=secret_key,
-        region_name=config['region']
-    ), config["region"]
+    if config.get("auth_method") == "role":
+        # ── Modo AssumeRole ──────────────────────────────────────────
+        secret_key = fernet.decrypt(config["secret_key"].encode()).decode()
+
+        sts = boto3.client(
+            "sts",
+            aws_access_key_id=config["access_key"],
+            aws_secret_access_key=secret_key
+        )
+
+        assume_params = {
+            "RoleArn": config["role_arn"],
+            "RoleSessionName": "RedScopeSession",
+            "DurationSeconds": 3600
+        }
+
+        if config.get("external_id"):
+            assume_params["ExternalId"] = config["external_id"]
+
+        response = sts.assume_role(**assume_params)
+        creds = response["Credentials"]
+
+        session = boto3.Session(
+            aws_access_key_id=creds["AccessKeyId"],
+            aws_secret_access_key=creds["SecretAccessKey"],
+            aws_session_token=creds["SessionToken"],
+            region_name=region
+        )
+
+    else:
+        # ── Modo keys directas ───────────────────────────────────────
+        secret_key = fernet.decrypt(config["secret_key"].encode()).decode()
+
+        session = boto3.Session(
+            aws_access_key_id=config["access_key"],
+            aws_secret_access_key=secret_key,
+            region_name=region
+        )
+
+    return session, region
+
+def _get_account_id(session):
+    """Retorna el account ID de la sesión actual."""
+    return session.client("sts").get_caller_identity()["Account"]
 
 
-# ===================== Inicio IAM ==================== #
-def discovery_roles_job(ejecucion_id, proyecto_id):
+def _run_job(ejecucion_id, fn):
+    """
+    Wrapper genérico para todos los jobs.
+    Maneja mark_running / mark_completed / mark_failed de forma centralizada.
+    """
     try:
         CloudEjecucion.mark_running(ejecucion_id)
+        resultado = fn()
+        CloudEjecucion.mark_completed(
+            json.dumps(resultado, indent=2, default=str),
+            ejecucion_id
+        )
+    except Exception as e:
+        CloudEjecucion.mark_failed(str(e), ejecucion_id)
 
+
+def _build_resultado(provider, service, inventory_type, account_id, region, resources, **extra):
+    """Construye el envelope estándar de resultado."""
+    base = {
+        "provider": provider,
+        "service": service,
+        "inventory_type": inventory_type,
+        "account_id": account_id,
+        "region": region,
+        "total_resources": len(resources),
+        "resources": resources
+    }
+    base.update(extra)
+    return base
+
+
+def _base_resource(provider, service, resource_type, resource_id, account_id, region, analysis, **extra):
+    """Construye un recurso estándar para incluir en resources[]."""
+    base = {
+        "provider": provider,
+        "service": service,
+        "account_id": account_id,
+        "region": region,
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "analysis": analysis
+    }
+    base.update(extra)
+    return base
+
+
+# ══════════════════════════════════════════════════════════════════
+# IAM
+# ══════════════════════════════════════════════════════════════════
+
+def discovery_roles_job(ejecucion_id, proyecto_id):
+
+    def _execute():
         session, region = _get_aws_session(proyecto_id)
         iam = session.client("iam")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
+        account_id = _get_account_id(session)
         collection_timestamp = datetime.now(timezone.utc).isoformat()
 
+        resources = []
         paginator = iam.get_paginator("list_roles")
-        roles = []
 
         for page in paginator.paginate():
             for role in page.get("Roles", []):
-
-                role_info = {
-                    "provider": "AWS",
-                    "service": "IAM",
-                    "region": region,
-                    "resource_type": "IAMRole",
-                    "resource_id": role["Arn"],
-                    "metadata": {
+                resources.append(_base_resource(
+                    provider="AWS",
+                    service="IAM",
+                    resource_type="IAMRole",
+                    resource_id=role["Arn"],
+                    account_id=account_id,
+                    region=region,
+                    analysis={
                         "role_name": role["RoleName"],
                         "arn": role["Arn"],
                         "path": role.get("Path"),
@@ -56,388 +145,512 @@ def discovery_roles_job(ejecucion_id, proyecto_id):
                         "max_session_duration": role.get("MaxSessionDuration"),
                         "assume_role_policy": role.get("AssumeRolePolicyDocument")
                     },
-                    "errors": []
-                }
+                    errors=[]
+                ))
 
-                roles.append(role_info)
-
-        resultado = {
-            "provider": "AWS",
-            "service": "IAM",
-            "inventory_type": "ROLE_METADATA",
-            "account_id": account_id,
-            "region": region,
-            "collection_timestamp": collection_timestamp,
-            "total_resources": len(roles),
-            "resources": roles
-        }
-
-        CloudEjecucion.mark_completed(
-            json.dumps(resultado, indent=2),
-            ejecucion_id
+        return _build_resultado(
+            "AWS", "IAM", "ROLE_METADATA",
+            account_id, region, resources,
+            collection_timestamp=collection_timestamp
         )
 
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
+    _run_job(ejecucion_id, _execute)
 
 
 def discovery_policies_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
+    def _execute():
         session, region = _get_aws_session(proyecto_id)
         iam = session.client("iam")
-        sts = session.client("sts")
+        account_id = _get_account_id(session)
 
-        account_id = sts.get_caller_identity()["Account"]
-
-        paginator = iam.get_paginator("list_policies")
         resources = []
+        paginator = iam.get_paginator("list_policies")
 
         for page in paginator.paginate(Scope="All"):
             for policy in page.get("Policies", []):
 
-                # Solo policies que están adjuntas a algo
                 if policy.get("AttachmentCount", 0) == 0:
                     continue
 
                 policy_arn = policy["Arn"]
 
-                resources.append({
-                    "provider": "AWS",
-                    "service": "IAM",
-                    "region": region,
-                    "resource_type": "IAMPolicy",
-                    "resource_id": policy_arn,
-                    "metadata": {
+                resources.append(_base_resource(
+                    provider="AWS",
+                    service="IAM",
+                    resource_type="IAMPolicy",
+                    resource_id=policy_arn,
+                    account_id=account_id,
+                    region=region,
+                    analysis={
                         "policy_name": policy["PolicyName"],
                         "arn": policy_arn,
                         "attachment_count": policy.get("AttachmentCount"),
                         "is_attachable": policy.get("IsAttachable"),
                         "default_version_id": policy.get("DefaultVersionId"),
-                        "create_date": policy.get("CreateDate").isoformat() if policy.get("CreateDate") else None,
-                        "update_date": policy.get("UpdateDate").isoformat() if policy.get("UpdateDate") else None
+                        "create_date": policy["CreateDate"].isoformat() if policy.get("CreateDate") else None,
+                        "update_date": policy["UpdateDate"].isoformat() if policy.get("UpdateDate") else None
                     },
-                    "errors": []
-                })
+                    errors=[]
+                ))
 
-        resultado = {
-            "provider": "AWS",
-            "service": "IAM",
-            "inventory_type": "ACTIVE_POLICY_METADATA",
-            "account_id": account_id,
-            "region": region,
-            "total_resources": len(resources),
-            "resources": resources
-        }
+        return _build_resultado("AWS", "IAM", "ACTIVE_POLICY_METADATA", account_id, region, resources)
 
-        CloudEjecucion.mark_completed(
-            json.dumps(resultado, indent=2),
-            ejecucion_id
-        )
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
+    _run_job(ejecucion_id, _execute)
 
 
 def password_policy_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
+    def _execute():
         session, region = _get_aws_session(proyecto_id)
         iam = session.client("iam")
-        sts = session.client("sts")
+        account_id = _get_account_id(session)
 
-        account_id = sts.get_caller_identity()["Account"]
-
-        resource = {
-            "provider": "AWS",
-            "service": "IAM",
-            "region": region,
-            "resource_type": "AccountPasswordPolicy",
-            "resource_id": "account_password_policy",
-            "metadata": {
-                "password_policy": None,
-                "exists": False,
-                "summary": None
-            },
-            "errors": []
+        analysis = {
+            "password_policy": None,
+            "exists": False,
+            "summary": None
         }
+        errors = []
 
         try:
-            policy = iam.get_account_password_policy()
-            password_policy = policy.get("PasswordPolicy")
-
-            resource["metadata"]["password_policy"] = password_policy
-            resource["metadata"]["exists"] = True
-
-            resource["metadata"]["summary"] = {
-                "minimum_length": password_policy.get("MinimumPasswordLength"),
-                "require_symbols": password_policy.get("RequireSymbols"),
-                "require_numbers": password_policy.get("RequireNumbers"),
-                "require_uppercase": password_policy.get("RequireUppercaseCharacters"),
-                "require_lowercase": password_policy.get("RequireLowercaseCharacters"),
-                "allow_user_change": password_policy.get("AllowUsersToChangePassword"),
-                "hard_expiry": password_policy.get("HardExpiry"),
-                "max_age": password_policy.get("MaxPasswordAge"),
-                "reuse_prevention": password_policy.get("PasswordReusePrevention")
+            policy = iam.get_account_password_policy().get("PasswordPolicy")
+            analysis["password_policy"] = policy
+            analysis["exists"] = True
+            analysis["summary"] = {
+                "minimum_length": policy.get("MinimumPasswordLength"),
+                "require_symbols": policy.get("RequireSymbols"),
+                "require_numbers": policy.get("RequireNumbers"),
+                "require_uppercase": policy.get("RequireUppercaseCharacters"),
+                "require_lowercase": policy.get("RequireLowercaseCharacters"),
+                "allow_user_change": policy.get("AllowUsersToChangePassword"),
+                "hard_expiry": policy.get("HardExpiry"),
+                "max_age": policy.get("MaxPasswordAge"),
+                "reuse_prevention": policy.get("PasswordReusePrevention")
             }
-
         except iam.exceptions.NoSuchEntityException:
-            # No existe policy configurada
-            resource["metadata"]["exists"] = False
-
+            analysis["exists"] = False
         except Exception as e:
-            resource["errors"].append(f"password_policy_error: {str(e)}")
+            errors.append(f"password_policy_error: {e}")
 
-        resultado = {
-            "provider": "AWS",
-            "service": "IAM",
-            "inventory_type": "ACCOUNT_PASSWORD_POLICY",
-            "account_id": account_id,
-            "region": region,
-            "total_resources": 1,
-            "resources": [resource]
-        }
-
-        CloudEjecucion.mark_completed(
-            json.dumps(resultado, indent=2, default=str),
-            ejecucion_id
+        resource = _base_resource(
+            provider="AWS",
+            service="IAM",
+            resource_type="AccountPasswordPolicy",
+            resource_id="account_password_policy",
+            account_id=account_id,
+            region=region,
+            analysis=analysis,
+            errors=errors
         )
 
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-        
-# ===================== Final IAM ==================== #
+        return _build_resultado("AWS", "IAM", "ACCOUNT_PASSWORD_POLICY", account_id, region, [resource])
 
+    _run_job(ejecucion_id, _execute)
+    
+def iam_users_review_job(ejecucion_id, proyecto_id):
 
-# ===================== Inicio S3 ==================== #
-def s3_public_exposure_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
-
+    def _execute():
         session, region = _get_aws_session(proyecto_id)
-        s3 = session.client("s3")
-        sts = session.client("sts")
+        iam = session.client("iam")
+        account_id = _get_account_id(session)
+        collection_timestamp = datetime.now(timezone.utc).isoformat()
 
-        account_id = sts.get_caller_identity()["Account"]
+        resources = []
+        paginator = iam.get_paginator("list_users")
 
-        buckets = s3.list_buckets().get("Buckets", [])
+        for page in paginator.paginate():
+            for user in page.get("Users", []):
+                username = user["UserName"]
+                user_arn = user["Arn"]
+                errors = []
+
+                # MFA CHECK
+                mfa_enabled = False
+                try:
+                    mfa_devices = iam.list_mfa_devices(UserName=username).get("MFADevices", [])
+                    mfa_enabled = len(mfa_devices) > 0
+                except Exception as e:
+                    errors.append(f"mfa_check_error: {e}")
+
+                # CONSOLE ACCESS CHECK
+                console_access = False
+                try:
+                    iam.get_login_profile(UserName=username)
+                    console_access = True
+                except iam.exceptions.NoSuchEntityException:
+                    console_access = False
+                except Exception as e:
+                    errors.append(f"console_access_error: {e}")
+
+                # ACCESS KEYS CHECK
+                access_keys = []
+                old_access_key = False
+                try:
+                    keys = iam.list_access_keys(UserName=username).get("AccessKeyMetadata", [])
+                    for key in keys:
+                        created = key.get("CreateDate")
+                        days_old = (datetime.now(timezone.utc) - created).days if created else None
+                        is_old = days_old > 90 if days_old is not None else False
+                        if is_old:
+                            old_access_key = True
+                        access_keys.append({
+                            "access_key_id": key.get("AccessKeyId"),
+                            "status": key.get("Status"),
+                            "created_date": created.isoformat() if created else None,
+                            "days_old": days_old,
+                            "is_old": is_old
+                        })
+                except Exception as e:
+                    errors.append(f"access_keys_error: {e}")
+
+                # ATTACHED POLICIES CHECK
+                attached_policies = []
+                has_admin_policy = False
+                try:
+                    policies = iam.list_attached_user_policies(UserName=username).get("AttachedPolicies", [])
+                    for p in policies:
+                        if p["PolicyName"] == "AdministratorAccess":
+                            has_admin_policy = True
+                        attached_policies.append({
+                            "policy_name": p["PolicyName"],
+                            "policy_arn": p["PolicyArn"]
+                        })
+                except Exception as e:
+                    errors.append(f"attached_policies_error: {e}")
+
+                # GROUPS CHECK
+                groups = []
+                try:
+                    user_groups = iam.list_groups_for_user(UserName=username).get("Groups", [])
+                    groups = [g["GroupName"] for g in user_groups]
+                except Exception as e:
+                    errors.append(f"groups_error: {e}")
+
+                resources.append(_base_resource(
+                    provider="AWS",
+                    service="IAM",
+                    resource_type="IAMUser",
+                    resource_id=user_arn,
+                    account_id=account_id,
+                    region=region,
+                    analysis={
+                        "username": username,
+                        "arn": user_arn,
+                        "create_date": user["CreateDate"].isoformat(),
+                        "mfa_enabled": mfa_enabled,
+                        "console_access": console_access,
+                        "console_without_mfa": console_access and not mfa_enabled,
+                        "access_keys": access_keys,
+                        "old_access_key": old_access_key,
+                        "attached_policies": attached_policies,
+                        "has_admin_policy": has_admin_policy,
+                        "groups": groups
+                    },
+                    errors=errors
+                ))
+
+        return _build_resultado(
+            "AWS", "IAM", "IAM_USERS_REVIEW",
+            account_id, region, resources,
+            collection_timestamp=collection_timestamp
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def iam_privilege_escalation_job(ejecucion_id, proyecto_id):
+
+    ESCALATION_PERMISSIONS = {
+        "iam:CreatePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+        "iam:AttachRolePolicy",
+        "iam:AttachUserPolicy",
+        "iam:AttachGroupPolicy",
+        "iam:PutRolePolicy",
+        "iam:PutUserPolicy",
+        "iam:PutGroupPolicy",
+        "iam:CreateAccessKey",
+        "iam:CreateLoginProfile",
+        "iam:UpdateLoginProfile",
+        "iam:AddUserToGroup",
+        "iam:UpdateAssumeRolePolicy",
+        "sts:AssumeRole",
+        "lambda:CreateFunction",
+        "lambda:InvokeFunction",
+        "ec2:RunInstances",
+        "cloudformation:CreateStack",
+        "glue:CreateDevEndpoint"
+    }
+
+    def _execute():
+        session, region = _get_aws_session(proyecto_id)
+        iam = session.client("iam")
+        account_id = _get_account_id(session)
+        resources = []
+
+        paginator = iam.get_paginator("list_roles")
+        for page in paginator.paginate():
+            for role in page.get("Roles", []):
+                role_name = role["RoleName"]
+                role_arn = role["Arn"]
+                escalation_permissions_found = []
+                errors = []
+
+                try:
+                    # Attached policies
+                    for p in iam.list_attached_role_policies(RoleName=role_name).get("AttachedPolicies", []):
+                        p_arn = p["PolicyArn"]
+                        version = iam.get_policy(PolicyArn=p_arn)["Policy"]["DefaultVersionId"]
+                        doc = iam.get_policy_version(PolicyArn=p_arn, VersionId=version)["PolicyVersion"]["Document"]
+                        for stmt in doc.get("Statement", []):
+                            if stmt.get("Effect") != "Allow":
+                                continue
+                            actions = stmt.get("Action", [])
+                            if isinstance(actions, str):
+                                actions = [actions]
+                            # Wildcard total
+                            if "*" in actions or "iam:*" in actions:
+                                escalation_permissions_found.append("*")
+                                break
+                            for action in actions:
+                                if action in ESCALATION_PERMISSIONS:
+                                    escalation_permissions_found.append(action)
+
+                    # Inline policies
+                    for policy_name in iam.list_role_policies(RoleName=role_name).get("PolicyNames", []):
+                        doc = iam.get_role_policy(RoleName=role_name, PolicyName=policy_name)["PolicyDocument"]
+                        for stmt in doc.get("Statement", []):
+                            if stmt.get("Effect") != "Allow":
+                                continue
+                            actions = stmt.get("Action", [])
+                            if isinstance(actions, str):
+                                actions = [actions]
+                            if "*" in actions or "iam:*" in actions:
+                                escalation_permissions_found.append("*")
+                                break
+                            for action in actions:
+                                if action in ESCALATION_PERMISSIONS:
+                                    escalation_permissions_found.append(action)
+
+                except Exception as e:
+                    errors.append(f"policy_review_error: {e}")
+
+                escalation_permissions_found = list(set(escalation_permissions_found))
+                has_privilege_escalation_risk = len(escalation_permissions_found) > 0
+
+                if has_privilege_escalation_risk:
+                    resources.append(_base_resource(
+                        provider="AWS",
+                        service="IAM",
+                        resource_type="IAMRole",
+                        resource_id=role_arn,
+                        account_id=account_id,
+                        region=region,
+                        analysis={
+                            "role_name": role_name,
+                            "arn": role_arn,
+                            "has_privilege_escalation_risk": has_privilege_escalation_risk,
+                            "escalation_permissions_found": escalation_permissions_found,
+                            "total_dangerous_permissions": len(escalation_permissions_found)
+                        },
+                        errors=errors
+                    ))
+
+        return _build_resultado(
+            "AWS", "IAM", "IAM_PRIVILEGE_ESCALATION_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+# ══════════════════════════════════════════════════════════════════
+# S3 — HELPERS INTERNOS
+# ══════════════════════════════════════════════════════════════════
+
+def _s3_context(proyecto_id):
+    """Retorna (session, s3_client, account_id, region, buckets)."""
+    session, region = _get_aws_session(proyecto_id)
+    s3 = session.client("s3")
+    account_id = _get_account_id(session)
+    buckets = s3.list_buckets().get("Buckets", [])
+    return session, s3, account_id, region, buckets
+
+
+# ══════════════════════════════════════════════════════════════════
+# S3
+# ══════════════════════════════════════════════════════════════════
+
+def s3_public_exposure_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, s3, account_id, region, buckets = _s3_context(proyecto_id)
+
+        # ── Account-level Public Access Block (check que faltaba vs Prowler) ──
+        account_block_enabled = False
+        account_block_error = None
+        try:
+            s3control = session.client("s3control", region_name=region)
+            pab = s3control.get_public_access_block(AccountId=account_id)
+            cfg = pab["PublicAccessBlockConfiguration"]
+            account_block_enabled = all([
+                cfg.get("BlockPublicAcls", False),
+                cfg.get("IgnorePublicAcls", False),
+                cfg.get("BlockPublicPolicy", False),
+                cfg.get("RestrictPublicBuckets", False),
+            ])
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "NoSuchPublicAccessBlockConfiguration":
+                account_block_enabled = False
+            else:
+                account_block_error = str(e)
+
         resources = []
 
         for bucket in buckets:
             bucket_name = bucket["Name"]
-
             public_via_acl = False
             public_via_policy = False
             public_write = False
             block_public_disabled = False
             errors = []
 
-            # 🔹 ACL CHECK
+            # ACL CHECK
             try:
                 acl = s3.get_bucket_acl(Bucket=bucket_name)
                 for grant in acl.get("Grants", []):
-                    grantee = grant.get("Grantee", {})
-                    uri = grantee.get("URI", "")
+                    uri = grant.get("Grantee", {}).get("URI", "")
                     permission = grant.get("Permission")
-
                     if "AllUsers" in uri:
                         public_via_acl = True
                         if permission in ["WRITE", "FULL_CONTROL"]:
                             public_write = True
-
             except Exception as e:
-                errors.append(f"acl_check_error: {str(e)}")
+                errors.append(f"acl_check_error: {e}")
 
-            # 🔹 POLICY CHECK
+            # POLICY CHECK
             try:
                 policy = s3.get_bucket_policy(Bucket=bucket_name)
                 policy_doc = json.loads(policy["Policy"])
-
-                for statement in policy_doc.get("Statement", []):
-                    if statement.get("Effect") != "Allow":
+                for stmt in policy_doc.get("Statement", []):
+                    if stmt.get("Effect") != "Allow":
                         continue
-
-                    principal = statement.get("Principal")
-                    actions = statement.get("Action")
-
-                    principal_is_public = (
-                        principal == "*" or
-                        (isinstance(principal, dict) and principal.get("AWS") == "*")
-                    )
-
-                    if principal_is_public:
+                    principal = stmt.get("Principal")
+                    actions = stmt.get("Action", [])
+                    if principal == "*" or (isinstance(principal, dict) and principal.get("AWS") == "*"):
                         public_via_policy = True
-
                         if isinstance(actions, str):
                             actions = [actions]
-
                         if any(a in ["s3:*", "s3:PutObject"] for a in actions):
                             public_write = True
-
             except ClientError as e:
                 if e.response["Error"]["Code"] != "NoSuchBucketPolicy":
-                    errors.append(f"policy_check_error: {str(e)}")
+                    errors.append(f"policy_check_error: {e}")
 
-            # 🔹 BLOCK PUBLIC ACCESS CHECK
+            # BUCKET-LEVEL BLOCK PUBLIC ACCESS CHECK
             try:
                 pab = s3.get_public_access_block(Bucket=bucket_name)
-                config = pab["PublicAccessBlockConfiguration"]
-
-                if not all(config.values()):
+                cfg = pab["PublicAccessBlockConfiguration"]
+                if not all(cfg.values()):
                     block_public_disabled = True
-
             except ClientError as e:
                 if e.response["Error"]["Code"] == "NoSuchPublicAccessBlockConfiguration":
                     block_public_disabled = True
                 else:
-                    errors.append(f"pab_check_error: {str(e)}")
+                    errors.append(f"pab_check_error: {e}")
 
-            # 🔥 Evaluación final real
-            is_effectively_public = (
-                (public_via_acl or public_via_policy)
-                and not block_public_disabled
-            )
+            is_effectively_public = (public_via_acl or public_via_policy) and block_public_disabled
 
-            resources.append({
-                "provider": "AWS",
-                "service": "S3",
-                "region": region,
-                "resource_type": "S3Bucket",
-                "resource_id": bucket_name,
-                "analysis": {
+            resources.append(_base_resource(
+                provider="AWS", service="S3",
+                resource_type="S3Bucket", resource_id=bucket_name,
+                account_id=account_id, region=region,
+                analysis={
                     "public_via_acl": public_via_acl,
                     "public_via_policy": public_via_policy,
                     "public_write": public_write,
                     "block_public_access_disabled": block_public_disabled,
                     "is_effectively_public": is_effectively_public
                 },
-                "errors": errors
-            })
+                errors=errors
+            ))
 
-        resultado = {
-            "provider": "AWS",
-            "service": "S3",
-            "inventory_type": "PUBLIC_EXPOSURE_ANALYSIS",
-            "account_id": account_id,
-            "region": region,
-            "total_resources": len(resources),
-            "resources": resources
-        }
-
-        CloudEjecucion.mark_completed(
-            json.dumps(resultado, indent=2),
-            ejecucion_id
+        return _build_resultado(
+            "AWS", "S3", "PUBLIC_EXPOSURE_ANALYSIS",
+            account_id, region, resources,
+            account_level_block_public_access={
+                "enabled": account_block_enabled,
+                "error": account_block_error
+            }
         )
 
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
+    _run_job(ejecucion_id, _execute)
+
 
 def s3_encryption_logging_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
-        session, region = _get_aws_session(proyecto_id)
-        s3 = session.client("s3")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
-        buckets = s3.list_buckets().get("Buckets", [])
+    def _execute():
+        _, s3, account_id, region, buckets = _s3_context(proyecto_id)
         resources = []
 
         for bucket in buckets:
             bucket_name = bucket["Name"]
-
             encryption_enabled = False
             encryption_type = None
             versioning_enabled = False
             logging_enabled = False
             errors = []
 
-            # 🔐 ENCRYPTION CHECK
             try:
                 enc = s3.get_bucket_encryption(Bucket=bucket_name)
                 rules = enc.get("ServerSideEncryptionConfiguration", {}).get("Rules", [])
-
                 if rules:
                     encryption_enabled = True
-                    encryption_type = (
-                        rules[0]
-                        .get("ApplyServerSideEncryptionByDefault", {})
-                        .get("SSEAlgorithm")
-                    )
-
+                    encryption_type = rules[0].get("ApplyServerSideEncryptionByDefault", {}).get("SSEAlgorithm")
             except ClientError as e:
                 if e.response["Error"]["Code"] != "ServerSideEncryptionConfigurationNotFoundError":
-                    errors.append(f"encryption_check_error: {str(e)}")
+                    errors.append(f"encryption_check_error: {e}")
 
-            # ♻ VERSIONING CHECK
             try:
                 versioning = s3.get_bucket_versioning(Bucket=bucket_name)
-                if versioning.get("Status") == "Enabled":
-                    versioning_enabled = True
+                versioning_enabled = versioning.get("Status") == "Enabled"
             except Exception as e:
-                errors.append(f"versioning_check_error: {str(e)}")
+                errors.append(f"versioning_check_error: {e}")
 
-            # 📜 LOGGING CHECK
             try:
-                logging = s3.get_bucket_logging(Bucket=bucket_name)
-                if logging.get("LoggingEnabled"):
-                    logging_enabled = True
+                logging_cfg = s3.get_bucket_logging(Bucket=bucket_name)
+                logging_enabled = bool(logging_cfg.get("LoggingEnabled"))
             except Exception as e:
-                errors.append(f"logging_check_error: {str(e)}")
+                errors.append(f"logging_check_error: {e}")
 
-            resources.append({
-                "provider": "AWS",
-                "service": "S3",
-                "region": region,
-                "resource_type": "S3Bucket",
-                "resource_id": bucket_name,
-                "analysis": {
+            resources.append(_base_resource(
+                provider="AWS", service="S3",
+                resource_type="S3Bucket", resource_id=bucket_name,
+                account_id=account_id, region=region,
+                analysis={
                     "encryption_enabled": encryption_enabled,
                     "encryption_type": encryption_type,
                     "versioning_enabled": versioning_enabled,
                     "logging_enabled": logging_enabled
                 },
-                "errors": errors
-            })
+                errors=errors
+            ))
 
-        resultado = {
-            "provider": "AWS",
-            "service": "S3",
-            "inventory_type": "SECURITY_POSTURE_ANALYSIS",
-            "account_id": account_id,
-            "region": region,
-            "total_resources": len(resources),
-            "resources": resources
-        }
+        return _build_resultado("AWS", "S3", "SECURITY_POSTURE_ANALYSIS", account_id, region, resources)
 
-        CloudEjecucion.mark_completed(
-            json.dumps(resultado, indent=2),
-            ejecucion_id
-        )
+    _run_job(ejecucion_id, _execute)
 
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
 
 def s3_iam_access_review_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
-        session, region = _get_aws_session(proyecto_id)
-        s3 = session.client("s3")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
-        buckets = s3.list_buckets().get("Buckets", [])
+    def _execute():
+        _, s3, account_id, region, buckets = _s3_context(proyecto_id)
         resources = []
 
         for bucket in buckets:
             bucket_name = bucket["Name"]
-
             is_public = False
             cross_account = False
             wildcard_action = False
@@ -445,148 +658,224 @@ def s3_iam_access_review_job(ejecucion_id, proyecto_id):
             wildcard_resource = False
             errors = []
 
+            dangerous_actions = {"s3:PutObject", "s3:DeleteObject", "s3:PutBucketPolicy", "s3:PutObjectAcl", "s3:*"}
+
             try:
                 policy = s3.get_bucket_policy(Bucket=bucket_name)
                 policy_doc = json.loads(policy["Policy"])
 
-                for statement in policy_doc.get("Statement", []):
-
-                    if statement.get("Effect") != "Allow":
+                for stmt in policy_doc.get("Statement", []):
+                    if stmt.get("Effect") != "Allow":
                         continue
 
-                    principal = statement.get("Principal")
-                    actions = statement.get("Action")
-                    resource = statement.get("Resource")
+                    principal = stmt.get("Principal")
+                    actions = stmt.get("Action", [])
+                    resource = stmt.get("Resource", [])
 
-                    # ---------- PRINCIPAL CHECK ----------
+                    # PRINCIPAL CHECK
                     if principal == "*":
                         is_public = True
-
                     elif isinstance(principal, dict):
-                        aws_principal = principal.get("AWS")
-
-                        if aws_principal == "*":
+                        aws_p = principal.get("AWS")
+                        if aws_p == "*":
                             is_public = True
-
-                        principals = []
-                        if isinstance(aws_principal, str):
-                            principals = [aws_principal]
-                        elif isinstance(aws_principal, list):
-                            principals = aws_principal
-
+                        principals = [aws_p] if isinstance(aws_p, str) else (aws_p or [])
                         for p in principals:
                             if f":{account_id}:" not in p:
                                 cross_account = True
 
-                    # ---------- ACTION CHECK ----------
+                    # ACTION CHECK
                     if isinstance(actions, str):
                         actions = [actions]
-
-                    if "*" in actions:
+                    if "*" in actions or any(a.endswith("*") for a in actions):
                         wildcard_action = True
-
-                    if any(a.endswith("*") for a in actions):
-                        wildcard_action = True
-
-                    dangerous_actions = [
-                        "s3:PutObject",
-                        "s3:DeleteObject",
-                        "s3:PutBucketPolicy",
-                        "s3:PutObjectAcl"
-                    ]
-
-                    if any(a in dangerous_actions or a == "s3:*" for a in actions):
+                    if any(a in dangerous_actions for a in actions):
                         dangerous_write = True
 
-                    # ---------- RESOURCE CHECK ----------
+                    # RESOURCE CHECK
                     if isinstance(resource, str):
                         resource = [resource]
-
-                    for r in resource:
-                        if r == "*" or r.endswith("/*"):
-                            wildcard_resource = True
+                    if any(r == "*" or r.endswith("/*") for r in resource):
+                        wildcard_resource = True
 
             except ClientError as e:
                 if e.response["Error"]["Code"] != "NoSuchBucketPolicy":
-                    errors.append(f"policy_check_error: {str(e)}")
+                    errors.append(f"policy_check_error: {e}")
 
-            resources.append({
-                "provider": "AWS",
-                "service": "S3",
-                "region": region,
-                "resource_type": "S3Bucket",
-                "resource_id": bucket_name,
-                "analysis": {
+            resources.append(_base_resource(
+                provider="AWS", service="S3",
+                resource_type="S3Bucket", resource_id=bucket_name,
+                account_id=account_id, region=region,
+                analysis={
                     "public_access": is_public,
                     "cross_account_access": cross_account,
                     "wildcard_action": wildcard_action,
                     "dangerous_write_permissions": dangerous_write,
                     "wildcard_resource": wildcard_resource
                 },
-                "errors": errors
-            })
+                errors=errors
+            ))
 
-        resultado = {
-            "provider": "AWS",
-            "service": "S3",
-            "inventory_type": "IAM_POLICY_ANALYSIS",
-            "account_id": account_id,
-            "region": region,
-            "total_resources": len(resources),
-            "resources": resources
-        }
+        return _build_resultado("AWS", "S3", "IAM_POLICY_ANALYSIS", account_id, region, resources)
 
-        CloudEjecucion.mark_completed(
-            json.dumps(resultado, indent=2),
-            ejecucion_id
+    _run_job(ejecucion_id, _execute)
+
+def s3_replication_review_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, s3, account_id, region, buckets = _s3_context(proyecto_id)
+        resources = []
+
+        for bucket in buckets:
+            bucket_name = bucket["Name"]
+            replication_enabled = False
+            replication_rules = []
+            errors = []
+
+            try:
+                replication = s3.get_bucket_replication(Bucket=bucket_name)
+                config = replication.get("ReplicationConfiguration", {})
+                rules = config.get("Rules", [])
+
+                if rules:
+                    replication_enabled = True
+                    for rule in rules:
+                        replication_rules.append({
+                            "rule_id": rule.get("ID"),
+                            "status": rule.get("Status"),
+                            "destination_bucket": rule.get("Destination", {}).get("Bucket"),
+                            "destination_region": rule.get("Destination", {}).get("Bucket", "").split(":::")[1] if ":::" in rule.get("Destination", {}).get("Bucket", "") else None,
+                            "prefix": rule.get("Prefix"),
+                            "delete_marker_replication": rule.get("DeleteMarkerReplication", {}).get("Status")
+                        })
+
+            except ClientError as e:
+                if e.response["Error"]["Code"] == "ReplicationConfigurationNotFoundError":
+                    replication_enabled = False
+                else:
+                    errors.append(f"replication_check_error: {e}")
+
+            resources.append(_base_resource(
+                provider="AWS", service="S3",
+                resource_type="S3Bucket", resource_id=bucket_name,
+                account_id=account_id, region=region,
+                analysis={
+                    "replication_enabled": replication_enabled,
+                    "replication_rules": replication_rules,
+                    "total_rules": len(replication_rules)
+                },
+                errors=errors
+            ))
+
+        return _build_resultado(
+            "AWS", "S3", "REPLICATION_CONFIGURATION_REVIEW",
+            account_id, region, resources
         )
 
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-        
-# ===================== Final S3 ==================== #
+    _run_job(ejecucion_id, _execute)
 
 
-# ===================== Inicio EC2 ==================== #
+def s3_lifecycle_review_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, s3, account_id, region, buckets = _s3_context(proyecto_id)
+        resources = []
+
+        for bucket in buckets:
+            bucket_name = bucket["Name"]
+            lifecycle_enabled = False
+            lifecycle_rules = []
+            errors = []
+
+            try:
+                lifecycle = s3.get_bucket_lifecycle_configuration(Bucket=bucket_name)
+                rules = lifecycle.get("Rules", [])
+
+                if rules:
+                    lifecycle_enabled = True
+                    for rule in rules:
+                        transitions = rule.get("Transitions", [])
+                        expiration = rule.get("Expiration", {})
+                        lifecycle_rules.append({
+                            "rule_id": rule.get("ID"),
+                            "status": rule.get("Status"),
+                            "prefix": rule.get("Prefix"),
+                            "expiration_days": expiration.get("Days"),
+                            "expiration_date": str(expiration.get("Date")) if expiration.get("Date") else None,
+                            "transitions": [
+                                {
+                                    "days": t.get("Days"),
+                                    "storage_class": t.get("StorageClass")
+                                }
+                                for t in transitions
+                            ],
+                            "noncurrent_version_expiration": rule.get("NoncurrentVersionExpiration", {}).get("NoncurrentDays"),
+                            "abort_incomplete_multipart_upload": rule.get("AbortIncompleteMultipartUpload", {}).get("DaysAfterInitiation")
+                        })
+
+            except ClientError as e:
+                if e.response["Error"]["Code"] == "NoSuchLifecycleConfiguration":
+                    lifecycle_enabled = False
+                else:
+                    errors.append(f"lifecycle_check_error: {e}")
+
+            resources.append(_base_resource(
+                provider="AWS", service="S3",
+                resource_type="S3Bucket", resource_id=bucket_name,
+                account_id=account_id, region=region,
+                analysis={
+                    "lifecycle_enabled": lifecycle_enabled,
+                    "lifecycle_rules": lifecycle_rules,
+                    "total_rules": len(lifecycle_rules),
+                    "has_expiration_policy": any(
+                        r.get("expiration_days") or r.get("expiration_date")
+                        for r in lifecycle_rules
+                    ),
+                    "has_transition_policy": any(
+                        r.get("transitions")
+                        for r in lifecycle_rules
+                    )
+                },
+                errors=errors
+            ))
+
+        return _build_resultado(
+            "AWS", "S3", "LIFECYCLE_POLICY_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+# ══════════════════════════════════════════════════════════════════
+# EC2
+# ══════════════════════════════════════════════════════════════════
 
 def ec2_security_groups_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
+    def _execute():
         session, region = _get_aws_session(proyecto_id)
         ec2 = session.client("ec2")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
+        account_id = _get_account_id(session)
         COMMON_PORTS = CloudEjecucion.top_100_common_ports()
 
-        paginator = ec2.get_paginator("describe_security_groups")
-        security_groups = []
-
-        for page in paginator.paginate():
-            security_groups.extend(page.get("SecurityGroups", []))
+        all_sgs = []
+        for page in ec2.get_paginator("describe_security_groups").paginate():
+            all_sgs.extend(page.get("SecurityGroups", []))
 
         resources = []
 
-        for sg in security_groups:
-
+        for sg in all_sgs:
             sg_id = sg.get("GroupId")
             sg_name = sg.get("GroupName")
-
             exposed_rules = []
 
             for rule in sg.get("IpPermissions", []):
-
                 protocol = rule.get("IpProtocol")
                 from_port = rule.get("FromPort")
                 to_port = rule.get("ToPort")
 
-                ipv4_ranges = [r.get("CidrIp") for r in rule.get("IpRanges", [])]
-                ipv6_ranges = [r.get("CidrIpv6") for r in rule.get("Ipv6Ranges", [])]
-
-                is_public_ipv4 = "0.0.0.0/0" in ipv4_ranges
-                is_public_ipv6 = "::/0" in ipv6_ranges
+                is_public_ipv4 = "0.0.0.0/0" in [r.get("CidrIp") for r in rule.get("IpRanges", [])]
+                is_public_ipv6 = "::/0" in [r.get("CidrIpv6") for r in rule.get("Ipv6Ranges", [])]
 
                 if not (is_public_ipv4 or is_public_ipv6):
                     continue
@@ -600,204 +889,135 @@ def ec2_security_groups_job(ejecucion_id, proyecto_id):
                     "analysis": {}
                 }
 
-                # All traffic
                 if protocol == "-1":
                     rule_detail["analysis"]["all_traffic_exposed"] = True
                     exposed_rules.append(rule_detail)
                     continue
 
-                # ICMP / sin puerto
                 if from_port is None:
                     rule_detail["analysis"]["non_tcp_udp_exposed"] = True
                     exposed_rules.append(rule_detail)
                     continue
 
-                critical_ports_exposed = []
-
-                # 🔥 Evitamos expandir rango enorme
                 port_span = (to_port - from_port) if to_port else 0
 
                 if port_span > 200:
                     rule_detail["analysis"]["large_port_range_exposed"] = {
-                        "from": from_port,
-                        "to": to_port,
-                        "range_size": port_span
+                        "from": from_port, "to": to_port, "range_size": port_span
                     }
                 else:
-                    for p in range(from_port, (to_port or from_port) + 1):
-                        if p in COMMON_PORTS:
-                            critical_ports_exposed.append({
-                                "port": p,
-                                "service": COMMON_PORTS[p]
-                            })
-
-                rule_detail["analysis"]["critical_ports_exposed"] = critical_ports_exposed
-                rule_detail["analysis"]["port_range"] = {
-                    "from": from_port,
-                    "to": to_port
-                }
+                    critical = [
+                        {"port": p, "service": COMMON_PORTS[p]}
+                        for p in range(from_port, (to_port or from_port) + 1)
+                        if p in COMMON_PORTS
+                    ]
+                    rule_detail["analysis"]["critical_ports_exposed"] = critical
+                    rule_detail["analysis"]["port_range"] = {"from": from_port, "to": to_port}
 
                 exposed_rules.append(rule_detail)
 
             if exposed_rules:
-                resources.append({
-                    "provider": "AWS",
-                    "service": "EC2",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "SecurityGroup",
-                    "resource_id": sg_id,
-                    "resource_name": sg_name,
-                    "analysis": {
+                resources.append(_base_resource(
+                    provider="AWS", service="EC2",
+                    resource_type="SecurityGroup", resource_id=sg_id,
+                    account_id=account_id, region=region,
+                    analysis={
                         "public_ingress_rules_detected": True,
                         "total_public_rules": len(exposed_rules),
                         "rules": exposed_rules
-                    }
-                })
+                    },
+                    resource_name=sg_name
+                ))
 
-        resultado = {
-            "provider": "AWS",
-            "service": "EC2",
-            "inventory_type": "SECURITY_GROUP_EXPOSURE_ANALYSIS",
-            "account_id": account_id,
-            "region": region,
-            "total_security_groups": len(security_groups),
-            "total_exposed_groups": len(resources),
-            "resources": resources
-        }
-
-        CloudEjecucion.mark_completed(
-            json.dumps(resultado, indent=2),
-            ejecucion_id
+        return _build_resultado(
+            "AWS", "EC2", "SECURITY_GROUP_EXPOSURE_ANALYSIS",
+            account_id, region, resources,
+            total_security_groups=len(all_sgs),
+            total_exposed_groups=len(resources)
         )
 
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
+    _run_job(ejecucion_id, _execute)
 
 
 def ec2_public_instances_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
+    def _execute():
         session, region = _get_aws_session(proyecto_id)
         ec2 = session.client("ec2")
-        sts = session.client("sts")
+        account_id = _get_account_id(session)
 
-        account_id = sts.get_caller_identity()["Account"]
-
-        paginator = ec2.get_paginator("describe_instances")
-
+        sg_cache = {}
         findings = []
         instance_count = 0
 
-        # 🔥 Cache de SG para no repetir consultas
-        sg_cache = {}
-
-        for page in paginator.paginate():
+        for page in ec2.get_paginator("describe_instances").paginate():
             for reservation in page.get("Reservations", []):
                 for instance in reservation.get("Instances", []):
-
                     instance_count += 1
-
                     instance_id = instance.get("InstanceId")
                     state = instance.get("State", {}).get("Name")
                     public_ip = instance.get("PublicIpAddress")
-                    sg_list = instance.get("SecurityGroups", [])
 
                     if state != "running" or not public_ip:
                         continue
 
-                    sg_ids = [sg["GroupId"] for sg in sg_list]
-
-                    exposure_reason = "Instance has Public IP"
+                    sg_ids = [sg["GroupId"] for sg in instance.get("SecurityGroups", [])]
                     sg_public = False
 
                     for sg_id in sg_ids:
-
                         if sg_id not in sg_cache:
-                            sg_response = ec2.describe_security_groups(
+                            sg_cache[sg_id] = ec2.describe_security_groups(
                                 GroupIds=[sg_id]
-                            )
-                            sg_cache[sg_id] = sg_response["SecurityGroups"][0]
+                            )["SecurityGroups"][0]
 
-                        sg = sg_cache[sg_id]
-
-                        for rule in sg.get("IpPermissions", []):
-
-                            ipv4_ranges = [
-                                r.get("CidrIp") for r in rule.get("IpRanges", [])
-                            ]
-                            ipv6_ranges = [
-                                r.get("CidrIpv6") for r in rule.get("Ipv6Ranges", [])
-                            ]
-
-                            if "0.0.0.0/0" in ipv4_ranges or "::/0" in ipv6_ranges:
+                        for rule in sg_cache[sg_id].get("IpPermissions", []):
+                            ipv4 = [r.get("CidrIp") for r in rule.get("IpRanges", [])]
+                            ipv6 = [r.get("CidrIpv6") for r in rule.get("Ipv6Ranges", [])]
+                            if "0.0.0.0/0" in ipv4 or "::/0" in ipv6:
                                 sg_public = True
 
-                    if sg_public:
-                        exposure_reason = "Public IP + SG allows 0.0.0.0/0 or ::/0"
-
-                    findings.append({
-                        "provider": "AWS",
-                        "service": "EC2",
-                        "account_id": account_id,
-                        "region": region,
-                        "resource_type": "EC2Instance",
-                        "resource_id": instance_id,
-                        "analysis": {
+                    findings.append(_base_resource(
+                        provider="AWS", service="EC2",
+                        resource_type="EC2Instance", resource_id=instance_id,
+                        account_id=account_id, region=region,
+                        analysis={
                             "state": state,
                             "public_ip": public_ip,
                             "security_groups": sg_ids,
                             "sg_allows_public_ingress": sg_public,
-                            "exposure_reason": exposure_reason
+                            "exposure_reason": (
+                                "Public IP + SG allows 0.0.0.0/0 or ::/0"
+                                if sg_public else "Instance has Public IP"
+                            )
                         }
-                    })
+                    ))
 
-        resultado = {
-            "provider": "AWS",
-            "service": "EC2",
-            "inventory_type": "PUBLIC_INSTANCE_ANALYSIS",
-            "account_id": account_id,
-            "region": region,
-            "total_instances_checked": instance_count,
-            "total_findings": len(findings),
-            "resources": findings
-        }
-
-        CloudEjecucion.mark_completed(
-            json.dumps(resultado, indent=2),
-            ejecucion_id
+        return _build_resultado(
+            "AWS", "EC2", "PUBLIC_INSTANCE_ANALYSIS",
+            account_id, region, findings,
+            total_instances_checked=instance_count,
+            total_findings=len(findings)
         )
 
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
+    _run_job(ejecucion_id, _execute)
 
 
 def ec2_iam_role_review_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
+    def _execute():
         session, region = _get_aws_session(proyecto_id)
         ec2 = session.client("ec2")
         iam = session.client("iam")
-        sts = session.client("sts")
+        account_id = _get_account_id(session)
 
-        account_id = sts.get_caller_identity()["Account"]
-
-        paginator = ec2.get_paginator("describe_instances")
-
+        role_cache = {}
         findings = []
         instance_count = 0
 
-        # 🔥 Cache de roles ya analizados
-        role_analysis_cache = {}
-
-        for page in paginator.paginate():
+        for page in ec2.get_paginator("describe_instances").paginate():
             for reservation in page.get("Reservations", []):
                 for instance in reservation.get("Instances", []):
-
                     instance_count += 1
-
                     instance_id = instance.get("InstanceId")
                     iam_profile = instance.get("IamInstanceProfile")
 
@@ -805,1848 +1025,1086 @@ def ec2_iam_role_review_job(ejecucion_id, proyecto_id):
                         continue
 
                     profile_name = iam_profile["Arn"].split("/")[-1]
+                    profile = iam.get_instance_profile(InstanceProfileName=profile_name)
 
-                    profile = iam.get_instance_profile(
-                        InstanceProfileName=profile_name
-                    )
-
-                    roles = profile["InstanceProfile"]["Roles"]
-
-                    for role in roles:
-
+                    for role in profile["InstanceProfile"]["Roles"]:
                         role_name = role["RoleName"]
 
-                        # 🔥 Si ya analizamos el rol, reutilizamos
-                        if role_name not in role_analysis_cache:
-
+                        if role_name not in role_cache:
                             issues = set()
 
-                            # -------- Attached Policies --------
-                            attached_policies = iam.list_attached_role_policies(
-                                RoleName=role_name
-                            )
-
-                            for policy in attached_policies.get("AttachedPolicies", []):
-
-                                policy_name = policy["PolicyName"]
-                                policy_arn = policy["PolicyArn"]
-
-                                if policy_name == "AdministratorAccess":
+                            for policy in iam.list_attached_role_policies(RoleName=role_name).get("AttachedPolicies", []):
+                                p_arn = policy["PolicyArn"]
+                                if policy["PolicyName"] == "AdministratorAccess":
                                     issues.add("AdministratorAccess attached")
 
-                                policy_version = iam.get_policy(
-                                    PolicyArn=policy_arn
-                                )["Policy"]["DefaultVersionId"]
+                                version_id = iam.get_policy(PolicyArn=p_arn)["Policy"]["DefaultVersionId"]
+                                doc = iam.get_policy_version(PolicyArn=p_arn, VersionId=version_id)["PolicyVersion"]["Document"]
 
-                                policy_doc = iam.get_policy_version(
-                                    PolicyArn=policy_arn,
-                                    VersionId=policy_version
-                                )["PolicyVersion"]["Document"]
-
-                                for stmt in policy_doc.get("Statement", []):
-
-                                    actions = stmt.get("Action")
-
-                                    if actions == "*" or actions == ["*"]:
+                                for stmt in doc.get("Statement", []):
+                                    actions = stmt.get("Action", [])
+                                    if isinstance(actions, str):
+                                        actions = [actions]
+                                    if "*" in actions or actions == ["*"]:
                                         issues.add("Wildcard action '*' detected")
+                                    for a in actions:
+                                        if isinstance(a, str) and a.endswith(":*"):
+                                            issues.add(f"Broad permission: {a}")
 
-                                    elif isinstance(actions, list):
-                                        for action in actions:
-                                            if action.endswith(":*"):
-                                                issues.add(f"Broad permission: {action}")
-
-                                    elif isinstance(actions, str):
-                                        if actions.endswith(":*"):
-                                            issues.add(f"Broad permission: {actions}")
-
-                            # -------- Inline Policies --------
-                            inline_policies = iam.list_role_policies(
-                                RoleName=role_name
-                            )
-
-                            for policy_name in inline_policies.get("PolicyNames", []):
-
-                                inline_doc = iam.get_role_policy(
-                                    RoleName=role_name,
-                                    PolicyName=policy_name
-                                )["PolicyDocument"]
-
-                                for stmt in inline_doc.get("Statement", []):
-
-                                    actions = stmt.get("Action")
-
-                                    if actions == "*" or actions == ["*"]:
+                            for policy_name in iam.list_role_policies(RoleName=role_name).get("PolicyNames", []):
+                                doc = iam.get_role_policy(RoleName=role_name, PolicyName=policy_name)["PolicyDocument"]
+                                for stmt in doc.get("Statement", []):
+                                    actions = stmt.get("Action", [])
+                                    if isinstance(actions, str):
+                                        actions = [actions]
+                                    if "*" in actions or actions == ["*"]:
                                         issues.add("Wildcard action '*' detected (inline)")
+                                    for a in actions:
+                                        if isinstance(a, str) and a.endswith(":*"):
+                                            issues.add(f"Broad permission inline: {a}")
 
-                                    elif isinstance(actions, list):
-                                        for action in actions:
-                                            if action.endswith(":*"):
-                                                issues.add(f"Broad permission inline: {action}")
+                            role_cache[role_name] = list(issues)
 
-                                    elif isinstance(actions, str):
-                                        if actions.endswith(":*"):
-                                            issues.add(f"Broad permission inline: {actions}")
-
-                            role_analysis_cache[role_name] = list(issues)
-
-                        # 🔥 Si hay issues en ese rol, agregamos finding para esa instancia
-                        role_issues = role_analysis_cache.get(role_name)
-
+                        role_issues = role_cache.get(role_name)
                         if role_issues:
-                            findings.append({
-                                "provider": "AWS",
-                                "service": "EC2",
-                                "account_id": account_id,
-                                "region": region,
-                                "resource_type": "EC2Instance",
-                                "resource_id": instance_id,
-                                "analysis": {
-                                    "iam_role": role_name,
-                                    "issues": role_issues
-                                }
-                            })
+                            findings.append(_base_resource(
+                                provider="AWS", service="EC2",
+                                resource_type="EC2Instance", resource_id=instance_id,
+                                account_id=account_id, region=region,
+                                analysis={"iam_role": role_name, "issues": role_issues}
+                            ))
 
-        resultado = {
-            "provider": "AWS",
-            "service": "EC2",
-            "inventory_type": "EC2_IAM_ROLE_ANALYSIS",
-            "account_id": account_id,
-            "region": region,
-            "total_instances_checked": instance_count,
-            "total_findings": len(findings),
-            "resources": findings
-        }
-
-        CloudEjecucion.mark_completed(
-            json.dumps(resultado, indent=2),
-            ejecucion_id
+        return _build_resultado(
+            "AWS", "EC2", "EC2_IAM_ROLE_ANALYSIS",
+            account_id, region, findings,
+            total_instances_checked=instance_count,
+            total_findings=len(findings)
         )
 
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-
-# ===================== Final EC2 ==================== #
+    _run_job(ejecucion_id, _execute)
 
 
-# ===================== Inicio Api Gateway ==================== #
+# ══════════════════════════════════════════════════════════════════
+# API GATEWAY — HELPERS INTERNOS
+# ══════════════════════════════════════════════════════════════════
+
+def _apigw_context(proyecto_id):
+    """Retorna (session, apigw_v1, apigw_v2, account_id, region)."""
+    session, region = _get_aws_session(proyecto_id)
+    return (
+        session,
+        session.client("apigateway"),
+        session.client("apigatewayv2"),
+        _get_account_id(session),
+        region
+    )
+
+
+def _iter_rest_apis(apigw):
+    for page in apigw.get_paginator("get_rest_apis").paginate():
+        yield from page.get("items", [])
+
+
+def _iter_http_apis(apigw2):
+    for page in apigw2.get_paginator("get_apis").paginate():
+        yield from page.get("Items", [])
+
+
+def _iter_rest_stages(apigw, api_id):
+    for page in apigw.get_paginator("get_stages").paginate(restApiId=api_id):
+        yield from page.get("item", [])
+
+
+def _iter_http_stages(apigw2, api_id):
+    for page in apigw2.get_paginator("get_stages").paginate(ApiId=api_id):
+        yield from page.get("Items", [])
+
+
+def _iter_rest_resources(apigw, api_id):
+    for page in apigw.get_paginator("get_resources").paginate(restApiId=api_id):
+        yield from page.get("items", [])
+
+
+def _iter_http_routes(apigw2, api_id):
+    for page in apigw2.get_paginator("get_routes").paginate(ApiId=api_id):
+        yield from page.get("Items", [])
+
+
+# ══════════════════════════════════════════════════════════════════
+# API GATEWAY
+# ══════════════════════════════════════════════════════════════════
+
 def apigateway_public_exposure_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
-        session, region = _get_aws_session(proyecto_id)
-        apigw = session.client("apigateway")
-        apigw2 = session.client("apigatewayv2")
-        wafv2 = session.client("wafv2")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
+    def _execute():
+        session, apigw, apigw2, account_id, region = _apigw_context(proyecto_id)
         resources = []
-        total_apis_checked = 0
+        total_apis = 0
 
-        # ======================================================
-        # 🔵 REST APIs (v1)
-        # ======================================================
+        # REST APIs (v1)
+        for api in _iter_rest_apis(apigw):
+            total_apis += 1
+            api_id, api_name = api["id"], api["name"]
 
-        paginator = apigw.get_paginator("get_rest_apis")
+            policy_public = False
+            try:
+                api_full = apigw.get_rest_api(restApiId=api_id)
+                policy = api_full.get("policy", "")
+                if policy and '"Principal":"*"' in policy:
+                    policy_public = True
+            except Exception:
+                pass
 
-        for page in paginator.paginate():
-            for api in page.get("items", []):
+            stages = [
+                {
+                    "stage_name": s.get("stageName"),
+                    "cache_enabled": s.get("cacheClusterEnabled"),
+                    "logging_enabled": s.get("methodSettings", {}),
+                    "web_acl_associated": bool(s.get("webAclArn"))
+                }
+                for s in _iter_rest_stages(apigw, api_id)
+            ]
 
-                total_apis_checked += 1
+            methods = []
+            for res in _iter_rest_resources(apigw, api_id):
+                if "resourceMethods" not in res:
+                    continue
+                path = res.get("path", "/")
+                for method_name in res["resourceMethods"]:
+                    method = apigw.get_method(
+                        restApiId=api_id, resourceId=res["id"], httpMethod=method_name
+                    )
+                    methods.append({
+                        "path": path, "method": method_name,
+                        "authorization_type": method.get("authorizationType"),
+                        "api_key_required": method.get("apiKeyRequired"),
+                        "authorizer_id": method.get("authorizerId")
+                    })
 
-                api_id = api["id"]
-                api_name = api["name"]
+            resources.append(_base_resource(
+                provider="AWS", service="APIGateway",
+                resource_type="REST_API", resource_id=api_id,
+                account_id=account_id, region=region,
+                analysis={
+                    "endpoint_types": api.get("endpointConfiguration", {}).get("types", []),
+                    "resource_policy_public": policy_public,
+                    "stages": stages, "methods": methods
+                },
+                resource_name=api_name
+            ))
 
-                endpoint_types = api.get("endpointConfiguration", {}).get("types", [])
+        # HTTP / WebSocket APIs (v2)
+        for api in _iter_http_apis(apigw2):
+            total_apis += 1
+            api_id, api_name = api["ApiId"], api["Name"]
+            cors = api.get("CorsConfiguration")
 
-                policy_public = False
-                try:
-                    api_full = apigw.get_rest_api(restApiId=api_id)
-                    policy = api_full.get("policy")
-                    if policy and '"Principal":"*"' in policy:
-                        policy_public = True
-                except Exception:
-                    pass
+            routes = [
+                {
+                    "route_key": r.get("RouteKey"),
+                    "authorization_type": r.get("AuthorizationType"),
+                    "api_key_required": r.get("ApiKeyRequired"),
+                    "authorizer_id": r.get("AuthorizerId")
+                }
+                for r in _iter_http_routes(apigw2, api_id)
+            ]
 
-                stages = []
-                stage_paginator = apigw.get_paginator("get_stages")
+            stages = [
+                {
+                    "stage_name": s.get("StageName"),
+                    "auto_deploy": s.get("AutoDeploy"),
+                    "access_log_settings": s.get("AccessLogSettings"),
+                    "web_acl_associated": bool(s.get("WebAclArn"))
+                }
+                for s in _iter_http_stages(apigw2, api_id)
+            ]
 
-                for stage_page in stage_paginator.paginate(restApiId=api_id):
-                    for stage in stage_page.get("item", []):
-                        stages.append({
-                            "stage_name": stage.get("stageName"),
-                            "cache_enabled": stage.get("cacheClusterEnabled"),
-                            "logging_enabled": stage.get("methodSettings", {}),
-                            "web_acl_associated": bool(stage.get("webAclArn"))
-                        })
+            resources.append(_base_resource(
+                provider="AWS", service="APIGateway",
+                resource_type="HTTP_API", resource_id=api_id,
+                account_id=account_id, region=region,
+                analysis={
+                    "protocol_type": api.get("ProtocolType"),
+                    "cors_configuration": {
+                        "allow_origins": cors.get("AllowOrigins"),
+                        "allow_methods": cors.get("AllowMethods"),
+                        "allow_headers": cors.get("AllowHeaders")
+                    } if cors else None,
+                    "routes": routes, "stages": stages
+                },
+                resource_name=api_name
+            ))
 
-                methods_data = []
+        return _build_resultado(
+            "AWS", "APIGateway", "FULL_CONFIGURATION_ANALYSIS",
+            account_id, region, resources,
+            total_apis_checked=total_apis
+        )
 
-                resource_paginator = apigw.get_paginator("get_resources")
-
-                for res_page in resource_paginator.paginate(restApiId=api_id):
-                    for resource in res_page.get("items", []):
-
-                        if "resourceMethods" not in resource:
-                            continue
-
-                        path = resource.get("path", "/")
-
-                        for method_name in resource["resourceMethods"].keys():
-
-                            method = apigw.get_method(
-                                restApiId=api_id,
-                                resourceId=resource["id"],
-                                httpMethod=method_name
-                            )
-
-                            methods_data.append({
-                                "path": path,
-                                "method": method_name,
-                                "authorization_type": method.get("authorizationType"),
-                                "api_key_required": method.get("apiKeyRequired"),
-                                "authorizer_id": method.get("authorizerId")
-                            })
-
-                resources.append({
-                    "provider": "AWS",
-                    "service": "APIGateway",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "REST_API",
-                    "resource_id": api_id,
-                    "resource_name": api_name,
-                    "analysis": {
-                        "endpoint_types": endpoint_types,
-                        "resource_policy_public": policy_public,
-                        "stages": stages,
-                        "methods": methods_data
-                    }
-                })
-
-        # ======================================================
-        # 🟢 HTTP / WebSocket APIs (v2)
-        # ======================================================
-
-        paginator_v2 = apigw2.get_paginator("get_apis")
-
-        for page in paginator_v2.paginate():
-            for api in page.get("Items", []):
-
-                total_apis_checked += 1
-
-                api_id = api["ApiId"]
-                api_name = api["Name"]
-
-                cors = api.get("CorsConfiguration")
-                endpoint_type = api.get("ProtocolType")
-
-                cors_config = {
-                    "allow_origins": cors.get("AllowOrigins") if cors else None,
-                    "allow_methods": cors.get("AllowMethods") if cors else None,
-                    "allow_headers": cors.get("AllowHeaders") if cors else None
-                } if cors else None
-
-                routes_data = []
-                routes_paginator = apigw2.get_paginator("get_routes")
-
-                for route_page in routes_paginator.paginate(ApiId=api_id):
-                    for route in route_page.get("Items", []):
-
-                        routes_data.append({
-                            "route_key": route.get("RouteKey"),
-                            "authorization_type": route.get("AuthorizationType"),
-                            "api_key_required": route.get("ApiKeyRequired"),
-                            "authorizer_id": route.get("AuthorizerId")
-                        })
-
-                stages_data = []
-                stages_paginator = apigw2.get_paginator("get_stages")
-
-                for stage_page in stages_paginator.paginate(ApiId=api_id):
-                    for stage in stage_page.get("Items", []):
-                        stages_data.append({
-                            "stage_name": stage.get("StageName"),
-                            "auto_deploy": stage.get("AutoDeploy"),
-                            "access_log_settings": stage.get("AccessLogSettings"),
-                            "web_acl_associated": bool(stage.get("WebAclArn"))
-                        })
-
-                resources.append({
-                    "provider": "AWS",
-                    "service": "APIGateway",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "HTTP_API",
-                    "resource_id": api_id,
-                    "resource_name": api_name,
-                    "analysis": {
-                        "protocol_type": endpoint_type,
-                        "cors_configuration": cors_config,
-                        "routes": routes_data,
-                        "stages": stages_data
-                    }
-                })
-
-        # ======================================================
-
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "APIGateway",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "FULL_CONFIGURATION_ANALYSIS",
-            "total_apis_checked": total_apis_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
-
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
+    _run_job(ejecucion_id, _execute)
 
 
 def apigateway_discovery_stages_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
-        session, region = _get_aws_session(proyecto_id)
-        apigw = session.client("apigateway")
-        apigw2 = session.client("apigatewayv2")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
+    def _execute():
+        _, apigw, apigw2, account_id, region = _apigw_context(proyecto_id)
         resources = []
-        total_apis_checked = 0
+        total_apis = 0
 
-        # ======================================================
-        # 🔵 REST APIs (v1)
-        # ======================================================
+        for api in _iter_rest_apis(apigw):
+            total_apis += 1
+            api_id, api_name = api["id"], api["name"]
+            for stage in _iter_rest_stages(apigw, api_id):
+                resources.append(_base_resource(
+                    provider="AWS", service="APIGateway",
+                    resource_type="REST_API_STAGE",
+                    resource_id=f"{api_id}:{stage.get('stageName')}",
+                    account_id=account_id, region=region,
+                    analysis={
+                        "api_id": api_id, "api_name": api_name,
+                        "tracing_enabled": stage.get("tracingEnabled"),
+                        "cache_cluster_enabled": stage.get("cacheClusterEnabled"),
+                        "cache_cluster_size": stage.get("cacheClusterSize"),
+                        "web_acl_associated": stage.get("webAclArn"),
+                        "method_settings": stage.get("methodSettings"),
+                        "access_log_settings": stage.get("accessLogSettings"),
+                        "variables": stage.get("variables")
+                    },
+                    resource_name=stage.get("stageName")
+                ))
 
-        paginator = apigw.get_paginator("get_rest_apis")
+        for api in _iter_http_apis(apigw2):
+            total_apis += 1
+            api_id, api_name = api["ApiId"], api["Name"]
+            for stage in _iter_http_stages(apigw2, api_id):
+                resources.append(_base_resource(
+                    provider="AWS", service="APIGateway",
+                    resource_type="HTTP_API_STAGE",
+                    resource_id=f"{api_id}:{stage.get('StageName')}",
+                    account_id=account_id, region=region,
+                    analysis={
+                        "api_id": api_id, "api_name": api_name,
+                        "auto_deploy": stage.get("AutoDeploy"),
+                        "default_route_settings": stage.get("DefaultRouteSettings"),
+                        "access_log_settings": stage.get("AccessLogSettings"),
+                        "web_acl_associated": stage.get("WebAclArn"),
+                        "stage_variables": stage.get("StageVariables")
+                    },
+                    resource_name=stage.get("StageName")
+                ))
 
-        for page in paginator.paginate():
-            for api in page.get("items", []):
+        return _build_resultado(
+            "AWS", "APIGateway", "STAGE_CONFIGURATION_DISCOVERY",
+            account_id, region, resources,
+            total_apis_checked=total_apis
+        )
 
-                total_apis_checked += 1
-
-                api_id = api["id"]
-                api_name = api["name"]
-
-                stage_paginator = apigw.get_paginator("get_stages")
-
-                for stage_page in stage_paginator.paginate(restApiId=api_id):
-                    for stage in stage_page.get("item", []):
-
-                        resources.append({
-                            "provider": "AWS",
-                            "service": "APIGateway",
-                            "account_id": account_id,
-                            "region": region,
-                            "resource_type": "REST_API_STAGE",
-                            "resource_id": f"{api_id}:{stage.get('stageName')}",
-                            "resource_name": stage.get("stageName"),
-                            "analysis": {
-                                "api_id": api_id,
-                                "api_name": api_name,
-                                "tracing_enabled": stage.get("tracingEnabled"),
-                                "cache_cluster_enabled": stage.get("cacheClusterEnabled"),
-                                "cache_cluster_size": stage.get("cacheClusterSize"),
-                                "web_acl_associated": stage.get("webAclArn"),
-                                "method_settings": stage.get("methodSettings"),
-                                "access_log_settings": stage.get("accessLogSettings"),
-                                "variables": stage.get("variables")
-                            }
-                        })
-
-        # ======================================================
-        # 🟢 HTTP / WebSocket APIs (v2)
-        # ======================================================
-
-        paginator_v2 = apigw2.get_paginator("get_apis")
-
-        for page in paginator_v2.paginate():
-            for api in page.get("Items", []):
-
-                total_apis_checked += 1
-
-                api_id = api["ApiId"]
-                api_name = api["Name"]
-
-                stages_paginator = apigw2.get_paginator("get_stages")
-
-                for stage_page in stages_paginator.paginate(ApiId=api_id):
-                    for stage in stage_page.get("Items", []):
-
-                        resources.append({
-                            "provider": "AWS",
-                            "service": "APIGateway",
-                            "account_id": account_id,
-                            "region": region,
-                            "resource_type": "HTTP_API_STAGE",
-                            "resource_id": f"{api_id}:{stage.get('StageName')}",
-                            "resource_name": stage.get("StageName"),
-                            "analysis": {
-                                "api_id": api_id,
-                                "api_name": api_name,
-                                "auto_deploy": stage.get("AutoDeploy"),
-                                "default_route_settings": stage.get("DefaultRouteSettings"),
-                                "access_log_settings": stage.get("AccessLogSettings"),
-                                "web_acl_associated": stage.get("WebAclArn"),
-                                "stage_variables": stage.get("StageVariables")
-                            }
-                        })
-
-        # ======================================================
-
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "APIGateway",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "STAGE_CONFIGURATION_DISCOVERY",
-            "total_apis_checked": total_apis_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
-
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
+    _run_job(ejecucion_id, _execute)
 
 
 def apigateway_review_authorizers_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
-        session, region = _get_aws_session(proyecto_id)
-        apigw = session.client("apigateway")
-        apigw2 = session.client("apigatewayv2")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
+    def _execute():
+        _, apigw, apigw2, account_id, region = _apigw_context(proyecto_id)
         resources = []
-        total_apis_checked = 0
+        total_apis = 0
 
-        # ======================================================
-        # 🔵 REST APIs (v1)
-        # ======================================================
+        for api in _iter_rest_apis(apigw):
+            total_apis += 1
+            api_id, api_name = api["id"], api["name"]
 
-        paginator = apigw.get_paginator("get_rest_apis")
+            authorizers = [
+                {
+                    "authorizer_id": a.get("id"), "name": a.get("name"),
+                    "type": a.get("type"), "identity_source": a.get("identitySource"),
+                    "provider_arns": a.get("providerARNs"), "authorizer_uri": a.get("authorizerUri"),
+                    "auth_ttl": a.get("authorizerResultTtlInSeconds")
+                }
+                for page in apigw.get_paginator("get_authorizers").paginate(restApiId=api_id)
+                for a in page.get("items", [])
+            ]
 
-        for page in paginator.paginate():
-            for api in page.get("items", []):
+            methods = []
+            for res in _iter_rest_resources(apigw, api_id):
+                if "resourceMethods" not in res:
+                    continue
+                path = res.get("path")
+                for method_name in res["resourceMethods"]:
+                    m = apigw.get_method(restApiId=api_id, resourceId=res["id"], httpMethod=method_name)
+                    methods.append({
+                        "path": path, "method": method_name,
+                        "authorization_type": m.get("authorizationType"),
+                        "authorizer_id": m.get("authorizerId"),
+                        "authorization_scopes": m.get("authorizationScopes")
+                    })
 
-                total_apis_checked += 1
+            resources.append(_base_resource(
+                provider="AWS", service="APIGateway",
+                resource_type="REST_API_AUTHORIZERS", resource_id=api_id,
+                account_id=account_id, region=region,
+                analysis={"authorizers_defined": authorizers, "methods_authorization": methods},
+                resource_name=api_name
+            ))
 
-                api_id = api["id"]
-                api_name = api["name"]
+        for api in _iter_http_apis(apigw2):
+            total_apis += 1
+            api_id, api_name = api["ApiId"], api["Name"]
 
-                # Obtener authorizers definidos en el API
-                auth_paginator = apigw.get_paginator("get_authorizers")
-                rest_authorizers = []
+            authorizers = [
+                {
+                    "authorizer_id": a.get("AuthorizerId"), "name": a.get("Name"),
+                    "authorizer_type": a.get("AuthorizerType"), "identity_sources": a.get("IdentitySource"),
+                    "jwt_configuration": a.get("JwtConfiguration"), "authorizer_uri": a.get("AuthorizerUri"),
+                    "authorizer_payload_format_version": a.get("AuthorizerPayloadFormatVersion"),
+                    "enable_simple_responses": a.get("EnableSimpleResponses")
+                }
+                for page in apigw2.get_paginator("get_authorizers").paginate(ApiId=api_id)
+                for a in page.get("Items", [])
+            ]
 
-                for auth_page in auth_paginator.paginate(restApiId=api_id):
-                    for auth in auth_page.get("items", []):
-                        rest_authorizers.append({
-                            "authorizer_id": auth.get("id"),
-                            "name": auth.get("name"),
-                            "type": auth.get("type"),
-                            "identity_source": auth.get("identitySource"),
-                            "provider_arns": auth.get("providerARNs"),
-                            "authorizer_uri": auth.get("authorizerUri"),
-                            "auth_ttl": auth.get("authorizerResultTtlInSeconds")
-                        })
+            routes = [
+                {
+                    "route_key": r.get("RouteKey"),
+                    "authorization_type": r.get("AuthorizationType"),
+                    "authorizer_id": r.get("AuthorizerId"),
+                    "authorization_scopes": r.get("AuthorizationScopes")
+                }
+                for r in _iter_http_routes(apigw2, api_id)
+            ]
 
-                # Methods + autorización asociada
-                resource_paginator = apigw.get_paginator("get_resources")
-                methods_data = []
+            resources.append(_base_resource(
+                provider="AWS", service="APIGateway",
+                resource_type="HTTP_API_AUTHORIZERS", resource_id=api_id,
+                account_id=account_id, region=region,
+                analysis={"authorizers_defined": authorizers, "routes_authorization": routes},
+                resource_name=api_name
+            ))
 
-                for res_page in resource_paginator.paginate(restApiId=api_id):
-                    for resource in res_page.get("items", []):
+        return _build_resultado(
+            "AWS", "APIGateway", "AUTHORIZER_CONFIGURATION_DISCOVERY",
+            account_id, region, resources,
+            total_apis_checked=total_apis
+        )
 
-                        if "resourceMethods" not in resource:
-                            continue
-
-                        path = resource.get("path")
-
-                        for method_name in resource["resourceMethods"].keys():
-
-                            method = apigw.get_method(
-                                restApiId=api_id,
-                                resourceId=resource["id"],
-                                httpMethod=method_name
-                            )
-
-                            methods_data.append({
-                                "path": path,
-                                "method": method_name,
-                                "authorization_type": method.get("authorizationType"),
-                                "authorizer_id": method.get("authorizerId"),
-                                "authorization_scopes": method.get("authorizationScopes")
-                            })
-
-                resources.append({
-                    "provider": "AWS",
-                    "service": "APIGateway",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "REST_API_AUTHORIZERS",
-                    "resource_id": api_id,
-                    "resource_name": api_name,
-                    "analysis": {
-                        "authorizers_defined": rest_authorizers,
-                        "methods_authorization": methods_data
-                    }
-                })
-
-        # ======================================================
-        # 🟢 HTTP / WebSocket APIs (v2)
-        # ======================================================
-
-        paginator_v2 = apigw2.get_paginator("get_apis")
-
-        for page in paginator_v2.paginate():
-            for api in page.get("Items", []):
-
-                total_apis_checked += 1
-
-                api_id = api["ApiId"]
-                api_name = api["Name"]
-
-                # Obtener authorizers v2
-                authorizers_data = []
-                auth_paginator = apigw2.get_paginator("get_authorizers")
-
-                for auth_page in auth_paginator.paginate(ApiId=api_id):
-                    for auth in auth_page.get("Items", []):
-                        authorizers_data.append({
-                            "authorizer_id": auth.get("AuthorizerId"),
-                            "name": auth.get("Name"),
-                            "authorizer_type": auth.get("AuthorizerType"),
-                            "identity_sources": auth.get("IdentitySource"),
-                            "jwt_configuration": auth.get("JwtConfiguration"),
-                            "authorizer_uri": auth.get("AuthorizerUri"),
-                            "authorizer_payload_format_version": auth.get("AuthorizerPayloadFormatVersion"),
-                            "enable_simple_responses": auth.get("EnableSimpleResponses")
-                        })
-
-                # Routes + autorización
-                routes_data = []
-                routes_paginator = apigw2.get_paginator("get_routes")
-
-                for route_page in routes_paginator.paginate(ApiId=api_id):
-                    for route in route_page.get("Items", []):
-                        routes_data.append({
-                            "route_key": route.get("RouteKey"),
-                            "authorization_type": route.get("AuthorizationType"),
-                            "authorizer_id": route.get("AuthorizerId"),
-                            "authorization_scopes": route.get("AuthorizationScopes")
-                        })
-
-                resources.append({
-                    "provider": "AWS",
-                    "service": "APIGateway",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "HTTP_API_AUTHORIZERS",
-                    "resource_id": api_id,
-                    "resource_name": api_name,
-                    "analysis": {
-                        "authorizers_defined": authorizers_data,
-                        "routes_authorization": routes_data
-                    }
-                })
-
-        # ======================================================
-
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "APIGateway",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "AUTHORIZER_CONFIGURATION_DISCOVERY",
-            "total_apis_checked": total_apis_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
-
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
+    _run_job(ejecucion_id, _execute)
 
 
 def apigateway_security_exposure_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
-        session, region = _get_aws_session(proyecto_id)
-        apigw = session.client("apigateway")
-        apigw2 = session.client("apigatewayv2")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
+    def _execute():
+        _, apigw, apigw2, account_id, region = _apigw_context(proyecto_id)
         resources = []
-        total_apis_checked = 0
+        total_apis = 0
 
-        # ======================================================
-        # 🔵 REST APIs (v1)
-        # ======================================================
+        for api in _iter_rest_apis(apigw):
+            total_apis += 1
+            api_id, api_name = api["id"], api["name"]
+            methods = []
 
-        paginator = apigw.get_paginator("get_rest_apis")
+            for res in _iter_rest_resources(apigw, api_id):
+                if "resourceMethods" not in res:
+                    continue
+                path = res.get("path", "/")
+                for method_name in res["resourceMethods"]:
+                    m = apigw.get_method(restApiId=api_id, resourceId=res["id"], httpMethod=method_name)
+                    integ = apigw.get_integration(restApiId=api_id, resourceId=res["id"], httpMethod=method_name)
+                    methods.append({
+                        "path": path, "method": method_name,
+                        "authorization_type": m.get("authorizationType"),
+                        "api_key_required": m.get("apiKeyRequired"),
+                        "integration_type": integ.get("type"),
+                        "integration_uri": integ.get("uri"),
+                        "cors_headers": integ.get("integrationResponses")
+                    })
 
-        for page in paginator.paginate():
-            for api in page.get("items", []):
+            resources.append(_base_resource(
+                provider="AWS", service="APIGateway",
+                resource_type="REST_API_SECURITY_EXPOSURE", resource_id=api_id,
+                account_id=account_id, region=region,
+                analysis={"methods": methods},
+                resource_name=api_name
+            ))
 
-                total_apis_checked += 1
-                api_id = api["id"]
-                api_name = api["name"]
+        for api in _iter_http_apis(apigw2):
+            total_apis += 1
+            api_id, api_name = api["ApiId"], api["Name"]
 
-                methods_data = []
+            integrations_map = {
+                i["IntegrationId"]: {
+                    "integration_type": i.get("IntegrationType"),
+                    "integration_uri": i.get("IntegrationUri"),
+                    "connection_type": i.get("ConnectionType")
+                }
+                for page in apigw2.get_paginator("get_integrations").paginate(ApiId=api_id)
+                for i in page.get("Items", [])
+            }
 
-                resource_paginator = apigw.get_paginator("get_resources")
+            routes = [
+                {
+                    "route_key": r.get("RouteKey"),
+                    "authorization_type": r.get("AuthorizationType"),
+                    "api_key_required": r.get("ApiKeyRequired"),
+                    "integration": integrations_map.get(
+                        r["Target"].replace("integrations/", "") if r.get("Target") else None
+                    )
+                }
+                for r in _iter_http_routes(apigw2, api_id)
+            ]
 
-                for res_page in resource_paginator.paginate(restApiId=api_id):
-                    for resource in res_page.get("items", []):
+            resources.append(_base_resource(
+                provider="AWS", service="APIGateway",
+                resource_type="HTTP_API_SECURITY_EXPOSURE", resource_id=api_id,
+                account_id=account_id, region=region,
+                analysis={"routes": routes},
+                resource_name=api_name
+            ))
 
-                        if "resourceMethods" not in resource:
-                            continue
+        return _build_resultado(
+            "AWS", "APIGateway", "SECURITY_EXPOSURE_DISCOVERY",
+            account_id, region, resources,
+            total_apis_checked=total_apis
+        )
 
-                        path = resource.get("path", "/")
-
-                        for method_name in resource["resourceMethods"].keys():
-
-                            method = apigw.get_method(
-                                restApiId=api_id,
-                                resourceId=resource["id"],
-                                httpMethod=method_name
-                            )
-
-                            integration = apigw.get_integration(
-                                restApiId=api_id,
-                                resourceId=resource["id"],
-                                httpMethod=method_name
-                            )
-
-                            methods_data.append({
-                                "path": path,
-                                "method": method_name,
-                                "authorization_type": method.get("authorizationType"),
-                                "api_key_required": method.get("apiKeyRequired"),
-                                "integration_type": integration.get("type"),
-                                "integration_uri": integration.get("uri"),
-                                "cors_headers": integration.get("integrationResponses")
-                            })
-
-                resources.append({
-                    "provider": "AWS",
-                    "service": "APIGateway",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "REST_API_SECURITY_EXPOSURE",
-                    "resource_id": api_id,
-                    "resource_name": api_name,
-                    "analysis": {
-                        "methods": methods_data
-                    }
-                })
-
-        # ======================================================
-        # 🟢 HTTP APIs (v2)
-        # ======================================================
-
-        paginator_v2 = apigw2.get_paginator("get_apis")
-
-        for page in paginator_v2.paginate():
-            for api in page.get("Items", []):
-
-                total_apis_checked += 1
-                api_id = api["ApiId"]
-                api_name = api["Name"]
-
-                integrations_map = {}
-                integ_paginator = apigw2.get_paginator("get_integrations")
-
-                for integ_page in integ_paginator.paginate(ApiId=api_id):
-                    for integ in integ_page.get("Items", []):
-                        integrations_map[integ["IntegrationId"]] = {
-                            "integration_type": integ.get("IntegrationType"),
-                            "integration_uri": integ.get("IntegrationUri"),
-                            "connection_type": integ.get("ConnectionType")
-                        }
-
-                routes_data = []
-                routes_paginator = apigw2.get_paginator("get_routes")
-
-                for route_page in routes_paginator.paginate(ApiId=api_id):
-                    for route in route_page.get("Items", []):
-
-                        integration_id = None
-                        if route.get("Target"):
-                            integration_id = route["Target"].replace("integrations/", "")
-
-                        routes_data.append({
-                            "route_key": route.get("RouteKey"),
-                            "authorization_type": route.get("AuthorizationType"),
-                            "api_key_required": route.get("ApiKeyRequired"),
-                            "integration": integrations_map.get(integration_id)
-                        })
-
-                resources.append({
-                    "provider": "AWS",
-                    "service": "APIGateway",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "HTTP_API_SECURITY_EXPOSURE",
-                    "resource_id": api_id,
-                    "resource_name": api_name,
-                    "analysis": {
-                        "routes": routes_data
-                    }
-                })
-
-        # ======================================================
-
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "APIGateway",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "SECURITY_EXPOSURE_DISCOVERY",
-            "total_apis_checked": total_apis_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
-
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
+    _run_job(ejecucion_id, _execute)
 
 
 def apigateway_logging_review_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
-        session, region = _get_aws_session(proyecto_id)
-        apigw = session.client("apigateway")
-        apigw2 = session.client("apigatewayv2")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
+    def _execute():
+        _, apigw, apigw2, account_id, region = _apigw_context(proyecto_id)
         resources = []
-        total_apis_checked = 0
+        total_apis = 0
 
-        # ======================================================
-        # 🔵 REST APIs (v1)
-        # ======================================================
+        for api in _iter_rest_apis(apigw):
+            total_apis += 1
+            api_id, api_name = api["id"], api["name"]
+            for stage in _iter_rest_stages(apigw, api_id):
+                resources.append(_base_resource(
+                    provider="AWS", service="APIGateway",
+                    resource_type="REST_API_LOGGING_CONFIG",
+                    resource_id=f"{api_id}:{stage.get('stageName')}",
+                    account_id=account_id, region=region,
+                    analysis={
+                        "api_id": api_id, "api_name": api_name,
+                        "tracing_enabled": stage.get("tracingEnabled"),
+                        "access_log_settings": stage.get("accessLogSettings"),
+                        "method_settings": stage.get("methodSettings"),
+                        "cache_cluster_enabled": stage.get("cacheClusterEnabled"),
+                        "web_acl_associated": stage.get("webAclArn")
+                    },
+                    resource_name=stage.get("stageName")
+                ))
 
-        paginator = apigw.get_paginator("get_rest_apis")
+        for api in _iter_http_apis(apigw2):
+            total_apis += 1
+            api_id, api_name = api["ApiId"], api["Name"]
+            for stage in _iter_http_stages(apigw2, api_id):
+                resources.append(_base_resource(
+                    provider="AWS", service="APIGateway",
+                    resource_type="HTTP_API_LOGGING_CONFIG",
+                    resource_id=f"{api_id}:{stage.get('StageName')}",
+                    account_id=account_id, region=region,
+                    analysis={
+                        "api_id": api_id, "api_name": api_name,
+                        "auto_deploy": stage.get("AutoDeploy"),
+                        "access_log_settings": stage.get("AccessLogSettings"),
+                        "default_route_settings": stage.get("DefaultRouteSettings"),
+                        "route_settings": stage.get("RouteSettings"),
+                        "web_acl_associated": stage.get("WebAclArn")
+                    },
+                    resource_name=stage.get("StageName")
+                ))
 
-        for page in paginator.paginate():
-            for api in page.get("items", []):
+        return _build_resultado(
+            "AWS", "APIGateway", "LOGGING_CONFIGURATION_DISCOVERY",
+            account_id, region, resources,
+            total_apis_checked=total_apis
+        )
 
-                total_apis_checked += 1
-
-                api_id = api["id"]
-                api_name = api["name"]
-
-                stage_paginator = apigw.get_paginator("get_stages")
-
-                for stage_page in stage_paginator.paginate(restApiId=api_id):
-                    for stage in stage_page.get("item", []):
-
-                        resources.append({
-                            "provider": "AWS",
-                            "service": "APIGateway",
-                            "account_id": account_id,
-                            "region": region,
-                            "resource_type": "REST_API_LOGGING_CONFIG",
-                            "resource_id": f"{api_id}:{stage.get('stageName')}",
-                            "resource_name": stage.get("stageName"),
-                            "analysis": {
-                                "api_id": api_id,
-                                "api_name": api_name,
-                                "tracing_enabled": stage.get("tracingEnabled"),
-                                "access_log_settings": stage.get("accessLogSettings"),
-                                "method_settings": stage.get("methodSettings"),
-                                "cache_cluster_enabled": stage.get("cacheClusterEnabled"),
-                                "web_acl_associated": stage.get("webAclArn")
-                            }
-                        })
-
-        # ======================================================
-        # 🟢 HTTP / WebSocket APIs (v2)
-        # ======================================================
-
-        paginator_v2 = apigw2.get_paginator("get_apis")
-
-        for page in paginator_v2.paginate():
-            for api in page.get("Items", []):
-
-                total_apis_checked += 1
-
-                api_id = api["ApiId"]
-                api_name = api["Name"]
-
-                stages_paginator = apigw2.get_paginator("get_stages")
-
-                for stage_page in stages_paginator.paginate(ApiId=api_id):
-                    for stage in stage_page.get("Items", []):
-
-                        resources.append({
-                            "provider": "AWS",
-                            "service": "APIGateway",
-                            "account_id": account_id,
-                            "region": region,
-                            "resource_type": "HTTP_API_LOGGING_CONFIG",
-                            "resource_id": f"{api_id}:{stage.get('StageName')}",
-                            "resource_name": stage.get("StageName"),
-                            "analysis": {
-                                "api_id": api_id,
-                                "api_name": api_name,
-                                "auto_deploy": stage.get("AutoDeploy"),
-                                "access_log_settings": stage.get("AccessLogSettings"),
-                                "default_route_settings": stage.get("DefaultRouteSettings"),
-                                "route_settings": stage.get("RouteSettings"),
-                                "web_acl_associated": stage.get("WebAclArn")
-                            }
-                        })
-
-        # ======================================================
-
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "APIGateway",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "LOGGING_CONFIGURATION_DISCOVERY",
-            "total_apis_checked": total_apis_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
-
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-
-# ===================== Final Api Gateway ==================== #
+    _run_job(ejecucion_id, _execute)
 
 
-# ===================== Inicio Funciones Lambda ==================== #
+# ══════════════════════════════════════════════════════════════════
+# LAMBDA — HELPERS INTERNOS
+# ══════════════════════════════════════════════════════════════════
 
-# ===================== Inicio Lambda ==================== #
-def discovery_functions_job(ejecucion_id, proyecto_id):
+def _lambda_context(proyecto_id):
+    """Retorna (lambda_client, iam_client, account_id, region, paginator)."""
+    session, region = _get_aws_session(proyecto_id)
+    lc = session.client("lambda")
+    iam = session.client("iam")
+    account_id = _get_account_id(session)
+    return session, lc, iam, account_id, region
+
+
+def _iter_functions(lc):
+    for page in lc.get_paginator("list_functions").paginate():
+        yield from page.get("Functions", [])
+
+
+def _get_lambda_policy(lc, function_name):
+    """Retorna la policy JSON de una función o None si no tiene."""
     try:
-        # 1️⃣ RUNNING
-        CloudEjecucion.mark_running(ejecucion_id)
+        resp = lc.get_policy(FunctionName=function_name)
+        return json.loads(resp.get("Policy", "{}"))
+    except lc.exceptions.ResourceNotFoundException:
+        return None
 
-        # 2️⃣ Session centralizada
-        session, region = _get_aws_session(proyecto_id)
 
-        lambda_client = session.client("lambda")
-        sts = session.client("sts")
+def _is_principal_public(principal):
+    if principal == "*":
+        return True
+    if isinstance(principal, dict):
+        return principal.get("AWS") == "*" or principal.get("Service") == "*"
+    return False
 
-        account_id = sts.get_caller_identity()["Account"]
 
-        # 3️⃣ Paginator
-        paginator = lambda_client.get_paginator("list_functions")
-
-        resources = []
-        total_functions_checked = 0
-
-        for page in paginator.paginate():
-            for fn in page.get("Functions", []):
-
-                total_functions_checked += 1
-
-                resources.append({
-                    "provider": "AWS",
-                    "service": "Lambda",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "LambdaFunction",
-                    "resource_id": fn.get("FunctionName"),
-                    "analysis": {
-                        "function_arn": fn.get("FunctionArn"),
-                        "runtime": fn.get("Runtime"),
-                        "role": fn.get("Role"),
-                        "handler": fn.get("Handler"),
-                        "timeout": fn.get("Timeout"),
-                        "memory_size": fn.get("MemorySize"),
-                        "last_modified": fn.get("LastModified"),
-                        "package_type": fn.get("PackageType"),
-                        "architectures": fn.get("Architectures"),
-                        "vpc_configured": bool(fn.get("VpcConfig", {}).get("VpcId")),
-                        "subnet_ids": fn.get("VpcConfig", {}).get("SubnetIds"),
-                        "security_group_ids": fn.get("VpcConfig", {}).get("SecurityGroupIds"),
-                        "tracing_mode": fn.get("TracingConfig", {}).get("Mode"),
-                        "dead_letter_config": fn.get("DeadLetterConfig"),
-                        "layers": [layer.get("Arn") for layer in fn.get("Layers", [])],
-                        # Solo mostramos nombres de variables, nunca valores
-                        "environment_variables": list(
-                            fn.get("Environment", {}).get("Variables", {}).keys()
-                        )
-                    }
-                })
-
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "Lambda",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "FUNCTION_CONFIGURATION_DISCOVERY",
-            "total_functions_checked": total_functions_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
-
-        # 4️⃣ COMPLETED
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-
-
-def discovery_permissions_job(ejecucion_id, proyecto_id):
-    try:
-        # 1️⃣ RUNNING
-        CloudEjecucion.mark_running(ejecucion_id)
-
-        # 2️⃣ Session centralizada
-        session, region = _get_aws_session(proyecto_id)
-
-        lambda_client = session.client("lambda")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
-        paginator = lambda_client.get_paginator("list_functions")
-
-        resources = []
-        total_functions_checked = 0
-
-        for page in paginator.paginate():
-            for fn in page.get("Functions", []):
-
-                total_functions_checked += 1
-                function_name = fn.get("FunctionName")
-
-                has_policy = False
-                is_public = False
-                statements_count = 0
-                policy_json = None
-                error = None
-
-                try:
-                    policy_response = lambda_client.get_policy(
-                        FunctionName=function_name
-                    )
-
-                    has_policy = True
-                    policy_json = json.loads(
-                        policy_response.get("Policy", "{}")
-                    )
-
-                    statements = policy_json.get("Statement", [])
-                    statements_count = len(statements)
-
-                    for stmt in statements:
-                        principal = stmt.get("Principal")
-
-                        if principal == "*":
-                            is_public = True
-
-                        if isinstance(principal, dict):
-                            if principal.get("AWS") == "*":
-                                is_public = True
-                            if principal.get("Service") == "*":
-                                is_public = True
-
-                except lambda_client.exceptions.ResourceNotFoundException:
-                    # No tiene policy
-                    pass
-
-                except Exception as inner_error:
-                    error = str(inner_error)
-
-                resources.append({
-                    "provider": "AWS",
-                    "service": "Lambda",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "LambdaPermissionPolicy",
-                    "resource_id": function_name,
-                    "analysis": {
-                        "has_policy": has_policy,
-                        "is_public": is_public,
-                        "statements_count": statements_count,
-                        # Guardamos policy completa porque es inventory,
-                        # no scoring. El análisis real vendrá después.
-                        "policy_document": policy_json,
-                        "error": error
-                    }
-                })
-
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "Lambda",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "LAMBDA_PERMISSION_DISCOVERY",
-            "total_functions_checked": total_functions_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
-
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-
-
-def discovery_triggers_job(ejecucion_id, proyecto_id):
-    try:
-        # 1️⃣ RUNNING
-        CloudEjecucion.mark_running(ejecucion_id)
-
-        # 2️⃣ Session centralizada
-        session, region = _get_aws_session(proyecto_id)
-
-        lambda_client = session.client("lambda")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
-        paginator = lambda_client.get_paginator("list_functions")
-
-        resources = []
-        total_functions_checked = 0
-
-        for page in paginator.paginate():
-            for fn in page.get("Functions", []):
-
-                total_functions_checked += 1
-                function_name = fn.get("FunctionName")
-
-                event_source_mappings_data = []
-                policy_triggers_data = []
-                error = None
-
-                # 🔹 1️⃣ Event Source Mappings (SQS, DynamoDB, Kinesis, MSK, etc.)
-                try:
-                    mappings_paginator = lambda_client.get_paginator("list_event_source_mappings")
-
-                    for m_page in mappings_paginator.paginate(FunctionName=function_name):
-                        for mapping in m_page.get("EventSourceMappings", []):
-                            event_source_mappings_data.append({
-                                "event_source_arn": mapping.get("EventSourceArn"),
-                                "state": mapping.get("State"),
-                                "batch_size": mapping.get("BatchSize"),
-                                "maximum_batching_window": mapping.get("MaximumBatchingWindowInSeconds"),
-                                "parallelization_factor": mapping.get("ParallelizationFactor"),
-                                "function_response_types": mapping.get("FunctionResponseTypes")
-                            })
-
-                except Exception as e:
-                    error = f"EventSourceMappingError: {str(e)}"
-
-                # 🔹 2️⃣ Resource-based policy triggers (API Gateway, S3, EventBridge, etc.)
-                try:
-                    policy_response = lambda_client.get_policy(
-                        FunctionName=function_name
-                    )
-
-                    policy_json = json.loads(
-                        policy_response.get("Policy", "{}")
-                    )
-
-                    statements = policy_json.get("Statement", [])
-
-                    for stmt in statements:
-                        principal = stmt.get("Principal")
-                        condition = stmt.get("Condition")
-                        source_arn = None
-
-                        if condition:
-                            source_arn = (
-                                condition.get("ArnLike", {}).get("AWS:SourceArn")
-                                or condition.get("ArnEquals", {}).get("AWS:SourceArn")
-                            )
-
-                        policy_triggers_data.append({
-                            "principal": principal,
-                            "effect": stmt.get("Effect"),
-                            "action": stmt.get("Action"),
-                            "source_arn": source_arn
-                        })
-
-                except lambda_client.exceptions.ResourceNotFoundException:
-                    # No resource-based policy
-                    pass
-
-                except Exception as e:
-                    policy_triggers_data.append({
-                        "error": str(e)
-                    })
-
-                resources.append({
-                    "provider": "AWS",
-                    "service": "Lambda",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "LambdaTriggerConfiguration",
-                    "resource_id": function_name,
-                    "analysis": {
-                        "event_source_mappings": event_source_mappings_data,
-                        "policy_triggers": policy_triggers_data,
-                        "error": error
-                    }
-                })
-
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "Lambda",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "LAMBDA_TRIGGER_DISCOVERY",
-            "total_functions_checked": total_functions_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
-
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-        
-
-def public_exposure_review_job(ejecucion_id, proyecto_id):
-    try:
-        # 1️⃣ RUNNING
-        CloudEjecucion.mark_running(ejecucion_id)
-
-        # 2️⃣ Session centralizada
-        session, region = _get_aws_session(proyecto_id)
-
-        lambda_client = session.client("lambda")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
-        paginator = lambda_client.get_paginator("list_functions")
-
-        resources = []
-        total_functions_checked = 0
-        total_exposed_functions = 0
-
-        for page in paginator.paginate():
-            for fn in page.get("Functions", []):
-
-                total_functions_checked += 1
-                function_name = fn.get("FunctionName")
-
-                is_public = False
-                policy_statements = []
-                error = None
-
-                try:
-                    policy_response = lambda_client.get_policy(
-                        FunctionName=function_name
-                    )
-
-                    policy_json = json.loads(
-                        policy_response.get("Policy", "{}")
-                    )
-
-                    statements = policy_json.get("Statement", [])
-
-                    for stmt in statements:
-                        principal = stmt.get("Principal")
-                        condition = stmt.get("Condition")
-                        action = stmt.get("Action")
-
-                        statement_public = False
-
-                        if principal == "*":
-                            statement_public = True
-
-                        elif isinstance(principal, dict):
-                            if principal.get("AWS") == "*":
-                                statement_public = True
-                            if principal.get("Service") == "*":
-                                statement_public = True
-
-                        if statement_public:
-                            is_public = True
-
-                        policy_statements.append({
-                            "principal": principal,
-                            "action": action,
-                            "condition": condition,
-                            "statement_public": statement_public
-                        })
-
-                except lambda_client.exceptions.ResourceNotFoundException:
-                    pass
-
-                except Exception as inner_error:
-                    error = str(inner_error)
-
-                if is_public:
-                    total_exposed_functions += 1
-
-                resources.append({
-                    "provider": "AWS",
-                    "service": "Lambda",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "LambdaPublicExposure",
-                    "resource_id": function_name,
-                    "analysis": {
-                        "is_public": is_public,
-                        "policy_statements": policy_statements,
-                        "error": error
-                    }
-                })
-
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "Lambda",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "LAMBDA_PUBLIC_EXPOSURE_ANALYSIS",
-            "total_functions_checked": total_functions_checked,
-            "total_exposed_functions": total_exposed_functions,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
-
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-
-
-def overprivileged_role_review_job(ejecucion_id, proyecto_id):
-    try:
-        # 1️⃣ RUNNING
-        CloudEjecucion.mark_running(ejecucion_id)
-
-        # 2️⃣ Session centralizada
-        session, region = _get_aws_session(proyecto_id)
-
-        lambda_client = session.client("lambda")
-        iam_client = session.client("iam")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
-        paginator = lambda_client.get_paginator("list_functions")
-
-        resources = []
-        total_functions_checked = 0
-
-        for page in paginator.paginate():
-            for fn in page.get("Functions", []):
-
-                total_functions_checked += 1
-
-                function_name = fn.get("FunctionName")
-                role_arn = fn.get("Role")
-
-                if not role_arn:
-                    continue
-
-                role_name = role_arn.split("/")[-1]
-
-                attached_policies_data = []
-                inline_policies_data = []
-                error = None
-
-                try:
-                    # 🔹 Attached Policies
-                    attached_policies = iam_client.list_attached_role_policies(
-                        RoleName=role_name
-                    ).get("AttachedPolicies", [])
-
-                    for policy in attached_policies:
-                        policy_arn = policy.get("PolicyArn")
-
-                        policy_meta = iam_client.get_policy(
-                            PolicyArn=policy_arn
-                        ).get("Policy", {})
-
-                        version_id = policy_meta.get("DefaultVersionId")
-
-                        policy_doc = iam_client.get_policy_version(
-                            PolicyArn=policy_arn,
-                            VersionId=version_id
-                        ).get("PolicyVersion", {}).get("Document", {})
-
-                        attached_policies_data.append({
-                            "policy_name": policy.get("PolicyName"),
-                            "policy_arn": policy_arn,
-                            "policy_document": policy_doc
-                        })
-
-                    # 🔹 Inline Policies
-                    inline_policies = iam_client.list_role_policies(
-                        RoleName=role_name
-                    ).get("PolicyNames", [])
-
-                    for policy_name in inline_policies:
-                        policy_doc = iam_client.get_role_policy(
-                            RoleName=role_name,
-                            PolicyName=policy_name
-                        ).get("PolicyDocument", {})
-
-                        inline_policies_data.append({
-                            "policy_name": policy_name,
-                            "policy_document": policy_doc
-                        })
-
-                except Exception as e:
-                    error = str(e)
-
-                resources.append({
-                    "provider": "AWS",
-                    "service": "Lambda",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "LambdaExecutionRole",
-                    "resource_id": role_name,
-                    "resource_name": role_name,
-                    "analysis": {
-                        "function_name": function_name,
-                        "role_arn": role_arn,
-                        "attached_policies": attached_policies_data,
-                        "inline_policies": inline_policies_data,
-                        "error": error
-                    }
-                })
-
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "Lambda",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "LAMBDA_ROLE_CONFIGURATION_DISCOVERY",
-            "total_functions_checked": total_functions_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
-
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-
-
-def analyze_policy(policy_doc):
-    statements = policy_doc.get("Statement", [])
-
-    if isinstance(statements, dict):
-        statements = [statements]
-
-    normalized = []
-
-    for index, stmt in enumerate(statements):
-        if not isinstance(stmt, dict):
-            continue
-
-        actions = stmt.get("Action", [])
-        not_actions = stmt.get("NotAction", [])
-        resources = stmt.get("Resource", [])
-        not_resources = stmt.get("NotResource", [])
-        effect = stmt.get("Effect")
-        condition = stmt.get("Condition")
-        principal = stmt.get("Principal")
-        not_principal = stmt.get("NotPrincipal")
-
-        if isinstance(actions, str):
-            actions = [actions]
-        if isinstance(not_actions, str):
-            not_actions = [not_actions]
-        if isinstance(resources, str):
-            resources = [resources]
-        if isinstance(not_resources, str):
-            not_resources = [not_resources]
-
-        normalized.append({
-            "statement_index": index,
-            "sid": stmt.get("Sid"),
-            "effect": effect,
-            "actions": actions,
-            "not_actions": not_actions,
-            "resources": resources,
-            "not_resources": not_resources,
-            "principal": principal,
-            "not_principal": not_principal,
-            "condition": condition
-        })
-
-    return normalized
-
-
-def wildcard_permissions_review_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
-
-        session, region = _get_aws_session(proyecto_id)
-
-        lambda_client = session.client("lambda")
-        iam_client = session.client("iam")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
-        paginator = lambda_client.get_paginator("list_functions")
-
-        resources = []
-        total_functions_checked = 0
-
-        for page in paginator.paginate():
-            for fn in page.get("Functions", []):
-
-                total_functions_checked += 1
-
-                function_name = fn.get("FunctionName")
-                role_arn = fn.get("Role")
-
-                if not role_arn:
-                    continue
-
-                role_name = role_arn.split("/")[-1]
-
-                attached_policies = []
-                inline_policies = []
-                error = None
-
-                try:
-                    attached = iam_client.get_paginator("list_attached_role_policies")
-                    for a_page in attached.paginate(RoleName=role_name):
-                        for policy in a_page.get("AttachedPolicies", []):
-                            policy_arn = policy.get("PolicyArn")
-
-                            policy_meta = iam_client.get_policy(
-                                PolicyArn=policy_arn
-                            ).get("Policy", {})
-
-                            version = policy_meta.get("DefaultVersionId")
-
-                            policy_doc = iam_client.get_policy_version(
-                                PolicyArn=policy_arn,
-                                VersionId=version
-                            ).get("PolicyVersion", {}).get("Document", {})
-
-                            attached_policies.append({
-                                "policy_name": policy.get("PolicyName"),
-                                "policy_arn": policy_arn,
-                                "statements": analyze_policy(policy_doc)
-                            })
-
-                    inline = iam_client.get_paginator("list_role_policies")
-                    for i_page in inline.paginate(RoleName=role_name):
-                        for policy_name in i_page.get("PolicyNames", []):
-                            policy_doc = iam_client.get_role_policy(
-                                RoleName=role_name,
-                                PolicyName=policy_name
-                            ).get("PolicyDocument", {})
-
-                            inline_policies.append({
-                                "policy_name": policy_name,
-                                "statements": analyze_policy(policy_doc)
-                            })
-
-                except Exception as e:
-                    error = str(e)
-
-                resources.append({
-                    "provider": "AWS",
-                    "service": "Lambda",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "LambdaWildcardPermissionDiscovery",
-                    "resource_id": role_name,
-                    "analysis": {
-                        "function_name": function_name,
-                        "role_arn": role_arn,
-                        "attached_policies": attached_policies,
-                        "inline_policies": inline_policies,
-                        "error": error
-                    }
-                })
-
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "Lambda",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "LAMBDA_WILDCARD_PERMISSION_DISCOVERY",
-            "total_functions_checked": total_functions_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
-
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-
-def analyze_wildcards(policy_doc):
+def _analyze_policy_statements(policy_doc):
+    """Normaliza y retorna todos los statements de una policy."""
     statements = policy_doc.get("Statement", [])
     if isinstance(statements, dict):
         statements = [statements]
 
     result = []
-
-    for index, stmt in enumerate(statements):
-
+    for idx, stmt in enumerate(statements):
         if not isinstance(stmt, dict):
             continue
 
-        if stmt.get("Effect") != "Allow":
+        def _to_list(v):
+            return [v] if isinstance(v, str) else (v or [])
+
+        result.append({
+            "statement_index": idx,
+            "sid": stmt.get("Sid"),
+            "effect": stmt.get("Effect"),
+            "actions": _to_list(stmt.get("Action", [])),
+            "not_actions": _to_list(stmt.get("NotAction", [])),
+            "resources": _to_list(stmt.get("Resource", [])),
+            "not_resources": _to_list(stmt.get("NotResource", [])),
+            "principal": stmt.get("Principal"),
+            "not_principal": stmt.get("NotPrincipal"),
+            "condition": stmt.get("Condition")
+        })
+    return result
+
+
+def _analyze_wildcards(policy_doc):
+    """Detecta wildcards en statements Allow."""
+    result = []
+    for stmt in policy_doc.get("Statement", []):
+        if not isinstance(stmt, dict) or stmt.get("Effect") != "Allow":
             continue
 
         actions = stmt.get("Action", [])
         resources = stmt.get("Resource", [])
-
         if isinstance(actions, str):
             actions = [actions]
         if isinstance(resources, str):
             resources = [resources]
 
-        action_wildcard_full = False
-        resource_wildcard_full = False
-        action_wildcard_partial = []
-
-        if actions and "*" in actions:
-            action_wildcard_full = True
-
-        if resources and "*" in resources:
-            resource_wildcard_full = True
-
-        for action in actions:
-            if isinstance(action, str) and "*" in action and action != "*":
-                action_wildcard_partial.append(action)
-
         result.append({
-            "statement_index": index,
             "actions": actions,
             "resources": resources,
-            "action_wildcard_full": action_wildcard_full,
-            "resource_wildcard_full": resource_wildcard_full,
-            "action_wildcard_partial": action_wildcard_partial
+            "action_wildcard_full": "*" in actions,
+            "resource_wildcard_full": "*" in resources,
+            "action_wildcard_partial": [a for a in actions if isinstance(a, str) and "*" in a and a != "*"]
         })
     return result
 
-def no_vpc_review_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
-        session, region = _get_aws_session(proyecto_id)
+def _analyze_role_policies(iam, role_name, mode="statements"):
+    """
+    Analiza las políticas attached e inline de un rol.
+    mode: 'statements' | 'wildcards' | 'raw'
+    """
+    attached = []
+    inline = []
 
-        lambda_client = session.client("lambda")
-        sts = session.client("sts")
+    for page in iam.get_paginator("list_attached_role_policies").paginate(RoleName=role_name):
+        for policy in page.get("AttachedPolicies", []):
+            p_arn = policy["PolicyArn"]
+            version = iam.get_policy(PolicyArn=p_arn)["Policy"]["DefaultVersionId"]
+            doc = iam.get_policy_version(PolicyArn=p_arn, VersionId=version)["PolicyVersion"]["Document"]
 
-        account_id = sts.get_caller_identity()["Account"]
+            entry = {"policy_name": policy["PolicyName"], "policy_arn": p_arn}
+            if mode == "statements":
+                entry["statements"] = _analyze_policy_statements(doc)
+            elif mode == "wildcards":
+                entry["statements"] = _analyze_wildcards(doc)
+            else:
+                entry["policy_document"] = doc
+            attached.append(entry)
 
-        paginator = lambda_client.get_paginator("list_functions")
+    for page in iam.get_paginator("list_role_policies").paginate(RoleName=role_name):
+        for policy_name in page.get("PolicyNames", []):
+            doc = iam.get_role_policy(RoleName=role_name, PolicyName=policy_name)["PolicyDocument"]
+            entry = {"policy_name": policy_name}
+            if mode == "statements":
+                entry["statements"] = _analyze_policy_statements(doc)
+            elif mode == "wildcards":
+                entry["statements"] = _analyze_wildcards(doc)
+            else:
+                entry["policy_document"] = doc
+            inline.append(entry)
 
+    return attached, inline
+
+
+# ══════════════════════════════════════════════════════════════════
+# LAMBDA
+# ══════════════════════════════════════════════════════════════════
+
+def discovery_functions_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, lc, _, account_id, region = _lambda_context(proyecto_id)
         resources = []
-        total_functions_checked = 0
+        total = 0
 
-        for page in paginator.paginate():
-            for fn in page.get("Functions", []):
+        for fn in _iter_functions(lc):
+            total += 1
+            vpc = fn.get("VpcConfig", {}) or {}
+            resources.append(_base_resource(
+                provider="AWS", service="Lambda",
+                resource_type="LambdaFunction", resource_id=fn.get("FunctionName"),
+                account_id=account_id, region=region,
+                analysis={
+                    "function_arn": fn.get("FunctionArn"),
+                    "runtime": fn.get("Runtime"),
+                    "role": fn.get("Role"),
+                    "handler": fn.get("Handler"),
+                    "timeout": fn.get("Timeout"),
+                    "memory_size": fn.get("MemorySize"),
+                    "last_modified": fn.get("LastModified"),
+                    "package_type": fn.get("PackageType"),
+                    "architectures": fn.get("Architectures"),
+                    "vpc_configured": bool(vpc.get("VpcId")),
+                    "subnet_ids": vpc.get("SubnetIds"),
+                    "security_group_ids": vpc.get("SecurityGroupIds"),
+                    "tracing_mode": fn.get("TracingConfig", {}).get("Mode"),
+                    "dead_letter_config": fn.get("DeadLetterConfig"),
+                    "layers": [layer.get("Arn") for layer in fn.get("Layers", [])],
+                    "environment_variables": list(fn.get("Environment", {}).get("Variables", {}).keys())
+                }
+            ))
 
-                total_functions_checked += 1
+        return _build_resultado(
+            "AWS", "Lambda", "FUNCTION_CONFIGURATION_DISCOVERY",
+            account_id, region, resources,
+            total_functions_checked=total
+        )
 
-                function_name = fn.get("FunctionName")
-                vpc_config = fn.get("VpcConfig", {}) or {}
+    _run_job(ejecucion_id, _execute)
 
-                vpc_id = vpc_config.get("VpcId")
-                subnets = vpc_config.get("SubnetIds", []) or []
-                security_groups = vpc_config.get("SecurityGroupIds", []) or []
 
-                resources.append({
-                    "provider": "AWS",
-                    "service": "Lambda",
-                    "account_id": account_id,
-                    "region": region,
-                    "resource_type": "LambdaVpcConfiguration",
-                    "resource_id": function_name,
-                    "analysis": {
-                        "vpc_id": vpc_id,
-                        "subnet_ids": subnets,
-                        "security_group_ids": security_groups,
-                        "vpc_configured": bool(vpc_id and subnets and security_groups)
-                    }
-                })
+def discovery_permissions_job(ejecucion_id, proyecto_id):
 
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "Lambda",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "LAMBDA_VPC_CONFIGURATION_DISCOVERY",
-            "total_functions_checked": total_functions_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
+    def _execute():
+        _, lc, _, account_id, region = _lambda_context(proyecto_id)
+        resources = []
+        total = 0
 
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
+        for fn in _iter_functions(lc):
+            total += 1
+            function_name = fn.get("FunctionName")
+            policy_json = _get_lambda_policy(lc, function_name)
 
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
+            is_public = False
+            statements_count = 0
+            error = None
+
+            if policy_json:
+                statements = policy_json.get("Statement", [])
+                statements_count = len(statements)
+                is_public = any(_is_principal_public(s.get("Principal")) for s in statements)
+
+            resources.append(_base_resource(
+                provider="AWS", service="Lambda",
+                resource_type="LambdaPermissionPolicy", resource_id=function_name,
+                account_id=account_id, region=region,
+                analysis={
+                    "has_policy": policy_json is not None,
+                    "is_public": is_public,
+                    "statements_count": statements_count,
+                    "policy_document": policy_json,
+                    "error": error
+                }
+            ))
+
+        return _build_resultado(
+            "AWS", "Lambda", "LAMBDA_PERMISSION_DISCOVERY",
+            account_id, region, resources,
+            total_functions_checked=total
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def discovery_triggers_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, lc, _, account_id, region = _lambda_context(proyecto_id)
+        resources = []
+        total = 0
+
+        for fn in _iter_functions(lc):
+            total += 1
+            function_name = fn.get("FunctionName")
+            event_mappings = []
+            policy_triggers = []
+            error = None
+
+            try:
+                for page in lc.get_paginator("list_event_source_mappings").paginate(FunctionName=function_name):
+                    for m in page.get("EventSourceMappings", []):
+                        event_mappings.append({
+                            "event_source_arn": m.get("EventSourceArn"),
+                            "state": m.get("State"),
+                            "batch_size": m.get("BatchSize"),
+                            "maximum_batching_window": m.get("MaximumBatchingWindowInSeconds"),
+                            "parallelization_factor": m.get("ParallelizationFactor"),
+                            "function_response_types": m.get("FunctionResponseTypes")
+                        })
+            except Exception as e:
+                error = f"EventSourceMappingError: {e}"
+
+            policy_json = _get_lambda_policy(lc, function_name)
+            if policy_json:
+                for stmt in policy_json.get("Statement", []):
+                    condition = stmt.get("Condition", {})
+                    source_arn = (
+                        condition.get("ArnLike", {}).get("AWS:SourceArn") or
+                        condition.get("ArnEquals", {}).get("AWS:SourceArn")
+                    )
+                    policy_triggers.append({
+                        "principal": stmt.get("Principal"),
+                        "effect": stmt.get("Effect"),
+                        "action": stmt.get("Action"),
+                        "source_arn": source_arn
+                    })
+
+            resources.append(_base_resource(
+                provider="AWS", service="Lambda",
+                resource_type="LambdaTriggerConfiguration", resource_id=function_name,
+                account_id=account_id, region=region,
+                analysis={
+                    "event_source_mappings": event_mappings,
+                    "policy_triggers": policy_triggers,
+                    "error": error
+                }
+            ))
+
+        return _build_resultado(
+            "AWS", "Lambda", "LAMBDA_TRIGGER_DISCOVERY",
+            account_id, region, resources,
+            total_functions_checked=total
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def public_exposure_review_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, lc, _, account_id, region = _lambda_context(proyecto_id)
+        resources = []
+        total = 0
+        total_exposed = 0
+
+        for fn in _iter_functions(lc):
+            total += 1
+            function_name = fn.get("FunctionName")
+            policy_json = _get_lambda_policy(lc, function_name)
+
+            is_public = False
+            policy_statements = []
+
+            if policy_json:
+                for stmt in policy_json.get("Statement", []):
+                    principal = stmt.get("Principal")
+                    stmt_public = _is_principal_public(principal)
+                    if stmt_public:
+                        is_public = True
+                    policy_statements.append({
+                        "principal": principal,
+                        "action": stmt.get("Action"),
+                        "condition": stmt.get("Condition"),
+                        "statement_public": stmt_public
+                    })
+
+            if is_public:
+                total_exposed += 1
+
+            resources.append(_base_resource(
+                provider="AWS", service="Lambda",
+                resource_type="LambdaPublicExposure", resource_id=function_name,
+                account_id=account_id, region=region,
+                analysis={
+                    "is_public": is_public,
+                    "policy_statements": policy_statements
+                }
+            ))
+
+        return _build_resultado(
+            "AWS", "Lambda", "LAMBDA_PUBLIC_EXPOSURE_ANALYSIS",
+            account_id, region, resources,
+            total_functions_checked=total,
+            total_exposed_functions=total_exposed
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def overprivileged_role_review_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, lc, iam, account_id, region = _lambda_context(proyecto_id)
+        resources = []
+        total = 0
+
+        for fn in _iter_functions(lc):
+            total += 1
+            function_name = fn.get("FunctionName")
+            role_arn = fn.get("Role")
+            if not role_arn:
+                continue
+
+            role_name = role_arn.split("/")[-1]
+            error = None
+            attached, inline = [], []
+
+            try:
+                attached, inline = _analyze_role_policies(iam, role_name, mode="raw")
+            except Exception as e:
+                error = str(e)
+
+            resources.append(_base_resource(
+                provider="AWS", service="Lambda",
+                resource_type="LambdaExecutionRole", resource_id=role_name,
+                account_id=account_id, region=region,
+                analysis={
+                    "function_name": function_name,
+                    "role_arn": role_arn,
+                    "attached_policies": attached,
+                    "inline_policies": inline,
+                    "error": error
+                },
+                resource_name=role_name
+            ))
+
+        return _build_resultado(
+            "AWS", "Lambda", "LAMBDA_ROLE_CONFIGURATION_DISCOVERY",
+            account_id, region, resources,
+            total_functions_checked=total
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def wildcard_permissions_review_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, lc, iam, account_id, region = _lambda_context(proyecto_id)
+        resources = []
+        total = 0
+
+        for fn in _iter_functions(lc):
+            total += 1
+            function_name = fn.get("FunctionName")
+            role_arn = fn.get("Role")
+            if not role_arn:
+                continue
+
+            role_name = role_arn.split("/")[-1]
+            error = None
+            attached, inline = [], []
+
+            try:
+                attached, inline = _analyze_role_policies(iam, role_name, mode="statements")
+            except Exception as e:
+                error = str(e)
+
+            resources.append(_base_resource(
+                provider="AWS", service="Lambda",
+                resource_type="LambdaWildcardPermissionDiscovery", resource_id=role_name,
+                account_id=account_id, region=region,
+                analysis={
+                    "function_name": function_name,
+                    "role_arn": role_arn,
+                    "attached_policies": attached,
+                    "inline_policies": inline,
+                    "error": error
+                }
+            ))
+
+        return _build_resultado(
+            "AWS", "Lambda", "LAMBDA_WILDCARD_PERMISSION_DISCOVERY",
+            account_id, region, resources,
+            total_functions_checked=total
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def no_vpc_review_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, lc, _, account_id, region = _lambda_context(proyecto_id)
+        resources = []
+        total = 0
+
+        for fn in _iter_functions(lc):
+            total += 1
+            function_name = fn.get("FunctionName")
+            vpc = fn.get("VpcConfig", {}) or {}
+            vpc_id = vpc.get("VpcId")
+            subnets = vpc.get("SubnetIds", []) or []
+            sgs = vpc.get("SecurityGroupIds", []) or []
+
+            resources.append(_base_resource(
+                provider="AWS", service="Lambda",
+                resource_type="LambdaVpcConfiguration", resource_id=function_name,
+                account_id=account_id, region=region,
+                analysis={
+                    "vpc_id": vpc_id,
+                    "subnet_ids": subnets,
+                    "security_group_ids": sgs,
+                    "vpc_configured": bool(vpc_id and subnets and sgs)
+                }
+            ))
+
+        return _build_resultado(
+            "AWS", "Lambda", "LAMBDA_VPC_CONFIGURATION_DISCOVERY",
+            account_id, region, resources,
+            total_functions_checked=total
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def lambda_runtime_review_job(ejecucion_id, proyecto_id):
+    # Alias mantenido por compatibilidad — llama al job real
+    old_runtime_review_job(ejecucion_id, proyecto_id)
 
 
 def old_runtime_review_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
 
-        session, region = _get_aws_session(proyecto_id)
-
-        lambda_client = session.client("lambda")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
-        paginator = lambda_client.get_paginator("list_functions")
+    def _execute():
+        _, lc, _, account_id, region = _lambda_context(proyecto_id)
         resources = []
-        total_functions_checked = 0
-
-        # Obtiene las versiones obsoletas usando el método de CloudEjecucion
-        deprecated_runtimes = CloudEjecucion.versiones_deprecadas(
-            tipo_proyecto_id=proyecto_id,
-            proveedor="AWS",
-            servicio="Lambda",
-            categoria="Runtime"
-        )
-
-        for page in paginator.paginate():
-            for fn in page.get("Functions", []):
-                total_functions_checked += 1
-                function_name = fn.get("FunctionName")
-                runtime = fn.get("Runtime")
-
-                if runtime in deprecated_runtimes:
-                    resources.append({
-                        "provider": "AWS",
-                        "service": "Lambda",
-                        "account_id": account_id,
-                        "region": region,
-                        "resource_type": "LambdaRuntime",
-                        "resource_id": function_name,
-                        "analysis": {
-                            "runtime": runtime,
-                            "deprecated": True,
-                            "recommendation": "Actualizar a una versión soportada oficialmente por AWS"
-                        }
-                    })
-
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "Lambda",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "LAMBDA_RUNTIME_DISCOVERY",
-            "total_functions_checked": total_functions_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
-
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-
-def lambda_runtime_review_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
-
-        session, region = _get_aws_session(proyecto_id)
-
-        lambda_client = session.client("lambda")
-        sts = session.client("sts")
-
-        account_id = sts.get_caller_identity()["Account"]
-
-        paginator = lambda_client.get_paginator("list_functions")
-        resources = []
-        total_functions_checked = 0
+        total = 0
 
         deprecated_runtimes = CloudEjecucion.versiones_deprecadas(
             tipo_proyecto_id=proyecto_id,
-            proveedor="AWS",
-            servicio="Lambda",
-            categoria="Runtime"
+            proveedor="AWS", servicio="Lambda", categoria="Runtime"
         )
 
-        for page in paginator.paginate():
-            for fn in page.get("Functions", []):
-                total_functions_checked += 1
-                function_name = fn.get("FunctionName")
-                runtime = fn.get("Runtime")
+        for fn in _iter_functions(lc):
+            total += 1
+            function_name = fn.get("FunctionName")
+            runtime = fn.get("Runtime")
 
-                if runtime in deprecated_runtimes:
-                    resources.append({
-                        "provider": "AWS",
-                        "service": "Lambda",
-                        "account_id": account_id,
-                        "region": region,
-                        "resource_type": "LambdaRuntime",
-                        "resource_id": function_name,
-                        "analysis": {
-                            "runtime": runtime,
-                            "deprecated": True,
-                            "recommendation": "Actualizar a una versión soportada oficialmente por AWS"
-                        }
-                    })
+            if runtime in deprecated_runtimes:
+                resources.append(_base_resource(
+                    provider="AWS", service="Lambda",
+                    resource_type="LambdaRuntime", resource_id=function_name,
+                    account_id=account_id, region=region,
+                    analysis={
+                        "runtime": runtime,
+                        "deprecated": True,
+                        "recommendation": "Actualizar a una versión soportada oficialmente por AWS"
+                    }
+                ))
 
-        resultado_json = json.dumps({
-            "provider": "AWS",
-            "service": "Lambda",
-            "account_id": account_id,
-            "region": region,
-            "inventory_type": "LAMBDA_RUNTIME_DISCOVERY",
-            "total_functions_checked": total_functions_checked,
-            "total_resources": len(resources),
-            "resources": resources
-        }, indent=2, default=str)
+        return _build_resultado(
+            "AWS", "Lambda", "LAMBDA_RUNTIME_DISCOVERY",
+            account_id, region, resources,
+            total_functions_checked=total
+        )
 
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
+    _run_job(ejecucion_id, _execute)
 
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
 
-def env_secrets_review_job(ejecucion_id, proyecto_id): 
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
+def env_secrets_review_job(ejecucion_id, proyecto_id):
 
-        session, region = _get_aws_session(proyecto_id)
+    SUSPICIOUS_KEYWORDS = [
+        "password", "secret", "token", "apikey", "api_key",
+        "access_key", "private_key", "jwt", "db_", "database"
+    ]
 
-        lambda_client = session.client('lambda')
-        paginator = lambda_client.get_paginator('list_functions')
-
+    def _execute():
+        _, lc, _, account_id, region = _lambda_context(proyecto_id)
         findings = []
 
-        suspicious_keywords = [
-            "password",
-            "secret",
-            "token",
-            "apikey",
-            "api_key",
-            "access_key",
-            "private_key",
-            "jwt",
-            "db_",
-            "database",
-        ]
+        for fn in _iter_functions(lc):
+            function_name = fn.get("FunctionName")
+            variables = fn.get("Environment", {}).get("Variables", {})
 
-        for page in paginator.paginate():
-            for fn in page.get('Functions', []):
+            for key, value in variables.items():
+                key_lower = key.lower()
 
-                function_name = fn.get("FunctionName")
-
-                env = fn.get("Environment", {})
-                variables = env.get("Variables", {})
-
-                for key, value in variables.items():
-
-                    key_lower = key.lower()
-
-                    if any(keyword in key_lower for keyword in suspicious_keywords):
-
-                        findings.append({
-                            "FunctionName": function_name,
-                            "Issue": "Potential secret stored in environment variable",
-                            "VariableName": key,
-                            "VariableValue": value,
-                            "Recommendation": "Mover secretos a AWS Secrets Manager o Parameter Store"
-                        })
-
-                    # Extra: detectar valores tipo clave larga (heurística básica)
-                    if isinstance(value, str) and len(value) > 30:
-                        if any(c.isdigit() for c in value) and any(c.isalpha() for c in value):
-                            findings.append({
-                                "FunctionName": function_name,
-                                "Issue": "Suspicious high-entropy environment variable value",
-                                "VariableName": key,
-                                "Recommendation": "Revisar si el valor es un secreto en texto plano"
-                            })
-
-        resultado_json = json.dumps(findings, indent=2)
-
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
-
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-
-def logging_review_job(ejecucion_id, proyecto_id):
-    try:
-        CloudEjecucion.mark_running(ejecucion_id)
-
-        session, region = _get_aws_session(proyecto_id)
-
-        lambda_client = session.client('lambda')
-        logs_client = session.client('logs')
-
-        paginator = lambda_client.get_paginator('list_functions')
-
-        findings = []
-
-        for page in paginator.paginate():
-            for fn in page.get('Functions', []):
-
-                function_name = fn.get("FunctionName")
-                log_group_name = f"/aws/lambda/{function_name}"
-
-                try:
-                    response = logs_client.describe_log_groups(
-                        logGroupNamePrefix=log_group_name
-                    )
-
-                    log_groups = response.get("logGroups", [])
-
-                    if not log_groups:
-                        findings.append({
-                            "FunctionName": function_name,
-                            "Issue": "CloudWatch Log Group not found",
-                            "Recommendation": "Verificar que la Lambda tenga permisos para escribir logs"
-                        })
-                        continue
-
-                    log_group = log_groups[0]
-                    retention = log_group.get("retentionInDays")
-
-                    if not retention:
-                        findings.append({
-                            "FunctionName": function_name,
-                            "Issue": "Log retention not configured (Never expire)",
-                            "Recommendation": "Configurar retención para evitar almacenamiento indefinido"
-                        })
-
-                except Exception as inner_error:
+                if any(kw in key_lower for kw in SUSPICIOUS_KEYWORDS):
                     findings.append({
                         "FunctionName": function_name,
-                        "Issue": "Error reviewing logging",
-                        "Error": str(inner_error)
+                        "Issue": "Potential secret stored in environment variable",
+                        "VariableName": key,
+                        "VariableValue": value,
+                        "Recommendation": "Mover secretos a AWS Secrets Manager o Parameter Store"
                     })
 
-        resultado_json = json.dumps(findings, indent=2)
+                # Heurística: valor largo alfanumérico = posible secret
+                if isinstance(value, str) and len(value) > 30:
+                    if any(c.isdigit() for c in value) and any(c.isalpha() for c in value):
+                        findings.append({
+                            "FunctionName": function_name,
+                            "Issue": "Suspicious high-entropy environment variable value",
+                            "VariableName": key,
+                            "Recommendation": "Revisar si el valor es un secreto en texto plano"
+                        })
 
-        CloudEjecucion.mark_completed(resultado_json, ejecucion_id)
+        return findings  # Lista directa, sin envelope (mantiene formato original)
 
-    except Exception as e:
-        CloudEjecucion.mark_failed(str(e), ejecucion_id)
-        
-# ===================== Final Funciones Lambda ==================== #
+    _run_job(ejecucion_id, _execute)
+
+
+def logging_review_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, lc, _, account_id, region = _lambda_context(proyecto_id)
+        logs_client = session.client("logs")
+        findings = []
+
+        for fn in _iter_functions(lc):
+            function_name = fn.get("FunctionName")
+            log_group_name = f"/aws/lambda/{function_name}"
+
+            try:
+                response = logs_client.describe_log_groups(logGroupNamePrefix=log_group_name)
+                log_groups = response.get("logGroups", [])
+
+                if not log_groups:
+                    findings.append({
+                        "FunctionName": function_name,
+                        "Issue": "CloudWatch Log Group not found",
+                        "Recommendation": "Verificar que la Lambda tenga permisos para escribir logs"
+                    })
+                    continue
+
+                retention = log_groups[0].get("retentionInDays")
+                if not retention:
+                    findings.append({
+                        "FunctionName": function_name,
+                        "Issue": "Log retention not configured (Never expire)",
+                        "Recommendation": "Configurar retención para evitar almacenamiento indefinido"
+                    })
+
+            except Exception as e:
+                findings.append({
+                    "FunctionName": function_name,
+                    "Issue": "Error reviewing logging",
+                    "Error": str(e)
+                })
+
+        return findings  # Lista directa, mantiene formato original
+
+    _run_job(ejecucion_id, _execute)

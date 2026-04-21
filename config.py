@@ -51,3 +51,4 @@ class Config:
 
     # Asegurarse de que la carpeta exista
     os.makedirs(DATA_DIR, exist_ok=True)
+    

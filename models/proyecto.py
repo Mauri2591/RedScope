@@ -544,16 +544,88 @@ class Proyecto:
 
     
     @staticmethod
-    def get_finding(check_id, proyecto_id):
+    def get_finding(check_id, proyecto_id, resource_id=None, cloud_ejecucion_id=None):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
+        
         query = """
-            SELECT findings.id, findings.estados_findings_id, findings.finding_comment
+            SELECT id, estados_findings_id, finding_comment, security_rules_id
             FROM findings
-            WHERE findings.proyecto_id=%s
-            AND findings.check_id=%s AND findings.estado_id=1;
+            WHERE proyecto_id = %s
+            AND check_id = %s
+            AND estado_id = 1
         """
-        cursor.execute(query, (proyecto_id, check_id))
+        params = [proyecto_id, check_id]
+
+        if resource_id:
+            query += " AND resource_id = %s"
+            params.append(resource_id)
+
+        if cloud_ejecucion_id:
+            query += " AND cloud_ejecucion_id = %s"
+            params.append(int(cloud_ejecucion_id))
+
+        query += " LIMIT 1"
+        
+        cursor.execute(query, params)
+        data = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return data
+
+    @staticmethod
+    def enrich_findings_with_ids(findings, proyecto_id, ejecucion_id):
+        if not findings:
+            return findings
+
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        enriched = []
+        for f in findings:
+            cursor.execute("""
+                SELECT id, security_rules_id, estados_findings_id, finding_comment
+                FROM findings
+                WHERE proyecto_id = %s
+                AND cloud_ejecucion_id = %s
+                AND resource_id = %s
+                AND check_id = %s
+                AND estado_id = 1
+                ORDER BY security_rules_id DESC, id DESC
+                LIMIT 1
+            """, (proyecto_id, ejecucion_id, f['resource_id'], f['check_id']))
+            row = cursor.fetchone()
+            f['finding_id'] = row['id'] if row else None
+            enriched.append(f)
+
+        cursor.close()
+        conn.close()
+        return enriched
+
+    @staticmethod
+    def delete_finding(finding_id):
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE findings 
+            SET estado_id = 2 
+            WHERE id = %s
+        """, (finding_id,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    
+    @staticmethod
+    def get_finding_by_id(finding_id):
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT id, proyecto_id, cloud_ejecucion_id, security_rules_id,
+                check_id, provider, service, resource_id,
+                severidad_id, estados_findings_id, finding_comment
+            FROM findings
+            WHERE id = %s AND estado_id = 1
+        """, (finding_id,))
         data = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -651,3 +723,31 @@ class Proyecto:
         cursor.close()
         conn.close()
         return data
+    
+    @staticmethod
+    def get_reporte_tema():
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT uso, hex FROM reporte_tema WHERE estado_id=1
+        """)
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        # Retorna dict { 'fondo_primario': '#1E1B4B', 'acento': '#00B4D8', ... }
+        return {row['uso']: row['hex'] for row in rows}
+
+    @staticmethod
+    def get_reporte_estructura(proveedor='aws'):
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT clave, subtitulo, tipo, pagina_ref, orden, es_dinamico
+            FROM reporte_estructura_cloud
+            WHERE proveedor = %s AND estado_id = 1
+            ORDER BY orden ASC
+        """, (proveedor,))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return rows

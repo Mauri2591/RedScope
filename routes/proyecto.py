@@ -150,11 +150,11 @@ def guardar_cloud_config(proyecto_id):
 
     # 🔹 Campos del form
     auth_method = request.form.get('auth_method')
-    access_key = request.form.get('access_key')
-    secret_key = request.form.get('secret_key')
-    arn_role = request.form.get('arn_role')
+    access_key  = request.form.get('access_key')
+    secret_key  = request.form.get('secret_key')
+    arn_role    = request.form.get('arn_role')
     external_id = request.form.get('external_id')
-    region = request.form.get('region')
+    region      = request.form.get('region')
 
     if not auth_method or not region:
         return jsonify({
@@ -163,7 +163,7 @@ def guardar_cloud_config(proyecto_id):
         }), 400
 
     region = region.strip()
-    aws_account_id = None
+    aws_account_id     = None
     secret_key_encrypted = None
 
     try:
@@ -179,7 +179,18 @@ def guardar_cloud_config(proyecto_id):
                     "message": "Role ARN es obligatorio"
                 }), 400
 
-            sts = boto3.client('sts')
+            if not access_key or not secret_key:
+                return jsonify({
+                    "success": False,
+                    "message": "Se requieren Access Key y Secret Key del pentester para asumir el rol"
+                }), 400
+
+            # Autenticamos primero con las keys del pentester
+            sts = boto3.client(
+                'sts',
+                aws_access_key_id=access_key.strip(),
+                aws_secret_access_key=secret_key.strip()
+            )
 
             assume_params = {
                 "RoleArn": arn_role.strip(),
@@ -190,8 +201,9 @@ def guardar_cloud_config(proyecto_id):
                 assume_params["ExternalId"] = external_id.strip()
 
             assumed = sts.assume_role(**assume_params)
-            creds = assumed["Credentials"]
+            creds   = assumed["Credentials"]
 
+            # Verificamos identidad con las credenciales temporales
             sts_temp = boto3.client(
                 "sts",
                 aws_access_key_id=creds["AccessKeyId"],
@@ -200,12 +212,13 @@ def guardar_cloud_config(proyecto_id):
                 region_name=region
             )
 
-            identity = sts_temp.get_caller_identity()
+            identity       = sts_temp.get_caller_identity()
             aws_account_id = identity.get("Account")
 
-            # Limpiar claves si estaban enviadas
-            access_key = None
-            secret_key_encrypted = None
+            # Ciframos la secret_key del pentester para guardarla
+            fernet               = Fernet(current_app.config['FERNET_KEY'])
+            secret_key_encrypted = fernet.encrypt(secret_key.encode()).decode()
+            access_key           = access_key.strip()
 
         # ==========================================================
         # 🔑 MODO ACCESS KEYS
@@ -227,14 +240,14 @@ def guardar_cloud_config(proyecto_id):
                 region_name=region
             )
 
-            identity = sts.get_caller_identity()
+            identity       = sts.get_caller_identity()
             aws_account_id = identity.get("Account")
 
             # Cifrar secret_key
-            fernet = Fernet(current_app.config['FERNET_KEY'])
+            fernet               = Fernet(current_app.config['FERNET_KEY'])
             secret_key_encrypted = fernet.encrypt(secret_key.encode()).decode()
 
-            arn_role = None
+            arn_role    = None
             external_id = None
 
         else:
@@ -297,7 +310,6 @@ def guardar_cloud_config(proyecto_id):
             "message": str(e)
         }), 500
 
-
 @proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud')
 @login_required
 def proyecto_cloud_workspace(proyecto_id):
@@ -352,29 +364,14 @@ def run_roles():
     conn = get_db_connection()
     cursor = conn.cursor()
 
+    # ✅ Siempre inserta una nueva ejecución
     cursor.execute("""
         INSERT INTO cloud_ejecuciones
         (proyecto_id, accion_id, usuario_id, estado, fecha_creacion, estado_id)
         VALUES (%s,%s,%s,'QUEUED', NOW(), 1)
-        ON DUPLICATE KEY UPDATE
-            usuario_id = VALUES(usuario_id),
-            estado = 'QUEUED',
-            nivel_resultado = NULL,
-            codigo_resultado = NULL,
-            resultado = NULL,
-            error = NULL,
-            fecha_creacion = NOW(),
-            fecha_fin = NULL,
-            estado_id = 1
     """, (proyecto_id, accion_id, usuario_id))
 
-    # Siempre obtenemos el ID correcto
-    cursor.execute("""
-        SELECT id FROM cloud_ejecuciones
-        WHERE proyecto_id=%s AND accion_id=%s
-    """, (proyecto_id, accion_id))
-
-    ejecucion_id = cursor.fetchone()[0]
+    ejecucion_id = cursor.lastrowid
 
     conn.commit()
     cursor.close()
@@ -451,7 +448,6 @@ def obtener_detalle_ejecucion(proyecto_id, ejecucion_id):
 
     return jsonify(data)
 
-
 @proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud/ejecucion/<int:ejecucion_id>/hallazgos')
 @login_required
 def gestionar_hallazgos(proyecto_id, ejecucion_id):
@@ -459,51 +455,69 @@ def gestionar_hallazgos(proyecto_id, ejecucion_id):
     proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
     if not proyecto:
         abort(404)
-    data = Proyecto.get_data_ejecuciones_para_analisis(
-        proyecto_id,
-        ejecucion_id
-    )
+    data = Proyecto.get_data_ejecuciones_para_analisis(proyecto_id, ejecucion_id)
     if not data:
         abort(404)
+
     findings = CloudEjecucion.extract_interesting(data["resultado"])
+
+    # ✅ Enriquecer cada finding con su finding_id de DB
+    findings = Proyecto.enrich_findings_with_ids(findings, proyecto_id, ejecucion_id)
+
     return render_template(
         'proyecto/proyectos-cloud/GestionHallazgos.html',
         proyecto=proyecto,
         ejecucion=data,
         findings=findings
     )
-
-
-@proyecto_bp.route('/proyecto/security-rule/<check_id>')
+    
+@proyecto_bp.route('/proyecto/security-rule/<check_id>', methods=['GET'])
 @login_required
 def gestionar_findings(check_id):
-
     data = Proyecto.get_security_rules(check_id)
     severidades = Proyecto.get_severidades()
-    combo_findings = Proyecto.get_combo_estados_findings()  # devuelve lista de estados
+    combo_findings = Proyecto.get_combo_estados_findings()
 
     return jsonify({
         'success': True,
         'rule_exists': True if data else False,
         'data': data,
         'severidades': severidades,
-        'combo_findings': combo_findings       # 🔹 agregamos los estados aquí
+        'combo_findings': combo_findings
     })
     
+@proyecto_bp.route('/proyecto/finding/eliminar/<int:finding_id>', methods=['POST'])
+@login_required
+def eliminar_finding(finding_id):
+    Proyecto.delete_finding(finding_id)
+    return jsonify({"success": True})    
+
 @proyecto_bp.route('/proyecto/security-rule', methods=['POST'])
 @login_required
 def insert_security_rule():
-
     data = request.get_json()
-
     rule_id = Proyecto.insert_security_rule(data)
-
     return jsonify({
         "success": True,
-        "rule_id": rule_id
+        "rule_id": rule_id  # ← ya lo tenés, bien
+    })
+
+    
+@proyecto_bp.route('/proyecto/finding/detail/<int:finding_id>', methods=['GET'])
+@login_required
+def get_finding_by_id(finding_id):
+    finding = Proyecto.get_finding_by_id(finding_id)
+    if not finding:
+        return jsonify({"success": False}), 404
+    evidencias_img = Proyecto.get_finding_evidencias_img(finding_id)
+    return jsonify({
+        "success": True,
+        "data": {
+            "finding": finding,
+            "evidencias_img": evidencias_img
+        }
     })
     
-
 @proyecto_bp.route('/proyecto/finding', methods=['POST'])
 @login_required
 def insert_finding():
@@ -539,20 +553,22 @@ def api_get_finding(finding_id):
     })
     
 @proyecto_bp.route('/proyecto/finding/<int:proyecto_id>/<string:check_id>', methods=['GET'])
+@login_required
 def get_finding_by_check(proyecto_id, check_id):
-    # Obtenemos el finding principal
-    finding = Proyecto.get_finding(check_id=check_id, proyecto_id=proyecto_id)
-    
+    resource_id        = request.args.get('resource_id')
+    cloud_ejecucion_id = request.args.get('ejecucion_id')
+
+    finding = Proyecto.get_finding(
+        check_id=check_id,
+        proyecto_id=proyecto_id,
+        resource_id=resource_id,
+        cloud_ejecucion_id=cloud_ejecucion_id
+    )
+
     if not finding:
-        return jsonify({
-            "success": False,
-            "message": "No se encontró el finding"
-        }), 404
+        return jsonify({"success": False, "message": "No encontrado"}), 404
 
-    # Obtenemos el finding_id desde el finding devuelto
-    finding_id = finding['id']  # asumimos que get_finding devuelve un dict con 'id'
-
-    # Traemos las evidencias asociadas
+    finding_id     = finding['id']
     evidencias_img = Proyecto.get_finding_evidencias_img(finding_id)
 
     return jsonify({
@@ -623,3 +639,32 @@ def exportar_csv(proyecto_id):
         }
     )
 #---------------------------------------------------------------------------#
+#-------------------------------- Docx ------------------------------#
+
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/export/docx')
+@login_required
+def exportar_docx(proyecto_id):
+    sector_id = session.get('sector_id')
+    proyecto  = Proyecto.get_by_id(proyecto_id, sector_id)
+
+    if not proyecto:
+        abort(404)
+
+    data       = Proyecto.get_data_reporte(proyecto_id)
+    tema       = Proyecto.get_reporte_tema()
+    estructura = Proyecto.get_reporte_estructura(proveedor='aws')
+    severidades = Proyecto.get_severidades()
+
+    output   = ReportService.generar_docx(data, proyecto, tema, estructura, severidades)
+    filename = ReportService.generar_nombre_archivo(data, proyecto_id, extension="docx")
+
+    return Response(
+        output.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Cache-Control": "no-cache"
+        }
+    )
+#---------------------------------------------------------------------------#
+    
