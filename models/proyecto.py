@@ -696,6 +696,7 @@ class Proyecto:
         query = """
         SELECT 
             p.titulo AS proyecto_titulo,
+            f.id AS finding_id,
             f.provider AS proveedor,
             f.service AS servicio,
             f.check_id,
@@ -706,7 +707,9 @@ class Proyecto:
             sr.remediation AS remediacion,
             sr.reference AS referencia,
             f.resource_id,
-            ef.nombre AS estado
+            ef.nombre AS estado,
+            f.finding_comment,
+            GROUP_CONCAT(fe.file_path ORDER BY fe.id SEPARATOR '|') AS imagenes
         FROM findings f
         INNER JOIN proyectos p 
             ON p.id = f.proyecto_id
@@ -716,7 +719,11 @@ class Proyecto:
             ON sev.id = sr.severidad_id
         LEFT JOIN estados_findings ef
             ON ef.id = f.estados_findings_id
-        WHERE f.proyecto_id = %s;
+        LEFT JOIN findings_evidence fe 
+            ON fe.finding_id = f.id AND fe.estado_id = 1
+        WHERE f.proyecto_id = %s AND f.estado_id = 1
+        GROUP BY f.id
+        ORDER BY sev.orden DESC;
         """
         cursor.execute(query, (proyecto_id,))
         data = cursor.fetchall()
@@ -751,3 +758,19 @@ class Proyecto:
         cursor.close()
         conn.close()
         return rows
+    
+    @staticmethod
+    def get_contenido_secciones(tipo_servicio: str) -> dict:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT * FROM reporte_contenido_secciones
+            WHERE tipo_servicio = %s AND estado_id = 1
+            LIMIT 1
+        """, (tipo_servicio,))
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return result or {}
+    
+    

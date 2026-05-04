@@ -671,12 +671,19 @@ def exportar_docx(proyecto_id):
     if not proyecto:
         abort(404)
 
-    data       = Proyecto.get_data_reporte(proyecto_id)
-    tema       = Proyecto.get_reporte_tema()
-    estructura = Proyecto.get_reporte_estructura(proveedor='aws')
-    severidades = Proyecto.get_severidades()
+    tipo_servicio = proyecto.get('tipo_servicio', 'aws').lower()
 
-    output   = ReportService.generar_docx(data, proyecto, tema, estructura, severidades)
+    data               = Proyecto.get_data_reporte(proyecto_id)
+    tema               = Proyecto.get_reporte_tema()
+    estructura         = Proyecto.get_reporte_estructura(proveedor=tipo_servicio)
+    severidades        = Proyecto.get_severidades()
+    contenido_secciones = Proyecto.get_contenido_secciones(tipo_servicio)  # ← nuevo
+
+    output = ReportService.generar_docx(
+        data, proyecto, tema, estructura, severidades,
+        contenido_secciones,
+        base_dir=Config.BASE_DIR
+    )    
     filename = ReportService.generar_nombre_archivo(data, proyecto_id, extension="docx")
 
     return Response(
@@ -687,5 +694,4 @@ def exportar_docx(proyecto_id):
             "Cache-Control": "no-cache"
         }
     )
-#---------------------------------------------------------------------------#
     

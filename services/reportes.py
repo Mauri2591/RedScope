@@ -279,8 +279,17 @@ class ReportService:
 
     @staticmethod
     def _doc_base(proyecto, tema):
-        """Crea el documento con márgenes, header y footer."""
         doc = Document()
+
+        # ── Forzar formato moderno (evita "Modo de compatibilidad") ──
+        settings = doc.settings.element
+        compat   = OxmlElement('w:compat')
+        cs       = OxmlElement('w:compatSetting')
+        cs.set(qn('w:name'), 'compatibilityMode')
+        cs.set(qn('w:uri'),  'http://schemas.microsoft.com/office/word')
+        cs.set(qn('w:val'),  '15')
+        compat.append(cs)
+        settings.append(compat)
         sec = doc.sections[0]
         sec.top_margin    = Cm(2.5)
         sec.bottom_margin = Cm(2.5)
@@ -451,14 +460,20 @@ class ReportService:
 
     @staticmethod
     def _bloque_toc(doc, estructura, tema):
-        """Tabla de contenidos manual desde reporte_estructura_cloud."""
+        """
+        TOC nativo de Word con campo TOC 1.
+        - El analista abre el doc y hace clic en 'Actualizar tabla'
+        - Los números de página se actualizan automáticamente
+        - Requiere que _seccion_titulo use estilo Heading para que Word lo detecte
+        """
         color_primario = tema.get('fondo_primario', '#1E1B4B')
         color_acento   = tema.get('acento',         '#00B4D8')
-        color_oscuro   = tema.get('texto_oscuro',   '#111827')
-        color_borde    = tema.get('borde',          '#CCCCCC')
 
-        p = doc.add_paragraph()
-        r = p.add_run('Tabla de Contenidos')
+        # ── Título ───────────────────────────────────────────────
+        p_titulo = doc.add_paragraph()
+        p_titulo.paragraph_format.space_before = Pt(0)
+        p_titulo.paragraph_format.space_after  = Pt(4)
+        r = p_titulo.add_run('Tabla de Contenidos')
         r.font.name      = 'Arial'
         r.font.size      = Pt(18)
         r.font.bold      = True
@@ -466,46 +481,54 @@ class ReportService:
 
         _add_hr(doc, color_acento.lstrip('#'), 12)
 
-        for item in estructura:
-            if item['tipo'] in ('portada', 'toc'):
-                continue
+        # ── Campo TOC nativo de Word ──────────────────────────────
+        # Word detecta párrafos con estilo Heading 1 y construye el índice
+        p_toc = doc.add_paragraph()
 
-            toc_p = doc.add_paragraph()
-            toc_p.paragraph_format.space_before = Pt(3)
-            toc_p.paragraph_format.space_after  = Pt(3)
+        # Instrucción del campo: TOC con nivel 1, sin hiperlinks, con líderes
+        fldChar_begin = OxmlElement('w:fldChar')
+        fldChar_begin.set(qn('w:fldCharType'), 'begin')
+        fldChar_begin.set(qn('w:dirty'), 'true')   # fuerza re-renderizado al abrir
 
-            rn = toc_p.add_run(item['subtitulo'])
-            rn.font.name      = 'Arial'
-            rn.font.size      = Pt(10)
-            rn.font.color.rgb = _hex_to_rgb(
-                color_borde if item['tipo'] == 'anexo' else color_oscuro
-            )
-            if item['tipo'] == 'anexo':
-                rn.font.italic = True
+        instrText = OxmlElement('w:instrText')
+        instrText.set(qn('xml:space'), 'preserve')
+        instrText.text = ' TOC \\o "1-1" \\h \\z \\u '
+        # \\o "1-1" → solo Heading 1
+        # \\h       → hipervínculos (Ctrl+clic navega a la sección)
+        # \\z       → oculta números de página en web layout
+        # \\u       → usa estilos de párrafo con outlineLevel
 
-            # Puntos líderes
-            dots = toc_p.add_run(' ' + ('.' * 90) + ' ')
-            dots.font.name      = 'Arial'
-            dots.font.size      = Pt(10)
-            dots.font.color.rgb = _hex_to_rgb('#DDDDDD')
+        fldChar_sep = OxmlElement('w:fldChar')
+        fldChar_sep.set(qn('w:fldCharType'), 'separate')
 
-            rp = toc_p.add_run(str(item.get('pagina_ref') or ''))
-            rp.font.name      = 'Arial'
-            rp.font.size      = Pt(10)
-            rp.font.bold      = True
-            rp.font.color.rgb = _hex_to_rgb(color_primario)
+        # Texto placeholder que ve el usuario antes de actualizar
+        r_placeholder = OxmlElement('w:r')
+        t_placeholder = OxmlElement('w:t')
+        t_placeholder.text = '[Haga clic en Actualizar tabla para generar el índice]'
+        r_placeholder.append(t_placeholder)
+
+        fldChar_end = OxmlElement('w:fldChar')
+        fldChar_end.set(qn('w:fldCharType'), 'end')
+
+        # Ensamblar el campo en el run del párrafo
+        run = p_toc.add_run()
+        run._r.append(fldChar_begin)
+        run._r.append(instrText)
+        run._r.append(fldChar_sep)
+        run._r.append(r_placeholder)
+        run._r.append(fldChar_end)
 
         _page_break(doc)
 
     @staticmethod
     def _seccion_titulo(doc, texto, tema):
-        """Título de sección con línea decorativa."""
         color_primario = tema.get('fondo_primario', '#1E1B4B')
         color_acento   = tema.get('acento',         '#00B4D8')
 
-        p = doc.add_paragraph()
+        p = doc.add_paragraph(style='Heading 1')  # ← clave para el TOC
         p.paragraph_format.space_before = Pt(8)
         p.paragraph_format.space_after  = Pt(2)
+
         r = p.add_run(texto)
         r.font.name      = 'Arial'
         r.font.size      = Pt(15)
@@ -514,6 +537,21 @@ class ReportService:
 
         _add_hr(doc, color_acento.lstrip('#'), 10)
 
+    @staticmethod
+    def _bloque_seccion_estatica(doc, subtitulo, contenido, tema):
+        ReportService._seccion_titulo(doc, subtitulo, tema)
+        p = doc.add_paragraph()
+        texto = contenido or '[Completar por el analista]'
+        r = p.add_run(texto)
+        r.font.name      = 'Arial'
+        r.font.size      = Pt(10)
+        r.font.italic    = contenido is None
+        r.font.color.rgb = _hex_to_rgb(
+            tema.get('texto_oscuro', '#111827') if contenido
+            else tema.get('borde', '#CCCCCC')
+        )
+        doc.add_paragraph()
+        
     @staticmethod
     def _bloque_seccion_vacia(doc, subtitulo, tema):
         """Sección estática — el analista la completa a mano."""
@@ -539,8 +577,8 @@ class ReportService:
         # Mapa severidad → color desde DB
         sev_map = {s['nombre'].upper(): s['color'].lstrip('#') for s in severidades}
 
-        # Conteo
-        conteo = {s['nombre'].upper(): 0 for s in severidades}
+        # Conteo — ordenado de mayor a menor severidad
+        conteo = {s['nombre'].upper(): 0 for s in sorted(severidades, key=lambda x: x['orden'], reverse=True)}
         for f in findings:
             sev = str(f.get('severidad', '')).upper()
             if sev in conteo:
@@ -704,9 +742,12 @@ class ReportService:
         doc.add_paragraph()
 
     @staticmethod
-    def _bloque_detalle_hallazgos(doc, findings, tema, severidades):
+    def _bloque_detalle_hallazgos(doc, findings, tema, severidades, base_dir=None):
         """Una ficha completa por cada finding."""
         ReportService._seccion_titulo(doc, 'Detalle de Hallazgos', tema)
+
+        import os
+        from docx.shared import Inches
 
         color_primario    = tema.get('fondo_primario',       '#1E1B4B')
         color_secundario  = tema.get('fondo_secundario',     '#2D2A6E')
@@ -714,12 +755,25 @@ class ReportService:
         color_texto_claro = tema.get('texto_claro',          '#FFFFFF')
         color_fila_par    = tema.get('fondo_tabla_fila_par', '#E8EAF6')
         color_oscuro      = tema.get('texto_oscuro',         '#111827')
-        color_borde       = tema.get('borde',                '#CCCCCC')
         sev_map           = {s['nombre'].upper(): s['color'].lstrip('#') for s in severidades}
 
+        # Párrafo introductorio
+        intro = doc.add_paragraph()
+        intro.paragraph_format.space_after = Pt(12)
+        ri = intro.add_run(
+            'A continuación se presenta el detalle técnico de cada hallazgo identificado '
+            'durante la evaluación, incluyendo descripción, condición lógica, remediación, '
+            'referencias asociadas, comentarios del analista y evidencias de pruebas.'
+        )
+        ri.font.name      = 'Arial'
+        ri.font.size      = Pt(10)
+        ri.font.color.rgb = _hex_to_rgb(color_oscuro)
+
         for idx, f in enumerate(findings, start=1):
-            sev     = str(f.get('severidad', '')).upper()
-            sev_hex = sev_map.get(sev, 'CCCCCC')
+            sev        = str(f.get('severidad', '')).upper()
+            sev_hex    = sev_map.get(sev, 'CCCCCC')
+            comment    = f.get('finding_comment') or ''
+            evidencias = f.get('evidencias', [])
 
             # ── Encabezado finding ──────────────────────────────
             enc = doc.add_table(rows=1, cols=2)
@@ -759,15 +813,13 @@ class ReportService:
             tc_sev.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
             # ── Metadata ────────────────────────────────────────
-            meta = doc.add_table(rows=1, cols=3)
+            meta        = doc.add_table(rows=1, cols=3)
             _remove_table_borders(meta)
-
             meta_campos = [
-                ('Servicio', f.get('servicio', ''),    3.0),
-                ('Recurso',  f.get('resource_id', ''), 9.5),
+                ('Servicio', f.get('servicio', ''),      3.0),
+                ('Recurso',  f.get('resource_id', ''),   9.5),
                 ('Estado',   f.get('estado', 'ABIERTO'), 4.5),
             ]
-
             for mi, (ml, mv, mw) in enumerate(meta_campos):
                 mc = meta.rows[0].cells[mi]
                 mc.width = Cm(mw)
@@ -786,12 +838,12 @@ class ReportService:
                 mr_val.font.color.rgb = _hex_to_rgb(color_oscuro)
                 mc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-            # ── Campos del finding ──────────────────────────────
+            # ── Campos técnicos ─────────────────────────────────
             ficha_campos = [
-                ('Descripción',    f.get('descripcion',    '')),
-                ('Condición',      f.get('condicion_logica', '')),
-                ('Remediación',    f.get('remediacion',    '')),
-                ('Referencia',     f.get('referencia',     '')),
+                ('Descripción', f.get('descripcion',      '')),
+                ('Condición',   f.get('condicion_logica', '')),
+                ('Remediación', f.get('remediacion',      '')),
+                ('Referencia',  f.get('referencia',       '')),
             ]
 
             ficha = doc.add_table(rows=len(ficha_campos), cols=2)
@@ -800,7 +852,6 @@ class ReportService:
             for fi, (fl, fv) in enumerate(ficha_campos):
                 bg = color_fila_par.lstrip('#') if fi % 2 == 0 else 'FFFFFF'
 
-                # Label
                 lc = ficha.rows[fi].cells[0]
                 lc.width = Cm(3.5)
                 _set_cell_bg(lc, color_secundario.lstrip('#'))
@@ -815,7 +866,6 @@ class ReportService:
                 lr.font.color.rgb = _hex_to_rgb(color_acento)
                 lc.vertical_alignment = WD_ALIGN_VERTICAL.TOP
 
-                # Valor
                 vc = ficha.rows[fi].cells[1]
                 vc.width = Cm(13.5)
                 _set_cell_bg(vc, bg)
@@ -828,65 +878,83 @@ class ReportService:
                 vr.font.color.rgb = _hex_to_rgb(color_oscuro)
                 vc.vertical_alignment = WD_ALIGN_VERTICAL.TOP
 
+            # ── Evidencias: comentario + capturas ───────────────
+            if comment or evidencias:
+                # Título del bloque
+                p_ev_titulo = doc.add_paragraph()
+                p_ev_titulo.paragraph_format.space_before = Pt(8)
+                p_ev_titulo.paragraph_format.space_after  = Pt(4)
+                rev_titulo = p_ev_titulo.add_run('Evidencia Manual:')
+                rev_titulo.font.name      = 'Arial'
+                rev_titulo.font.size      = Pt(9)
+                rev_titulo.font.bold      = True
+                rev_titulo.font.color.rgb = _hex_to_rgb(color_secundario)
+
+                # Comentario del analista
+                if comment:
+                    p_comment = doc.add_paragraph()
+                    p_comment.paragraph_format.space_before = Pt(2)
+                    p_comment.paragraph_format.space_after  = Pt(6)
+                    rc = p_comment.add_run(comment)
+                    rc.font.name      = 'Arial'
+                    rc.font.size      = Pt(9)
+                    rc.font.color.rgb = _hex_to_rgb(color_oscuro)
+
+                # Imágenes
+                if evidencias and base_dir:
+                    for img_path in evidencias:
+                        abs_path = os.path.join(base_dir, img_path)
+                        if os.path.exists(abs_path):
+                            try:
+                                p_img = doc.add_paragraph()
+                                p_img.paragraph_format.space_before = Pt(4)
+                                p_img.paragraph_format.space_after  = Pt(4)
+                                run_img = p_img.add_run()
+                                run_img.add_picture(abs_path, width=Cm(16.5))
+                            except Exception:
+                                pass
+
             doc.add_paragraph()
 
-            # Salto de página entre findings (excepto el último)
             if idx < len(findings):
                 _page_break(doc)
 
     # ─────────────────────────────────────────────────────────────
     # DOCX — punto de entrada público
     # ─────────────────────────────────────────────────────────────
-
     @staticmethod
-    def generar_docx(data, proyecto, tema, estructura, severidades):
-        """
-        Genera el reporte Word completo.
+    def generar_docx(data, proyecto, tema, estructura, severidades, contenido_secciones=None, base_dir=None):
+        contenido_secciones = contenido_secciones or {}
 
-        Parámetros:
-            data        → lista de findings (get_data_reporte)
-            proyecto    → dict del proyecto (get_by_id)
-            tema        → dict { uso: hex } (get_reporte_tema)
-            estructura  → lista de secciones (get_reporte_estructura)
-            severidades → lista de severidades (get_severidades)
+        # Procesar imágenes que vienen como string separado por |
+        for f in data:
+            imagenes_raw  = f.get('imagenes') or ''
+            f['evidencias'] = [img for img in imagenes_raw.split('|') if img]
 
-        Retorna:
-            BytesIO con el archivo .docx listo para descargar.
-        """
         doc = ReportService._doc_base(proyecto, tema)
-
-        # ── Portada ──
         ReportService._bloque_portada(doc, proyecto, tema)
-
-        # ── TOC ──
         ReportService._bloque_toc(doc, estructura, tema)
 
-        # ── Secciones dinámicas según reporte_estructura_cloud ──
         for seccion in estructura:
-            tipo       = seccion['tipo']
-            clave      = seccion['clave']
-            subtitulo  = seccion['subtitulo']
-            dinamico   = seccion['es_dinamico']
+            tipo      = seccion['tipo']
+            clave     = seccion['clave']
+            subtitulo = seccion['subtitulo']
+            dinamico  = seccion['es_dinamico']
 
             if tipo in ('portada', 'toc'):
                 continue
 
             if dinamico:
-                # Secciones que se generan con datos de findings
                 if clave == 'resumen_hallazgos':
                     ReportService._bloque_resumen(doc, data, tema, severidades)
-
                 elif clave == 'hallazgos':
                     ReportService._bloque_tabla_hallazgos(doc, data, tema, severidades)
-
                 elif clave == 'detalle_hallazgos':
-                    ReportService._bloque_detalle_hallazgos(doc, data, tema, severidades)
-
+                    ReportService._bloque_detalle_hallazgos(doc, data, tema, severidades, base_dir=base_dir)
             else:
-                # Sección estática — el analista la completa a mano
-                ReportService._bloque_seccion_vacia(doc, subtitulo, tema)
+                contenido = contenido_secciones.get(clave)
+                ReportService._bloque_seccion_estatica(doc, subtitulo, contenido, tema)
 
-            # Salto de página entre secciones (excepto la última)
             if seccion != estructura[-1]:
                 _page_break(doc)
 
@@ -894,3 +962,4 @@ class ReportService:
         doc.save(output)
         output.seek(0)
         return output
+        
