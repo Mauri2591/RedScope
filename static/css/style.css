@@ -288,7 +288,7 @@ th {
 .iam {font-size: .7rem; font-weight: bold; background-color: #e23636; color: var(--color-blanco-primario); padding: .1rem; }
 .api-gateway {font-size: .7rem; font-weight: bold; background-color: rgb(136, 48, 136); color: var(--color-blanco-primario); padding: .1rem; }
 .aws-lambda {font-size: .7rem; font-weight: bold; background-color: rgb(212, 138, 0); color: var(--color-blanco-primario); padding: .1rem; }
-
+.amazon-inspector {font-size: .7rem;   font-weight: bold; background-color: #1a6fa8; color: var(--color-blanco-primario);padding: .1rem; }
 
 .borde-terminal-salida {
     border: 2px solid #dee2e6;
@@ -305,7 +305,7 @@ th {
     min-height: 100vh;
 }
 
-.span-cliente-titulo{
+.span-cliente-titulo, .contenedor-iconos-formulario{
     background-color: var(--color-blanco-secundario);
     color: #000;
     border: .1rem solid var(--color-blanco-terciario);
@@ -375,7 +375,7 @@ th {
 }
 
 .btn-csv {
-    background-color: #C8E6C9; /* verde claro */
+    background-color: #9abd9b; /* verde claro */
     color: #000;
 }
 

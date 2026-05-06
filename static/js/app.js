@@ -604,6 +604,7 @@
             $("#cloud_ejecucion_id").val(findingData.cloud_ejecucion_id);
             $("#resource_id").val(findingData.resource_id);
             $("#finding_id").val(finding_id);
+            $("#finding_service").val(findingData.service);
 
             // Evidencias
             $("#evidence_preview").empty();
@@ -791,7 +792,7 @@
     function guardarRule() {
         let data = {
             provider: "aws",
-            service: "iam",
+            service: $("#finding_service").val(),
             check_id: $("#check_id").val(),
             title: $("#rule_title").val(),
             description: $("#rule_description").val(),
@@ -933,3 +934,34 @@
             guardarFinding();
         });
     }
+
+async function ejecutar_todos() {
+    if (!confirm("¿Desea ejecutar todos los Servicios?")) return;
+    const proyectoId = document.getElementById('cloudWorkspace').dataset.proyectoId;
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+    // Traer todas las acciones
+    const res = await fetch(`/cloud/acciones/all/${proyectoId}`);
+    const data = await res.json();
+    if (!data.success || !data.acciones.length) {
+        alert("No se encontraron acciones para ejecutar");
+        return;
+    }
+    // Encolar cada acción secuencialmente
+    for (const accion of data.acciones) {
+        await fetch('/cloud/run-roles', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({
+                proyecto_id: parseInt(proyectoId),
+                accion_id: accion.id
+            })
+        });
+    }
+    mostrarToast();
+    iniciarPollingCloud();
+    cargarResultadosCloud();
+}

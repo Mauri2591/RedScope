@@ -238,7 +238,6 @@ class Proyecto:
 
     @staticmethod
     def get_data_ejecucion_cloud(proyecto_id):
-
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
 
@@ -255,18 +254,17 @@ class Proyecto:
                 ON saa.id = ce.accion_id
             WHERE ce.proyecto_id = %s
             AND ce.estado_id != 2
+            ORDER BY ce.id ASC  -- ← agregás esto
         """, (proyecto_id,))
 
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
 
-        # Lo dejamos como nombre_ui : resultado
         data = {}
-
         for row in rows:
             data[row["nombre_ui"]] = {
-                "id":row['id'],
+                "id": row['id'],
                 "estado": row["estado"],
                 "resultado": row["resultado"],
                 "error": row["error"],
@@ -774,3 +772,19 @@ class Proyecto:
         return result or {}
     
     
+    @staticmethod
+    def get_todas_las_acciones(tipo_servicio_id):
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT saa.id, saa.nombre_ui, saa.handler
+            FROM servicios_aws_acciones saa
+            INNER JOIN servicios_aws sa ON sa.id = saa.servicios_aws_id
+            WHERE sa.tipos_servicio_id = %s
+            AND saa.estado_id = 1
+            ORDER BY sa.id ASC, saa.orden ASC
+        """, (tipo_servicio_id,))
+        acciones = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return acciones

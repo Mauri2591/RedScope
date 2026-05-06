@@ -22,7 +22,8 @@ class CloudEjecucion:
     "versioning_enabled",
     "logging_enabled",
     "mfa_enabled",
-    "rotation_enabled"
+    "rotation_enabled",
+    "inspector_enabled"
     ]
      
     @staticmethod
@@ -44,37 +45,8 @@ class CloudEjecucion:
             conn.close()
 
     @staticmethod
-    def mark_completed(resultado_json, ejecucion_id):
-        try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE cloud_ejecuciones
-                SET estado='COMPLETED',
-                    resultado=%s,
-                    fecha_fin=NOW()
-                WHERE id=%s
-            """, (resultado_json, ejecucion_id))
-            conn.commit()
-        except Exception as e:
-            print(f"Error al marcar como 'COMPLETED': {e}")
-        finally:
-            cursor.close()
-            conn.close()
-
-        # ✅ AUTO-INSERT findings luego de completar
-        CloudEjecucion.auto_insert_findings(ejecucion_id, resultado_json)
-
-
-    @staticmethod
     def auto_insert_findings(ejecucion_id, resultado_json):
-        """
-        Parsea el resultado del escaneo y auto-inserta un finding por cada
-        check interesante detectado. security_rules_id queda NULL hasta que
-        el usuario la complete manualmente.
-        """
         try:
-            # Obtener proyecto_id, usuario_id, provider y service de la ejecución
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
@@ -95,7 +67,6 @@ class CloudEjecucion:
             proyecto_id = ejecucion['proyecto_id']
             usuario_id  = ejecucion['usuario_id']
 
-            # Parsear resultado para extraer checks interesantes
             resultado = resultado_json
             if isinstance(resultado, str):
                 resultado = json.loads(resultado)
@@ -104,9 +75,13 @@ class CloudEjecucion:
             if not interesting:
                 return
 
-            # Provider y service vienen del envelope del resultado
-            provider = resultado.get('provider', 'aws').lower()
-            service  = resultado.get('service', '').lower()
+            # ✅ Si el resultado es lista directa, provider y service son lambda por defecto
+            if isinstance(resultado, list):
+                provider = 'aws'
+                service  = 'lambda'
+            else:
+                provider = resultado.get('provider', 'aws').lower()
+                service  = resultado.get('service', '').lower()
 
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -148,6 +123,28 @@ class CloudEjecucion:
 
         except Exception as e:
             print(f"[auto_insert_findings] Error: {e}")
+            
+    @staticmethod
+    def mark_completed(resultado_json, ejecucion_id):
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE cloud_ejecuciones
+                SET estado='COMPLETED',
+                    resultado=%s,
+                    fecha_fin=NOW()
+                WHERE id=%s
+            """, (resultado_json, ejecucion_id))
+            conn.commit()
+        except Exception as e:
+            print(f"Error al marcar como 'COMPLETED': {e}")
+        finally:
+            cursor.close()
+            conn.close()
+
+        # AUTO-INSERT findings luego de completar
+        CloudEjecucion.auto_insert_findings(ejecucion_id, resultado_json)
 
     @staticmethod
     def mark_failed(error, ejecucion_id):
@@ -226,6 +223,30 @@ class CloudEjecucion:
 
         interesting = []
 
+        # ✅ Jobs que devuelven lista directa (sin envelope)
+        if isinstance(resultado, list):
+            for item in resultado:
+                function_name = item.get('FunctionName', '')
+                issue = item.get('Issue', '')
+                
+                if not function_name:
+                    continue
+
+                if 'secret' in issue.lower() or 'entropy' in issue.lower():
+                    check_id = 'env_secret_exposed'
+                elif 'retention' in issue.lower():
+                    check_id = 'logging_retention_disabled'
+                elif 'log group not found' in issue.lower():
+                    check_id = 'logging_disabled'
+                else:
+                    check_id = 'lambda_security_issue'
+
+                interesting.append({
+                    'resource_id': function_name,
+                    'check_id': check_id
+                })
+            return interesting
+
         # 🔴 Si la ejecución falló por permisos
         if resultado.get("status") == "FAILED":
             error = resultado.get("error", "")
@@ -236,14 +257,36 @@ class CloudEjecucion:
                 })
             return interesting
 
+        # ✅ Inspector CVE findings
+        inventory_type = resultado.get("inventory_type", "")
+        INSPECTOR_CVE_TYPES = [
+            "INSPECTOR_EC2_CVE_FINDINGS",
+            "INSPECTOR_LAMBDA_CVE_FINDINGS",
+            "INSPECTOR_ECR_CVE_FINDINGS",
+            "INSPECTOR_CRITICAL_FINDINGS",
+            "INSPECTOR_HIGH_FINDINGS",
+            "INSPECTOR_SUPPRESSED_FINDINGS",
+            "INSPECTOR_SBOM_EXPORT"
+        ]
+
+        if inventory_type in INSPECTOR_CVE_TYPES:
+            for r in resultado.get("resources", []):
+                analysis = r.get("analysis", {})
+                check_id = analysis.get("vulnerability_id") or "cve_finding"
+                interesting.append({
+                    "resource_id": r.get("resource_id"),
+                    "check_id": check_id
+                })
+            return interesting
+
+        # ✅ Lógica general
         for r in resultado.get("resources", []):
             analysis = r.get("analysis", {})
-            added_keys = set()  # evitar duplicados por recurso
+            added_keys = set()
 
             for key, value in analysis.items():
                 key_lower = key.lower()
 
-                # ✅ Hallazgo cuando algo riesgoso ES True
                 if value is True:
                     for keyword in CloudEjecucion.RISK_KEYWORDS:
                         if keyword in key_lower:
@@ -255,7 +298,6 @@ class CloudEjecucion:
                                 added_keys.add(key)
                             break
 
-                # ✅ Hallazgo cuando algo importante NO está habilitado
                 if value is False:
                     for keyword in CloudEjecucion.RISK_FALSE_KEYWORDS:
                         if keyword in key_lower:

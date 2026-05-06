@@ -2108,3 +2108,481 @@ def logging_review_job(ejecucion_id, proyecto_id):
         return findings  # Lista directa, mantiene formato original
 
     _run_job(ejecucion_id, _execute)
+    
+# ══════════════════════════════════════════════════════════════════
+# AMAZON INSPECTOR
+# ══════════════════════════════════════════════════════════════════
+
+def _inspector_context(proyecto_id):
+    """Retorna (session, inspector2_client, account_id, region)."""
+    session, region = _get_aws_session(proyecto_id)
+    inspector = session.client("inspector2", region_name=region)
+    account_id = _get_account_id(session)
+    return session, inspector, account_id, region
+
+
+def inspector_status_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, inspector, account_id, region = _inspector_context(proyecto_id)
+        errors = []
+
+        try:
+            status = inspector.batch_get_account_status(accountIds=[account_id])
+            account_status = status.get("accounts", [{}])[0]
+            state = account_status.get("state", {})
+            resource_state = account_status.get("resourceState", {})
+
+            analysis = {
+                "inspector_enabled": state.get("status") == "ENABLED",
+                "status": state.get("status"),
+                "ec2_scanning": resource_state.get("ec2", {}).get("status"),
+                "lambda_scanning": resource_state.get("lambda", {}).get("status"),
+                "ecr_scanning": resource_state.get("ecr", {}).get("status"),
+            }
+        except Exception as e:
+            errors.append(f"inspector_status_error: {e}")
+            analysis = {
+                "inspector_enabled": False,
+                "status": "ERROR",
+                "ec2_scanning": None,
+                "lambda_scanning": None,
+                "ecr_scanning": None,
+            }
+
+        resource = _base_resource(
+            provider="AWS", service="Inspector",
+            resource_type="InspectorStatus",
+            resource_id=f"inspector-status-{account_id}",
+            account_id=account_id, region=region,
+            analysis=analysis,
+            errors=errors
+        )
+
+        return _build_resultado(
+            "AWS", "Inspector", "INSPECTOR_STATUS_CHECK",
+            account_id, region, [resource]
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def inspector_ec2_findings_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, inspector, account_id, region = _inspector_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = inspector.get_paginator("list_findings")
+            for page in paginator.paginate(
+                filterCriteria={
+                    "resourceType": [{"comparison": "EQUALS", "value": "AWS_EC2_INSTANCE"}]
+                }
+            ):
+                for finding in page.get("findings", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="Inspector",
+                        resource_type="EC2Finding",
+                        resource_id=finding.get("resources", [{}])[0].get("id", "unknown"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "finding_arn": finding.get("findingArn"),
+                            "title": finding.get("title"),
+                            "description": finding.get("description"),
+                            "severity": finding.get("severity"),
+                            "status": finding.get("status"),
+                            "type": finding.get("type"),
+                            "first_observed": str(finding.get("firstObservedAt")),
+                            "last_observed": str(finding.get("lastObservedAt")),
+                            "remediation": finding.get("remediation", {}).get("recommendation", {}).get("text"),
+                            "cvss_score": finding.get("inspectorScore"),
+                            "vulnerability_id": finding.get("packageVulnerabilityDetails", {}).get("vulnerabilityId"),
+                            "vulnerable_packages": [
+                                {
+                                    "name": p.get("name"),
+                                    "version": p.get("version"),
+                                    "fixed_in_version": p.get("fixedInVersion")
+                                }
+                                for p in finding.get("packageVulnerabilityDetails", {}).get("vulnerablePackages", [])
+                            ]
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"inspector_ec2_findings_error: {e}")
+
+        return _build_resultado(
+            "AWS", "Inspector", "INSPECTOR_EC2_CVE_FINDINGS",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def inspector_lambda_findings_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, inspector, account_id, region = _inspector_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = inspector.get_paginator("list_findings")
+            for page in paginator.paginate(
+                filterCriteria={
+                    "resourceType": [{"comparison": "EQUALS", "value": "AWS_LAMBDA_FUNCTION"}]
+                }
+            ):
+                for finding in page.get("findings", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="Inspector",
+                        resource_type="LambdaFinding",
+                        resource_id=finding.get("resources", [{}])[0].get("id", "unknown"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "finding_arn": finding.get("findingArn"),
+                            "title": finding.get("title"),
+                            "description": finding.get("description"),
+                            "severity": finding.get("severity"),
+                            "status": finding.get("status"),
+                            "type": finding.get("type"),
+                            "first_observed": str(finding.get("firstObservedAt")),
+                            "last_observed": str(finding.get("lastObservedAt")),
+                            "remediation": finding.get("remediation", {}).get("recommendation", {}).get("text"),
+                            "cvss_score": finding.get("inspectorScore"),
+                            "vulnerability_id": finding.get("packageVulnerabilityDetails", {}).get("vulnerabilityId"),
+                            "vulnerable_packages": [
+                                {
+                                    "name": p.get("name"),
+                                    "version": p.get("version"),
+                                    "fixed_in_version": p.get("fixedInVersion")
+                                }
+                                for p in finding.get("packageVulnerabilityDetails", {}).get("vulnerablePackages", [])
+                            ]
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"inspector_lambda_findings_error: {e}")
+
+        return _build_resultado(
+            "AWS", "Inspector", "INSPECTOR_LAMBDA_CVE_FINDINGS",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def inspector_ecr_findings_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, inspector, account_id, region = _inspector_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = inspector.get_paginator("list_findings")
+            for page in paginator.paginate(
+                filterCriteria={
+                    "resourceType": [{"comparison": "EQUALS", "value": "AWS_ECR_CONTAINER_IMAGE"}]
+                }
+            ):
+                for finding in page.get("findings", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="Inspector",
+                        resource_type="ECRFinding",
+                        resource_id=finding.get("resources", [{}])[0].get("id", "unknown"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "finding_arn": finding.get("findingArn"),
+                            "title": finding.get("title"),
+                            "description": finding.get("description"),
+                            "severity": finding.get("severity"),
+                            "status": finding.get("status"),
+                            "type": finding.get("type"),
+                            "first_observed": str(finding.get("firstObservedAt")),
+                            "last_observed": str(finding.get("lastObservedAt")),
+                            "remediation": finding.get("remediation", {}).get("recommendation", {}).get("text"),
+                            "cvss_score": finding.get("inspectorScore"),
+                            "vulnerability_id": finding.get("packageVulnerabilityDetails", {}).get("vulnerabilityId"),
+                            "image_tags": finding.get("resources", [{}])[0].get("details", {}).get("awsEcrContainerImage", {}).get("imageTags", [])
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"inspector_ecr_findings_error: {e}")
+
+        return _build_resultado(
+            "AWS", "Inspector", "INSPECTOR_ECR_CVE_FINDINGS",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def inspector_critical_findings_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, inspector, account_id, region = _inspector_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = inspector.get_paginator("list_findings")
+            for page in paginator.paginate(
+                filterCriteria={
+                    "severity": [{"comparison": "EQUALS", "value": "CRITICAL"}]
+                }
+            ):
+                for finding in page.get("findings", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="Inspector",
+                        resource_type="CriticalFinding",
+                        resource_id=finding.get("resources", [{}])[0].get("id", "unknown"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "finding_arn": finding.get("findingArn"),
+                            "title": finding.get("title"),
+                            "severity": finding.get("severity"),
+                            "resource_type": finding.get("resources", [{}])[0].get("type"),
+                            "status": finding.get("status"),
+                            "cvss_score": finding.get("inspectorScore"),
+                            "vulnerability_id": finding.get("packageVulnerabilityDetails", {}).get("vulnerabilityId"),
+                            "remediation": finding.get("remediation", {}).get("recommendation", {}).get("text"),
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"inspector_critical_findings_error: {e}")
+
+        return _build_resultado(
+            "AWS", "Inspector", "INSPECTOR_CRITICAL_FINDINGS",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def inspector_high_findings_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, inspector, account_id, region = _inspector_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = inspector.get_paginator("list_findings")
+            for page in paginator.paginate(
+                filterCriteria={
+                    "severity": [{"comparison": "EQUALS", "value": "HIGH"}]
+                }
+            ):
+                for finding in page.get("findings", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="Inspector",
+                        resource_type="HighFinding",
+                        resource_id=finding.get("resources", [{}])[0].get("id", "unknown"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "finding_arn": finding.get("findingArn"),
+                            "title": finding.get("title"),
+                            "severity": finding.get("severity"),
+                            "resource_type": finding.get("resources", [{}])[0].get("type"),
+                            "status": finding.get("status"),
+                            "cvss_score": finding.get("inspectorScore"),
+                            "vulnerability_id": finding.get("packageVulnerabilityDetails", {}).get("vulnerabilityId"),
+                            "remediation": finding.get("remediation", {}).get("recommendation", {}).get("text"),
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"inspector_high_findings_error: {e}")
+
+        return _build_resultado(
+            "AWS", "Inspector", "INSPECTOR_HIGH_FINDINGS",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def inspector_coverage_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, inspector, account_id, region = _inspector_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = inspector.get_paginator("list_coverage")
+            for page in paginator.paginate():
+                for item in page.get("coveredResources", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="Inspector",
+                        resource_type="InspectorCoverage",
+                        resource_id=item.get("resourceId", "unknown"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "resource_type": item.get("resourceType"),
+                            "scan_type": item.get("scanType"),
+                            "scan_status": item.get("scanStatus", {}).get("statusCode"),
+                            "scan_status_reason": item.get("scanStatus", {}).get("reason"),
+                            "last_scanned_at": str(item.get("lastScannedAt"))
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"inspector_coverage_error: {e}")
+
+        return _build_resultado(
+            "AWS", "Inspector", "INSPECTOR_COVERAGE_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def inspector_suppressed_findings_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, inspector, account_id, region = _inspector_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = inspector.get_paginator("list_findings")
+            for page in paginator.paginate(
+                filterCriteria={
+                    "findingStatus": [{"comparison": "EQUALS", "value": "SUPPRESSED"}]
+                }
+            ):
+                for finding in page.get("findings", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="Inspector",
+                        resource_type="SuppressedFinding",
+                        resource_id=finding.get("resources", [{}])[0].get("id", "unknown"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "finding_arn": finding.get("findingArn"),
+                            "title": finding.get("title"),
+                            "severity": finding.get("severity"),
+                            "resource_type": finding.get("resources", [{}])[0].get("type"),
+                            "status": finding.get("status"),
+                            "suppression_reason": finding.get("suppressionReason"),
+                            "vulnerability_id": finding.get("packageVulnerabilityDetails", {}).get("vulnerabilityId"),
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"inspector_suppressed_findings_error: {e}")
+
+        return _build_resultado(
+            "AWS", "Inspector", "INSPECTOR_SUPPRESSED_FINDINGS",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def inspector_sbom_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, inspector, account_id, region = _inspector_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = inspector.get_paginator("list_findings")
+            for page in paginator.paginate(
+                filterCriteria={
+                    "findingType": [{"comparison": "EQUALS", "value": "PACKAGE_VULNERABILITY"}]
+                }
+            ):
+                for finding in page.get("findings", []):
+                    pkg_details = finding.get("packageVulnerabilityDetails", {})
+                    resources.append(_base_resource(
+                        provider="AWS", service="Inspector",
+                        resource_type="SBOMEntry",
+                        resource_id=finding.get("resources", [{}])[0].get("id", "unknown"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "vulnerability_id": pkg_details.get("vulnerabilityId"),
+                            "source": pkg_details.get("source"),
+                            "severity": finding.get("severity"),
+                            "cvss_score": finding.get("inspectorScore"),
+                            "vulnerable_packages": [
+                                {
+                                    "name": p.get("name"),
+                                    "version": p.get("version"),
+                                    "fixed_in_version": p.get("fixedInVersion"),
+                                    "package_manager": p.get("packageManager"),
+                                    "file_path": p.get("filePath")
+                                }
+                                for p in pkg_details.get("vulnerablePackages", [])
+                            ],
+                            "resource_type": finding.get("resources", [{}])[0].get("type"),
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"inspector_sbom_error: {e}")
+
+        return _build_resultado(
+            "AWS", "Inspector", "INSPECTOR_SBOM_EXPORT",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def inspector_summary_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, inspector, account_id, region = _inspector_context(proyecto_id)
+        errors = []
+        summary = {
+            "by_severity": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFORMATIONAL": 0},
+            "by_resource_type": {},
+            "total_findings": 0
+        }
+
+        try:
+            paginator = inspector.get_paginator("list_findings")
+            for page in paginator.paginate():
+                for finding in page.get("findings", []):
+                    severity = finding.get("severity", "UNKNOWN")
+                    resource_type = finding.get("resources", [{}])[0].get("type", "UNKNOWN")
+
+                    summary["total_findings"] += 1
+
+                    if severity in summary["by_severity"]:
+                        summary["by_severity"][severity] += 1
+
+                    if resource_type not in summary["by_resource_type"]:
+                        summary["by_resource_type"][resource_type] = 0
+                    summary["by_resource_type"][resource_type] += 1
+
+        except Exception as e:
+            errors.append(f"inspector_summary_error: {e}")
+
+        resource = _base_resource(
+            provider="AWS", service="Inspector",
+            resource_type="InspectorSummary",
+            resource_id=f"inspector-summary-{account_id}",
+            account_id=account_id, region=region,
+            analysis=summary,
+            errors=errors
+        )
+
+        return _build_resultado(
+            "AWS", "Inspector", "INSPECTOR_FINDINGS_SUMMARY",
+            account_id, region, [resource]
+        )
+
+    _run_job(ejecucion_id, _execute)
+    
+# ══════════════════════════════════════════════════════════════════
+# FIN AMAZON INSPECTOR
+# ══════════════════════════════════════════════════════════════════

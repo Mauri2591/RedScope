@@ -694,4 +694,17 @@ def exportar_docx(proyecto_id):
             "Cache-Control": "no-cache"
         }
     )
+
+@proyecto_bp.route('/cloud/acciones/all/<int:proyecto_id>')
+@login_required
+def obtener_todas_acciones(proyecto_id):
+    sector_id = session.get('sector_id')
+    proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
+    if not proyecto:
+        return jsonify({"success": False}), 404
     
+    acciones = Proyecto.get_todas_las_acciones(proyecto['tipo_servicio_id'])
+    return jsonify({
+        "success": True,
+        "acciones": acciones
+    })
