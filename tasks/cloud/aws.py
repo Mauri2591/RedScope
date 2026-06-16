@@ -2586,3 +2586,365 @@ def inspector_summary_job(ejecucion_id, proyecto_id):
 # ══════════════════════════════════════════════════════════════════
 # FIN AMAZON INSPECTOR
 # ══════════════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════════════
+# VPC
+# ══════════════════════════════════════════════════════════════════
+def _vpc_context(proyecto_id):
+    """Retorna (session, ec2_client, account_id, region)."""
+    session, region = _get_aws_session(proyecto_id)
+    ec2 = session.client("ec2", region_name=region)
+    account_id = _get_account_id(session)
+    return session, ec2, account_id, region
+
+
+def _has_open_cidr(ip_ranges, ipv6_ranges):
+    for r in ip_ranges or []:
+        if r.get("CidrIp") == "0.0.0.0/0":
+            return True
+    for r in ipv6_ranges or []:
+        if r.get("CidrIpv6") == "::/0":
+            return True
+    return False
+
+
+def _covers_sensitive_port(perm, sensitive_ports):
+    if perm.get("IpProtocol") == "-1":
+        return True
+    from_port = perm.get("FromPort")
+    to_port = perm.get("ToPort")
+    if from_port is None or to_port is None:
+        return False
+    return any(from_port <= p <= to_port for p in sensitive_ports)
+
+
+def vpc_discovery_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, ec2, account_id, region = _vpc_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = ec2.get_paginator("describe_vpcs")
+            for page in paginator.paginate():
+                for vpc in page.get("Vpcs", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="VPC",
+                        resource_type="VPC",
+                        resource_id=vpc.get("VpcId"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "cidr_block": vpc.get("CidrBlock"),
+                            "state": vpc.get("State"),
+                            "default_vpc_active": vpc.get("IsDefault", False),
+                            "instance_tenancy": vpc.get("InstanceTenancy"),
+                            "tags": vpc.get("Tags", [])
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"vpc_discovery_error: {e}")
+
+        return _build_resultado(
+            "AWS", "VPC", "VPC_DISCOVERY",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def vpc_subnets_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, ec2, account_id, region = _vpc_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = ec2.get_paginator("describe_subnets")
+            for page in paginator.paginate():
+                for subnet in page.get("Subnets", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="VPC",
+                        resource_type="Subnet",
+                        resource_id=subnet.get("SubnetId"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "vpc_id": subnet.get("VpcId"),
+                            "cidr_block": subnet.get("CidrBlock"),
+                            "availability_zone": subnet.get("AvailabilityZone"),
+                            "subnet_auto_assign_public_ip": subnet.get("MapPublicIpOnLaunch", False),
+                            "available_ip_count": subnet.get("AvailableIpAddressCount"),
+                            "state": subnet.get("State")
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"vpc_subnets_error: {e}")
+
+        return _build_resultado(
+            "AWS", "VPC", "VPC_SUBNETS_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def vpc_security_groups_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, ec2, account_id, region = _vpc_context(proyecto_id)
+        sensitive_ports = CloudEjecucion.get_sensitive_ingress_ports()
+        resources = []
+        errors = []
+
+        try:
+            paginator = ec2.get_paginator("describe_security_groups")
+            for page in paginator.paginate():
+                for sg in page.get("SecurityGroups", []):
+                    open_ingress_sensitive = False
+                    unrestricted_egress = False
+                    matched_ports = []
+
+                    for perm in sg.get("IpPermissions", []):
+                        if _has_open_cidr(perm.get("IpRanges"), perm.get("Ipv6Ranges")) and _covers_sensitive_port(perm, sensitive_ports):
+                            open_ingress_sensitive = True
+                            matched_ports.append({
+                                "protocol": perm.get("IpProtocol"),
+                                "from_port": perm.get("FromPort"),
+                                "to_port": perm.get("ToPort")
+                            })
+
+                    for perm in sg.get("IpPermissionsEgress", []):
+                        if perm.get("IpProtocol") == "-1" and _has_open_cidr(perm.get("IpRanges"), perm.get("Ipv6Ranges")):
+                            unrestricted_egress = True
+
+                    resources.append(_base_resource(
+                        provider="AWS", service="VPC",
+                        resource_type="SecurityGroup",
+                        resource_id=sg.get("GroupId"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "group_name": sg.get("GroupName"),
+                            "vpc_id": sg.get("VpcId"),
+                            "description": sg.get("Description"),
+                            "open_ingress_sensitive_ports": open_ingress_sensitive,
+                            "matched_sensitive_rules": matched_ports,
+                            "unrestricted_egress_all_ports": unrestricted_egress
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"vpc_security_groups_error: {e}")
+
+        return _build_resultado(
+            "AWS", "VPC", "VPC_SECURITY_GROUPS_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def vpc_network_acls_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, ec2, account_id, region = _vpc_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = ec2.get_paginator("describe_network_acls")
+            for page in paginator.paginate():
+                for nacl in page.get("NetworkAcls", []):
+                    allow_all = False
+                    matched_entries = []
+
+                    for entry in nacl.get("Entries", []):
+                        if entry.get("RuleNumber") == 32767:
+                            continue  # default implicit deny, no es una regla real
+                        is_open_cidr = entry.get("CidrBlock") == "0.0.0.0/0" or entry.get("Ipv6CidrBlock") == "::/0"
+                        if (
+                            entry.get("RuleAction") == "allow"
+                            and entry.get("Protocol") == "-1"
+                            and is_open_cidr
+                        ):
+                            allow_all = True
+                            matched_entries.append({
+                                "rule_number": entry.get("RuleNumber"),
+                                "egress": entry.get("Egress")
+                            })
+
+                    resources.append(_base_resource(
+                        provider="AWS", service="VPC",
+                        resource_type="NetworkAcl",
+                        resource_id=nacl.get("NetworkAclId"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "vpc_id": nacl.get("VpcId"),
+                            "is_default": nacl.get("IsDefault", False),
+                            "nacl_allow_all": allow_all,
+                            "matched_entries": matched_entries
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"vpc_network_acls_error: {e}")
+
+        return _build_resultado(
+            "AWS", "VPC", "VPC_NETWORK_ACLS_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def vpc_flow_logs_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, ec2, account_id, region = _vpc_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            vpcs = []
+            paginator = ec2.get_paginator("describe_vpcs")
+            for page in paginator.paginate():
+                vpcs.extend(page.get("Vpcs", []))
+
+            flow_logs_by_resource = {}
+            fl_paginator = ec2.get_paginator("describe_flow_logs")
+            for page in fl_paginator.paginate():
+                for fl in page.get("FlowLogs", []):
+                    flow_logs_by_resource.setdefault(fl.get("ResourceId"), []).append(fl)
+
+            for vpc in vpcs:
+                vpc_id = vpc.get("VpcId")
+                logs = flow_logs_by_resource.get(vpc_id, [])
+                resources.append(_base_resource(
+                    provider="AWS", service="VPC",
+                    resource_type="FlowLogStatus",
+                    resource_id=vpc_id,
+                    account_id=account_id, region=region,
+                    analysis={
+                        "flow_logs_disabled": len(logs) == 0,
+                        "flow_logs_count": len(logs),
+                        "flow_log_destinations": [fl.get("LogDestinationType") for fl in logs]
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"vpc_flow_logs_error: {e}")
+
+        return _build_resultado(
+            "AWS", "VPC", "VPC_FLOW_LOGS_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def vpc_route_tables_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, ec2, account_id, region = _vpc_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = ec2.get_paginator("describe_route_tables")
+            for page in paginator.paginate():
+                for rt in page.get("RouteTables", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="VPC",
+                        resource_type="RouteTable",
+                        resource_id=rt.get("RouteTableId"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "vpc_id": rt.get("VpcId"),
+                            "routes": [
+                                {
+                                    "destination_cidr": r.get("DestinationCidrBlock"),
+                                    "destination_ipv6_cidr": r.get("DestinationIpv6CidrBlock"),
+                                    "gateway_id": r.get("GatewayId"),
+                                    "nat_gateway_id": r.get("NatGatewayId"),
+                                    "vpc_peering_connection_id": r.get("VpcPeeringConnectionId"),
+                                    "state": r.get("State")
+                                }
+                                for r in rt.get("Routes", [])
+                            ],
+                            "associations": [
+                                a.get("SubnetId") for a in rt.get("Associations", []) if a.get("SubnetId")
+                            ]
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"vpc_route_tables_error: {e}")
+
+        return _build_resultado(
+            "AWS", "VPC", "VPC_ROUTE_TABLES_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def vpc_peering_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, ec2, account_id, region = _vpc_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            peerings = {}
+            pc_paginator = ec2.get_paginator("describe_vpc_peering_connections")
+            for page in pc_paginator.paginate():
+                for pc in page.get("VpcPeeringConnections", []):
+                    peerings[pc.get("VpcPeeringConnectionId")] = pc
+
+            rt_paginator = ec2.get_paginator("describe_route_tables")
+            for page in rt_paginator.paginate():
+                for rt in page.get("RouteTables", []):
+                    for route in rt.get("Routes", []):
+                        pcx_id = route.get("VpcPeeringConnectionId")
+                        if not pcx_id or pcx_id not in peerings:
+                            continue
+
+                        pc = peerings[pcx_id]
+                        accepter_cidr = pc.get("AccepterVpcInfo", {}).get("CidrBlock")
+                        requester_cidr = pc.get("RequesterVpcInfo", {}).get("CidrBlock")
+                        dest_cidr = route.get("DestinationCidrBlock")
+
+                        unrestricted = dest_cidr in (accepter_cidr, requester_cidr)
+
+                        resources.append(_base_resource(
+                            provider="AWS", service="VPC",
+                            resource_type="VpcPeeringRoute",
+                            resource_id=f"{rt.get('RouteTableId')}-{pcx_id}",
+                            account_id=account_id, region=region,
+                            analysis={
+                                "route_table_id": rt.get("RouteTableId"),
+                                "peering_connection_id": pcx_id,
+                                "destination_cidr": dest_cidr,
+                                "accepter_cidr": accepter_cidr,
+                                "requester_cidr": requester_cidr,
+                                "peering_status": pc.get("Status", {}).get("Code"),
+                                "peering_unrestricted_cidr": unrestricted
+                            },
+                            errors=[]
+                        ))
+        except Exception as e:
+            errors.append(f"vpc_peering_error: {e}")
+
+        return _build_resultado(
+            "AWS", "VPC", "VPC_PEERING_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+# ══════════════════════════════════════════════════════════════════
+# FIN VPC
+# ══════════════════════════════════════════════════════════════════

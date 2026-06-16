@@ -3,6 +3,7 @@ from datetime import datetime
 import re
 import csv
 import io
+import unicodedata
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, PatternFill, Font
@@ -129,7 +130,13 @@ def _campo_pagina(run):
     run._r.append(fldChar1)
     run._r.append(instr)
     run._r.append(fldChar2)
-
+    
+def _sin_acentos(texto: str) -> str:
+    """Normaliza para comparación case/accent-insensitive, sin alterar el texto visible."""
+    return ''.join(
+        c for c in unicodedata.normalize('NFD', texto)
+        if unicodedata.category(c) != 'Mn'
+    ).upper()
 
 # ══════════════════════════════════════════════════════════════════
 # REPORT SERVICE
@@ -140,6 +147,13 @@ class ReportService:
     # ─────────────────────────────────────────────────────────────
     # Helpers de color
     # ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _texto_seguro(valor, default=''):
+        """Normaliza valores None provenientes de columnas NULL en la DB."""
+        if valor is None:
+            return default
+        return str(valor)
 
     @staticmethod
     def _normalizar_color(color: str) -> str | None:
@@ -540,16 +554,26 @@ class ReportService:
     @staticmethod
     def _bloque_seccion_estatica(doc, subtitulo, contenido, tema):
         ReportService._seccion_titulo(doc, subtitulo, tema)
-        p = doc.add_paragraph()
+
         texto = contenido or '[Completar por el analista]'
-        r = p.add_run(texto)
-        r.font.name      = 'Arial'
-        r.font.size      = Pt(10)
-        r.font.italic    = contenido is None
-        r.font.color.rgb = _hex_to_rgb(
-            tema.get('texto_oscuro', '#111827') if contenido
-            else tema.get('borde', '#CCCCCC')
-        )
+        texto = texto.replace('\r\n', '\n').replace('\r', '\n')  # normaliza CRLF/CR sueltos
+        parrafos = [p.strip() for p in texto.split('\n\n') if p.strip()]
+
+        color = tema.get('texto_oscuro', '#111827') if contenido else tema.get('borde', '#CCCCCC')
+
+        for parrafo_texto in parrafos:
+            p = doc.add_paragraph()
+            p.paragraph_format.space_after = Pt(8)
+            lineas = parrafo_texto.split('\n')
+            for i, linea in enumerate(lineas):
+                r = p.add_run(linea)
+                r.font.name      = 'Arial'
+                r.font.size      = Pt(10)
+                r.font.italic    = contenido is None
+                r.font.color.rgb = _hex_to_rgb(color)
+                if i < len(lineas) - 1:
+                    r.add_break()
+
         doc.add_paragraph()
         
     @staticmethod
@@ -574,19 +598,19 @@ class ReportService:
         color_fila_par    = tema.get('fondo_tabla_fila_par','#E8EAF6')
         color_oscuro      = tema.get('texto_oscuro',        '#111827')
 
-        # Mapa severidad → color desde DB
         sev_map = {s['nombre'].upper(): s['color'].lstrip('#') for s in severidades}
-
-        # Conteo — ordenado de mayor a menor severidad
         conteo = {s['nombre'].upper(): 0 for s in sorted(severidades, key=lambda x: x['orden'], reverse=True)}
+        sin_clasificar = 0
+
         for f in findings:
-            sev = str(f.get('severidad', '')).upper()
+            sev = ReportService._texto_seguro(f.get('severidad')).upper()
             if sev in conteo:
                 conteo[sev] += 1
+            else:
+                sin_clasificar += 1
 
-        total = sum(conteo.values())
+        total = len(findings)   # ← total real, no la suma de matches
 
-        # Intro
         intro = doc.add_paragraph()
         ri = intro.add_run(
             f"Durante la evaluación se identificaron {total} hallazgo(s) distribuidos "
@@ -597,11 +621,9 @@ class ReportService:
         ri.font.color.rgb = _hex_to_rgb(color_oscuro)
         intro.paragraph_format.space_after = Pt(8)
 
-        # Tabla
         table = doc.add_table(rows=1, cols=3)
         _remove_table_borders(table)
 
-        # Header
         for ci, txt in enumerate(['Severidad', 'Cantidad', 'Porcentaje']):
             c = table.rows[0].cells[ci]
             _set_cell_bg(c, color_primario.lstrip('#'))
@@ -623,7 +645,6 @@ class ReportService:
             sev_hex  = sev_map.get(sev, 'CCCCCC')
             row      = table.add_row()
 
-            # Severidad
             sc = row.cells[0]
             _set_cell_bg(sc, sev_hex)
             _set_cell_borders(sc, 'FFFFFF', '2')
@@ -637,7 +658,6 @@ class ReportService:
             sr.font.color.rgb = _hex_to_rgb(color_texto_claro)
             sc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-            # Cantidad
             qc = row.cells[1]
             _set_cell_bg(qc, color_fila_par.lstrip('#'))
             _set_cell_borders(qc, 'CCCCCC', '2')
@@ -651,7 +671,49 @@ class ReportService:
             qr.font.color.rgb = _hex_to_rgb(color_oscuro)
             qc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-            # Porcentaje
+            pc = row.cells[2]
+            _set_cell_bg(pc, color_fila_par.lstrip('#'))
+            _set_cell_borders(pc, 'CCCCCC', '2')
+            _set_cell_margin(pc)
+            pp = pc.paragraphs[0]
+            pp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            pr = pp.add_run(pct)
+            pr.font.name      = 'Arial'
+            pr.font.size      = Pt(10)
+            pr.font.color.rgb = _hex_to_rgb(color_oscuro)
+            pc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+        # Fila adicional para los que no tienen severidad asignada (check_id sin rule creada)
+        if sin_clasificar > 0:
+            pct = f"{(sin_clasificar / total * 100):.0f}%" if total > 0 else "0%"
+            row = table.add_row()
+
+            sc = row.cells[0]
+            _set_cell_bg(sc, 'CCCCCC')
+            _set_cell_borders(sc, 'FFFFFF', '2')
+            _set_cell_margin(sc)
+            sp = sc.paragraphs[0]
+            sp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            sr = sp.add_run('SIN CLASIFICAR')
+            sr.font.name      = 'Arial'
+            sr.font.size      = Pt(10)
+            sr.font.bold      = True
+            sr.font.color.rgb = _hex_to_rgb(color_oscuro)
+            sc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+            qc = row.cells[1]
+            _set_cell_bg(qc, color_fila_par.lstrip('#'))
+            _set_cell_borders(qc, 'CCCCCC', '2')
+            _set_cell_margin(qc)
+            qp = qc.paragraphs[0]
+            qp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            qr = qp.add_run(str(sin_clasificar))
+            qr.font.name      = 'Arial'
+            qr.font.size      = Pt(10)
+            qr.font.bold      = True
+            qr.font.color.rgb = _hex_to_rgb(color_oscuro)
+            qc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
             pc = row.cells[2]
             _set_cell_bg(pc, color_fila_par.lstrip('#'))
             _set_cell_borders(pc, 'CCCCCC', '2')
@@ -683,7 +745,6 @@ class ReportService:
         table = doc.add_table(rows=1, cols=len(cols))
         _remove_table_borders(table)
 
-        # Header
         for ci, (txt, w) in enumerate(zip(cols, widths)):
             c = table.rows[0].cells[ci]
             c.width = Cm(w)
@@ -700,16 +761,16 @@ class ReportService:
             c.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
         for idx, f in enumerate(findings, start=1):
-            sev     = str(f.get('severidad', '')).upper()
+            sev     = ReportService._texto_seguro(f.get('severidad')).upper()
             sev_hex = sev_map.get(sev, 'CCCCCC')
             bg      = color_fila_par.lstrip('#') if idx % 2 == 0 else 'FFFFFF'
             row     = table.add_row()
 
             valores = [
                 str(idx),
-                f.get('titulo', ''),
-                f.get('servicio', ''),
-                f.get('resource_id', ''),
+                ReportService._texto_seguro(f.get('titulo')),
+                ReportService._texto_seguro(f.get('servicio')),
+                ReportService._texto_seguro(f.get('resource_id')),
                 sev,
             ]
 
@@ -719,7 +780,7 @@ class ReportService:
                 _set_cell_margin(c)
                 c.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-                if ci == 4:  # Severidad
+                if ci == 4:
                     _set_cell_bg(c, sev_hex)
                     _set_cell_borders(c, 'FFFFFF', '2')
                     p = c.paragraphs[0]
@@ -770,7 +831,7 @@ class ReportService:
         ri.font.color.rgb = _hex_to_rgb(color_oscuro)
 
         for idx, f in enumerate(findings, start=1):
-            sev        = str(f.get('severidad', '')).upper()
+            sev        = ReportService._texto_seguro(f.get('severidad')).upper()
             sev_hex    = sev_map.get(sev, 'CCCCCC')
             comment    = f.get('finding_comment') or ''
             evidencias = f.get('evidencias', [])
@@ -816,9 +877,16 @@ class ReportService:
             meta        = doc.add_table(rows=1, cols=3)
             _remove_table_borders(meta)
             meta_campos = [
-                ('Servicio', f.get('servicio', ''),      3.0),
-                ('Recurso',  f.get('resource_id', ''),   9.5),
-                ('Estado',   f.get('estado', 'ABIERTO'), 4.5),
+                ('Servicio', ReportService._texto_seguro(f.get('servicio')), 3.0),
+                ('Recurso',  ReportService._texto_seguro(f.get('resource_id')), 9.5),
+                ('Estado',   ReportService._texto_seguro(f.get('estado'), 'ABIERTO'), 4.5),
+            ]
+
+            ficha_campos = [
+                ('Descripción', ReportService._texto_seguro(f.get('descripcion'))),
+                ('Condición',   ReportService._texto_seguro(f.get('condicion_logica'))),
+                ('Remediación', ReportService._texto_seguro(f.get('remediacion'))),
+                ('Referencia',  ReportService._texto_seguro(f.get('referencia'))),
             ]
             for mi, (ml, mv, mw) in enumerate(meta_campos):
                 mc = meta.rows[0].cells[mi]
@@ -839,13 +907,6 @@ class ReportService:
                 mc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
             # ── Campos técnicos ─────────────────────────────────
-            ficha_campos = [
-                ('Descripción', f.get('descripcion',      '')),
-                ('Condición',   f.get('condicion_logica', '')),
-                ('Remediación', f.get('remediacion',      '')),
-                ('Referencia',  f.get('referencia',       '')),
-            ]
-
             ficha = doc.add_table(rows=len(ficha_campos), cols=2)
             _remove_table_borders(ficha)
 
@@ -953,7 +1014,10 @@ class ReportService:
                     ReportService._bloque_detalle_hallazgos(doc, data, tema, severidades, base_dir=base_dir)
             else:
                 contenido = contenido_secciones.get(clave)
-                ReportService._bloque_seccion_estatica(doc, subtitulo, contenido, tema)
+                if clave == 'anexo_clasificacion':
+                    ReportService._bloque_anexo_clasificacion(doc, contenido, tema, severidades)
+                else:
+                    ReportService._bloque_seccion_estatica(doc, subtitulo, contenido, tema)
 
             if seccion != estructura[-1]:
                 _page_break(doc)
@@ -963,3 +1027,77 @@ class ReportService:
         output.seek(0)
         return output
         
+    @staticmethod
+    def _bloque_anexo_clasificacion(doc, contenido, tema, severidades):
+        """Anexo de clasificación de riesgo con badges de color tomados dinámicamente de severidades."""
+        ReportService._seccion_titulo(doc, 'Anexo 3: Clasificación del Riesgo', tema)
+
+        color_oscuro      = tema.get('texto_oscuro', '#111827')
+        color_texto_claro = tema.get('texto_claro',  '#FFFFFF')
+
+        texto = (contenido or '').replace('\r\n', '\n').replace('\r', '\n')
+        lineas = [l.strip() for l in texto.split('\n') if l.strip()]
+
+        severidades_ordenadas = sorted(severidades, key=lambda s: s['orden'], reverse=True)
+        intro_lineas = []
+        descripciones = {}
+        actual = None
+
+        nombres = [s['nombre'].upper() for s in severidades_ordenadas]
+
+        for linea in lineas:
+            match = next((n for n in nombres if _sin_acentos(linea).startswith(_sin_acentos(n) + ':')), None)
+            if match:
+                actual = match
+                descripciones[actual] = linea[len(match) + 1:].strip()
+            elif actual:
+                descripciones[actual] += ' ' + linea
+            else:
+                intro_lineas.append(linea)
+
+        # Párrafo introductorio (todo lo que está antes de la primera severidad)
+        if intro_lineas:
+            p = doc.add_paragraph()
+            p.paragraph_format.space_after = Pt(10)
+            r = p.add_run(' '.join(intro_lineas))
+            r.font.name      = 'Arial'
+            r.font.size      = Pt(10)
+            r.font.color.rgb = _hex_to_rgb(color_oscuro)
+
+        # Una fila badge + descripción por cada severidad activa en la DB
+        for s in severidades_ordenadas:
+            nombre      = s['nombre'].upper()
+            color_hex   = s['color'].lstrip('#')
+            descripcion = descripciones.get(nombre, '')
+
+            fila = doc.add_table(rows=1, cols=2)
+            _remove_table_borders(fila)
+
+            c_badge = fila.rows[0].cells[0]
+            c_badge.width = Cm(3.0)
+            _set_cell_bg(c_badge, color_hex)
+            _set_cell_borders(c_badge, 'FFFFFF', '2')
+            _set_cell_margin(c_badge)
+            pb = c_badge.paragraphs[0]
+            pb.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            rb = pb.add_run(nombre)
+            rb.font.name      = 'Arial'
+            rb.font.size      = Pt(9)
+            rb.font.bold      = True
+            rb.font.color.rgb = _hex_to_rgb(color_texto_claro)
+            c_badge.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+            c_desc = fila.rows[0].cells[1]
+            c_desc.width = Cm(14.0)
+            _set_cell_margin(c_desc)
+            pd = c_desc.paragraphs[0]
+            rd = pd.add_run(descripcion)
+            rd.font.name      = 'Arial'
+            rd.font.size      = Pt(9)
+            rd.font.color.rgb = _hex_to_rgb(color_oscuro)
+            c_desc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+            sep = doc.add_paragraph()
+            sep.paragraph_format.space_after = Pt(2)
+
+        doc.add_paragraph()

@@ -12,7 +12,11 @@ class CloudEjecucion:
         "privilege",
         "ingress",
         "anonymous",
-        "write"
+        "write",
+        "unrestricted",     # cubre unrestricted_egress_all_ports y peering_unrestricted_cidr
+        "disabled",         # cubre flow_logs_disabled
+        "default_vpc",      # cubre default_vpc_active
+        "allow_all"         # cubre nacl_allow_all
     ]
     
     RISK_FALSE_KEYWORDS = [
@@ -188,6 +192,30 @@ class CloudEjecucion:
         finally:
             cursor.close()
             conn.close()
+            
+    @staticmethod  
+    def get_sensitive_ingress_ports():
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT puertos_json
+                FROM puertos_comunes
+                WHERE nombre = 'VPC_SENSITIVE_INGRESS_PORTS'
+                AND estado_id = 1
+                LIMIT 1
+            """)
+            row = cursor.fetchone()
+            if not row:
+                return set()
+            puertos_dict = json.loads(row["puertos_json"])
+            return {int(p) for p in puertos_dict.keys()}
+        except Exception as e:
+            print(f"Error al obtener puertos sensibles: {e}")
+            return set()
+        finally:
+            cursor.close()
+            conn.close()
 
     @staticmethod
     def versiones_deprecadas(tipo_proyecto_id, proveedor, servicio, categoria):
@@ -318,3 +346,4 @@ class CloudEjecucion:
                 base = check_id.replace("_enabled", "").replace("_", " ").upper()
                 return f"{base} Disabled"
         return check_id.replace("_", " ").title()
+    

@@ -289,6 +289,7 @@ th {
 .api-gateway {font-size: .7rem; font-weight: bold; background-color: rgb(136, 48, 136); color: var(--color-blanco-primario); padding: .1rem; }
 .aws-lambda {font-size: .7rem; font-weight: bold; background-color: rgb(212, 138, 0); color: var(--color-blanco-primario); padding: .1rem; }
 .amazon-inspector {font-size: .7rem;   font-weight: bold; background-color: #1a6fa8; color: var(--color-blanco-primario);padding: .1rem; }
+.vpc {font-size: .7rem; font-weight: bold; background-color: #8c4fff; color: var(--color-blanco-primario); padding: .1rem; }
 
 .borde-terminal-salida {
     border: 2px solid #dee2e6;

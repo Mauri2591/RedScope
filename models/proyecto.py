@@ -358,9 +358,6 @@ class Proyecto:
         conn.close()
         return data
 
-
-
-    
     @staticmethod
     def get_combo_estados_findings():
         conn=get_db_connection()
