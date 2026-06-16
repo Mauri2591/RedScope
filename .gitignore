@@ -2,4 +2,3 @@ venv
 .env
 data
 requirements.txt
-red_scope.sql
