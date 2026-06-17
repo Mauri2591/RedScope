@@ -463,11 +463,20 @@ def gestionar_hallazgos(proyecto_id, ejecucion_id):
     findings = CloudEjecucion.extract_interesting(data["resultado"])
     findings = Proyecto.enrich_findings_with_ids(findings, proyecto_id, ejecucion_id)
 
-    # Regla existe en el catálogo, independiente de si el finding fue guardado
     check_ids_unicos = {f['check_id'] for f in findings}
-    check_ids_con_regla = Proyecto.get_check_ids_con_regla(check_ids_unicos)
+    estado_reglas = Proyecto.get_estado_reglas(check_ids_unicos)
     for f in findings:
-        f['regla_existe'] = f['check_id'] in check_ids_con_regla
+        info = estado_reglas.get(f['check_id'])
+        if not info:
+            f['regla_estado'] = 'sin_regla'
+        elif info['creado_por_ia'] and info['validado_por'] is None:
+            f['regla_estado'] = 'ia_sin_validar'
+        else:
+            f['regla_estado'] = 'validada'
+
+    faltantes = check_ids_unicos - set(estado_reglas.keys())
+    if faltantes:
+        _encolar_generacion_ia(faltantes, findings)
 
     return render_template(
         'proyecto/proyectos-cloud/GestionHallazgos.html',
@@ -475,6 +484,34 @@ def gestionar_hallazgos(proyecto_id, ejecucion_id):
         ejecucion=data,
         findings=findings
     )
+
+def _encolar_generacion_ia(check_ids_faltantes, findings):
+    """Encola generación de security_rules vía IA para check_ids nuevos, sin duplicar jobs."""
+    from tasks.cloud.security_rules_ia import generar_security_rule
+
+    findings_by_check = {}
+    for f in findings:
+        findings_by_check.setdefault(f['check_id'], f)
+
+    q = Queue('ia', connection=Config.redis_conn)  # cola separada de la default (no compite con jobs de AWS)
+
+    for check_id in check_ids_faltantes:
+        lock_key = f"ia_lock:security_rule:{check_id}"
+        # SET NX con expiración: si ya se encoló este check_id en los últimos 5 min, no insistir
+        if not Config.redis_conn.set(lock_key, "1", nx=True, ex=300):
+            continue
+
+        f = findings_by_check.get(check_id)
+        if not f:
+            continue
+
+        q.enqueue(
+            generar_security_rule,
+            f.get('provider', 'aws'),
+            f.get('service'),
+            check_id,
+            f.get('resource_id', '')
+        )
     
 @proyecto_bp.route('/proyecto/finding/<int:finding_id>/verificar', methods=['POST'])
 @login_required
@@ -521,10 +558,11 @@ def eliminar_finding(finding_id):
 @login_required
 def insert_security_rule():
     data = request.get_json()
-    rule_id = Proyecto.insert_security_rule(data)
+    usuario_id = session.get('user_id')
+    rule_id = Proyecto.insert_security_rule(data, usuario_id)
     return jsonify({
         "success": True,
-        "rule_id": rule_id  # ← ya lo tenés, bien
+        "rule_id": rule_id
     })
 
     

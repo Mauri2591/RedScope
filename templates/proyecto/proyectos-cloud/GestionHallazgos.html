@@ -40,8 +40,10 @@
                         <td>{{ f.resource_id }}</td>
                         <td><span class="badge bg-dark text-warning">{{ f.check_id }}</span></td>
                         <td class="text-center">
-                            {% if f.regla_existe %}
-                                <i class="bi bi-shield-fill-check text-success" title="Regla clasificada"></i>
+                            {% if f.regla_estado == 'validada' %}
+                                <i class="bi bi-shield-fill-check text-success" title="Regla validada"></i>
+                            {% elif f.regla_estado == 'ia_sin_validar' %}
+                                <i class="bi bi-shield-fill-check text-info" title="Regla generada por IA — sin validar"></i>
                             {% else %}
                                 <i class="bi bi-shield-exclamation text-secondary" title="Regla sin clasificar"></i>
                             {% endif %}

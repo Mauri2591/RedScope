@@ -52,3 +52,6 @@ class Config:
     # Asegurarse de que la carpeta exista
     os.makedirs(DATA_DIR, exist_ok=True)
     
+    
+    #Anthropic
+    ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")

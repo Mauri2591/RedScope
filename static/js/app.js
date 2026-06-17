@@ -669,16 +669,35 @@
             if (!ruleRes.rule_exists) {
                 $("#btnGuardarFinding").prop("disabled", true);
                 $("#span_check_id").text(ruleRes.display_name);
-                $("#text-regla, #icono-regla").removeClass("text-info").addClass("text-warning");
+                $("#text-regla, #icono-regla").removeClass("text-info text-success").addClass("text-warning");
                 $("#icono-regla").removeClass("bi-check-circle bi-shield-exclamation").addClass("bi bi-shield-exclamation");
                 $("#rule_id").val("");
                 $("#rule_title, #rule_description, #rule_condition_logic, #rule_remediation, #rule_reference").val("");
+                $("#aviso_ia_regla").hide();
             } else {
                 $("#btnGuardarFinding").prop("disabled", false);
                 const dataRule = ruleRes.data;
                 $("#span_check_id").text(ruleRes.display_name);
-                $("#text-regla, #icono-regla").removeClass("text-warning").addClass("text-info");
-                $("#icono-regla").removeClass("bi-shield-exclamation bi-check-circle").addClass("bi bi-check-circle");
+
+                const validada = !!dataRule.validado_por;
+
+                $("#text-regla, #icono-regla").removeClass("text-warning text-info text-success");
+                $("#icono-regla").removeClass("bi-shield-exclamation bi-check-circle");
+
+                if (validada) {
+                    $("#text-regla, #icono-regla").addClass("text-success");
+                    $("#icono-regla").addClass("bi bi-check-circle");
+                    $("#aviso_ia_regla").hide();
+                } else {
+                    $("#text-regla, #icono-regla").addClass("text-info");
+                    $("#icono-regla").addClass("bi bi-check-circle");
+                    if (dataRule.creado_por_ia) {
+                        $("#aviso_ia_regla").show();
+                    } else {
+                        $("#aviso_ia_regla").hide();
+                    }
+                }
+
                 $("#rule_id").val(dataRule.id);
                 $("#rule_title").val(dataRule.title);
                 $("#rule_description").val(dataRule.description);
@@ -808,6 +827,7 @@
         $("#paste_evidence").val("")
         $("#evidence_preview").empty()
         $("#tool_output").val("")
+        $("#aviso_ia_regla").hide()
     }
 
 

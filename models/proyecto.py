@@ -394,57 +394,66 @@ class Proyecto:
         return data
     
     @staticmethod
-    def insert_security_rule(data):
-
+    def insert_security_rule(data, usuario_id):
+        """Path manual — el pentester carga o edita desde el form. Siempre valida."""
         conn = get_db_connection()
         cursor = conn.cursor()
 
         query = """
         INSERT INTO security_rules
-        (
-        provider,
-        service,
-        check_id,
-        title,
-        description,
-        severidad_id,
-        condition_logic,
-        remediation,
-        reference,
-        estado_id
-        )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
-
+        (provider, service, check_id, title, description, severidad_id,
+        condition_logic, remediation, reference, estado_id, validado_por, validado_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,1,%s,CURRENT_TIMESTAMP)
         ON DUPLICATE KEY UPDATE
-
-        title = VALUES(title),
-        description = VALUES(description),
-        severidad_id = VALUES(severidad_id),
-        condition_logic = VALUES(condition_logic),
-        remediation = VALUES(remediation),
-        reference = VALUES(reference),
-        actualizacion = CURRENT_TIMESTAMP
+            title = VALUES(title),
+            description = VALUES(description),
+            severidad_id = VALUES(severidad_id),
+            condition_logic = VALUES(condition_logic),
+            remediation = VALUES(remediation),
+            reference = VALUES(reference),
+            validado_por = VALUES(validado_por),
+            validado_at = CURRENT_TIMESTAMP,
+            actualizacion = CURRENT_TIMESTAMP
         """
-
-        cursor.execute(query,(
-            data['provider'],
-            data['service'],
-            data['check_id'],
-            data['title'],
-            data['description'],
-            data['severidad_id'],
-            data['condition_logic'],
-            data['remediation'],
-            data['reference']
+        cursor.execute(query, (
+            data['provider'], data['service'], data['check_id'],
+            data['title'], data['description'], data['severidad_id'],
+            data['condition_logic'], data['remediation'], data['reference'],
+            usuario_id
         ))
 
         conn.commit()
-
         rule_id = cursor.lastrowid
-
         cursor.close()
         conn.close()
+        return rule_id
+    
+    @staticmethod
+    def insert_security_rule_ia(data):
+        """Path automático — llamado por tasks/cloud/security_rules_ia.py. Nunca toca validado_por."""
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
+        query = """
+        INSERT INTO security_rules
+        (provider, service, check_id, title, description, severidad_id,
+        condition_logic, remediation, reference, estado_id, creado_por_ia)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,1,1)
+        ON DUPLICATE KEY UPDATE
+            estado_id = 1,
+            creado_por_ia = 1,
+            check_id = check_id
+        """
+        cursor.execute(query, (
+            data['provider'], data['service'], data['check_id'],
+            data['title'], data['description'], data['severidad_id'],
+            data['condition_logic'], data['remediation'], data['reference']
+        ))
+
+        conn.commit()
+        rule_id = cursor.lastrowid
+        cursor.close()
+        conn.close()
         return rule_id
     
     @staticmethod
@@ -561,22 +570,48 @@ class Proyecto:
         return finding_id
 
     @staticmethod
-    def get_check_ids_con_regla(check_ids):
-        """Devuelve el set de check_id que ya tienen una security_rule activa en el catálogo."""
+    def get_estado_reglas(check_ids):
+        """Devuelve dict {check_id: {'existe': bool, 'creado_por_ia': bool, 'validado_por': int|None}}"""
         if not check_ids:
-            return set()
+            return {}
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         format_strings = ','.join(['%s'] * len(check_ids))
         cursor.execute(f"""
-            SELECT DISTINCT check_id FROM security_rules
+            SELECT check_id, creado_por_ia, validado_por
+            FROM security_rules
             WHERE check_id IN ({format_strings})
             AND estado_id = 1
         """, list(check_ids))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
-        return {r['check_id'] for r in rows}
+        return {
+            r['check_id']: {
+                'existe': True,
+                'creado_por_ia': bool(r['creado_por_ia']),
+                'validado_por': r['validado_por']
+            }
+            for r in rows
+        }
+        
+    # @staticmethod lo borré por el de arriba get_estado_reglas
+    # def get_check_ids_con_regla(check_ids):
+    #     """Devuelve el set de check_id que ya tienen una security_rule activa en el catálogo."""
+    #     if not check_ids:
+    #         return set()
+    #     conn = get_db_connection()
+    #     cursor = conn.cursor(dictionary=True)
+    #     format_strings = ','.join(['%s'] * len(check_ids))
+    #     cursor.execute(f"""
+    #         SELECT DISTINCT check_id FROM security_rules
+    #         WHERE check_id IN ({format_strings})
+    #         AND estado_id = 1
+    #     """, list(check_ids))
+    #     rows = cursor.fetchall()
+    #     cursor.close()
+    #     conn.close()
+    #     return {r['check_id'] for r in rows}
     
     @staticmethod
     def get_finding(check_id, proyecto_id, resource_id=None, cloud_ejecucion_id=None):
