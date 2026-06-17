@@ -139,22 +139,112 @@ def _sin_acentos(texto: str) -> str:
         if unicodedata.category(c) != 'Mn'
     ).upper()
 
+
 # ══════════════════════════════════════════════════════════════════
 # REPORT SERVICE
 # ══════════════════════════════════════════════════════════════════
 
 class ReportService:
 
+    TIPOS_INFORME = {
+    'tecnico':   {'incluir_evidencia': True,  'excluir_secciones': [],'label': 'INFORME TÉCNICO'},
+    'ejecutivo': {'incluir_evidencia': False, 'excluir_secciones': ['detalle_hallazgos'], 'label': 'INFORME EJECUTIVO'},
+    }
     # ─────────────────────────────────────────────────────────────
     # Helpers de color
     # ─────────────────────────────────────────────────────────────
-
     @staticmethod
     def _texto_seguro(valor, default=''):
         """Normaliza valores None provenientes de columnas NULL en la DB."""
         if valor is None:
             return default
         return str(valor)
+    
+    @staticmethod
+    def _generar_grafico_severidad(findings, severidades, tema):
+        """Genera un donut chart de cantidad de hallazgos por severidad."""
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        grupos = ReportService._agrupar_findings_por_check(findings)
+        sev_map = {s['nombre'].upper(): s['color'] for s in severidades}
+        conteo = {}
+        for g in grupos:
+            sev = ReportService._texto_seguro(g.get('severidad')).upper() or 'SIN CLASIFICAR'
+            conteo[sev] = conteo.get(sev, 0) + 1
+
+        severidades_ordenadas = sorted(severidades, key=lambda s: s['orden'], reverse=True)
+        orden_nombres = [s['nombre'].upper() for s in severidades_ordenadas] + ['SIN CLASIFICAR']
+
+        labels, sizes, colors = [], [], []
+        for nombre in orden_nombres:
+            if conteo.get(nombre, 0) > 0:
+                labels.append(nombre)
+                sizes.append(conteo[nombre])
+                colors.append(sev_map.get(nombre, '#CCCCCC'))
+
+        fig, ax = plt.subplots(figsize=(5, 5), dpi=150)
+        wedges, texts, autotexts = ax.pie(
+            sizes, colors=colors,
+            autopct=lambda p: f'{p:.0f}%' if p > 0 else '',
+            startangle=90, pctdistance=0.80,
+            wedgeprops=dict(width=0.4, edgecolor='white', linewidth=2)
+        )
+        for at in autotexts:
+            at.set_color('white'); at.set_fontsize(10); at.set_fontweight('bold')
+
+        ax.legend(wedges, labels, loc='center left', bbox_to_anchor=(1.0, 0.5),
+                frameon=False, fontsize=10)
+        ax.set_title('Hallazgos por Severidad', fontsize=13, fontweight='bold',
+                    color=tema.get('fondo_primario', '#1E1B4B'))
+
+        buf = BytesIO()
+        plt.tight_layout()
+        plt.savefig(buf, format='png', transparent=True, bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+        return buf
+    
+    @staticmethod
+    def _generar_grafico_servicios(findings, tema):
+        """Genera un gráfico de barras de cantidad de hallazgos por servicio AWS."""
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        grupos = ReportService._agrupar_findings_por_check(findings)
+        conteo = {}
+        for g in grupos:
+            servicio = ReportService._texto_seguro(g.get('servicio'), 'N/A').upper()
+            conteo[servicio] = conteo.get(servicio, 0) + 1
+
+        items = sorted(conteo.items(), key=lambda x: x[1], reverse=True)
+        labels  = [i[0] for i in items]
+        valores = [i[1] for i in items]
+
+        color_acento   = tema.get('acento', '#00B4D8')
+        color_primario = tema.get('fondo_primario', '#1E1B4B')
+
+        fig, ax = plt.subplots(figsize=(6, 3.5), dpi=150)
+        bars = ax.barh(labels, valores, color=color_acento, edgecolor=color_primario, linewidth=0.8)
+        ax.invert_yaxis()
+        ax.set_xlabel('Cantidad de hallazgos', fontsize=9)
+        ax.set_title('Hallazgos por Servicio AWS', fontsize=13, fontweight='bold', color=color_primario)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.tick_params(axis='both', labelsize=9)
+
+        for bar, val in zip(bars, valores):
+            ax.text(bar.get_width() + 0.1, bar.get_y() + bar.get_height() / 2, str(val),
+                    va='center', fontsize=9, fontweight='bold', color=color_primario)
+
+        buf = BytesIO()
+        plt.tight_layout()
+        plt.savefig(buf, format='png', transparent=True, bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+        return buf
     
     @staticmethod
     def _agrupar_findings_por_check(findings):
@@ -205,7 +295,7 @@ class ReportService:
         return re.sub(r'[^a-zA-Z0-9_-]', '_', str(texto))
 
     @staticmethod
-    def generar_nombre_archivo(data, proyecto_id, extension="xlsx"):
+    def generar_nombre_archivo(data, proyecto_id, extension="xlsx", tipo_informe=None):
         if data:
             titulo      = ReportService._limpiar(data[0].get('proyecto_titulo'))
             proveedores = {row.get('proveedor', 'sin_proveedor') for row in data}
@@ -213,7 +303,8 @@ class ReportService:
         else:
             titulo    = f"proyecto_{proyecto_id}"
             proveedor = "sin_proveedor"
-        return f"{titulo}_{proveedor}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{extension}"
+        sufijo_tipo = f"_{tipo_informe}" if tipo_informe else ""
+        return f"{titulo}_{proveedor}{sufijo_tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{extension}"
 
     # ─────────────────────────────────────────────────────────────
     # XLSX
@@ -286,7 +377,7 @@ class ReportService:
         writer = csv.DictWriter(
             output,
             fieldnames=[
-                "Vulnerabilidad", "Descripcion", "Impacto", "Solucion",
+                "Hallazgo", "Descripcion", "Impacto", "Solucion",
                 "Target", "Severidad", "CVSS", "CVSS_Vector", "Referencias",
                 "CVE", "Exploits", "Output", "Protocolo", "Puerto", "URI"
             ],
@@ -295,7 +386,7 @@ class ReportService:
         writer.writeheader()
         for row in data:
             writer.writerow({
-                "Vulnerabilidad": row.get("titulo", ""),
+                "Hallazgo": row.get("titulo", ""),
                 "Descripcion":    row.get("descripcion", ""),
                 "Impacto":        row.get("condicion_logica", ""),
                 "Solucion":       row.get("remediacion", ""),
@@ -398,7 +489,7 @@ class ReportService:
         return doc
 
     @staticmethod
-    def _bloque_portada(doc, proyecto, tema):
+    def _bloque_portada(doc, proyecto, tema, tipo_informe='tecnico'):
         """Portada: bloque de color + datos del proyecto."""
         color_primario    = tema.get('fondo_primario',   '#1E1B4B').lstrip('#')
         color_secundario  = tema.get('fondo_secundario', '#2D2A6E').lstrip('#')
@@ -407,7 +498,6 @@ class ReportService:
         proveedor         = proyecto.get('tipo_servicio', 'Cloud').upper()
         cliente           = proyecto.get('cliente', '').upper()
 
-        # ── Bloque hero ──
         t = doc.add_table(rows=1, cols=1)
         _remove_table_borders(t)
         c = t.cell(0, 0)
@@ -415,7 +505,6 @@ class ReportService:
         _set_cell_margin(c, 600, 500, 400, 400)
         _set_row_height(t.rows[0], 8)
 
-        # Nombre empresa pequeño arriba
         p0 = c.paragraphs[0]
         p0.alignment = WD_ALIGN_PARAGRAPH.CENTER
         r0 = p0.add_run('P E R S O N A L')
@@ -424,7 +513,6 @@ class ReportService:
         r0.font.bold      = True
         r0.font.color.rgb = _hex_to_rgb(color_acento)
 
-        # H1 — Pentest Cloud — AWS
         p1 = c.add_paragraph()
         p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
         p1.paragraph_format.space_before = Pt(18)
@@ -434,7 +522,6 @@ class ReportService:
         r1.font.bold      = True
         r1.font.color.rgb = _hex_to_rgb(color_texto_claro)
 
-        # Subtítulo — nombre del cliente
         p2 = c.add_paragraph()
         p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
         p2.paragraph_format.space_before = Pt(10)
@@ -444,7 +531,18 @@ class ReportService:
         r2.font.bold      = True
         r2.font.color.rgb = _hex_to_rgb(color_acento)
 
-        # ── Banda acento cyan ──
+        # ── Tipo de informe ──
+        label_informe = ReportService.TIPOS_INFORME.get(tipo_informe, {}).get('label', '')
+        if label_informe:
+            p25 = c.add_paragraph()
+            p25.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p25.paragraph_format.space_before = Pt(12)
+            r25 = p25.add_run(label_informe)
+            r25.font.name      = 'Arial'
+            r25.font.size      = Pt(13)
+            r25.font.bold      = True
+            r25.font.color.rgb = _hex_to_rgb(color_texto_claro)
+
         banda = doc.add_table(rows=1, cols=1)
         _remove_table_borders(banda)
         bc = banda.cell(0, 0)
@@ -454,7 +552,6 @@ class ReportService:
 
         doc.add_paragraph()
 
-        # ── Tabla de datos del proyecto ──
         campos = [
             ('Cliente',   proyecto.get('cliente',   '')),
             ('Proyecto',  proyecto.get('titulo',    '')),
@@ -468,7 +565,6 @@ class ReportService:
         info.alignment = WD_TABLE_ALIGNMENT.CENTER
 
         for i, (label, valor) in enumerate(campos):
-            # Label
             lc = info.rows[i].cells[0]
             lc.width = Cm(4)
             _set_cell_bg(lc, color_secundario)
@@ -483,7 +579,6 @@ class ReportService:
             lr.font.color.rgb = _hex_to_rgb(color_acento)
             lc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-            # Valor
             vc = info.rows[i].cells[1]
             vc.width = Cm(10)
             _set_cell_bg(vc, color_primario)
@@ -576,120 +671,6 @@ class ReportService:
         r.font.color.rgb = _hex_to_rgb(color_primario)
 
         _add_hr(doc, color_acento.lstrip('#'), 10)
-        
-    @staticmethod
-    def _bloque_detalle_vulnerabilidades(doc, findings, tema, severidades):
-        """Una ficha por cada vulnerabilidad única (sin listar recursos)."""
-        ReportService._seccion_titulo(doc, 'Detalle de Vulnerabilidades', tema)
-
-        color_primario    = tema.get('fondo_primario',       '#1E1B4B')
-        color_secundario  = tema.get('fondo_secundario',     '#2D2A6E')
-        color_acento      = tema.get('acento',               '#00B4D8')
-        color_texto_claro = tema.get('texto_claro',          '#FFFFFF')
-        color_fila_par    = tema.get('fondo_tabla_fila_par', '#E8EAF6')
-        color_oscuro      = tema.get('texto_oscuro',         '#111827')
-        sev_map           = {s['nombre'].upper(): s['color'].lstrip('#') for s in severidades}
-
-        intro = doc.add_paragraph()
-        intro.paragraph_format.space_after = Pt(12)
-        ri = intro.add_run(
-            'A continuación se describe cada vulnerabilidad identificada durante la evaluación, '
-            'incluyendo descripción técnica, condición lógica de detección, remediación recomendada '
-            'y referencias asociadas. El detalle de los recursos afectados por cada una se presenta '
-            'en la sección siguiente.'
-        )
-        ri.font.name      = 'Arial'
-        ri.font.size      = Pt(10)
-        ri.font.color.rgb = _hex_to_rgb(color_oscuro)
-
-        grupos = ReportService._agrupar_findings_por_check(findings)
-
-        for idx, g in enumerate(grupos, start=1):
-            sev     = ReportService._texto_seguro(g.get('severidad')).upper()
-            sev_hex = sev_map.get(sev, 'CCCCCC')
-
-            enc = doc.add_table(rows=1, cols=2)
-            _remove_table_borders(enc)
-
-            tc_titulo = enc.rows[0].cells[0]
-            tc_titulo.width = Cm(13)
-            _set_cell_bg(tc_titulo, color_primario.lstrip('#'))
-            _set_cell_borders(tc_titulo, 'FFFFFF', '2')
-            _set_cell_margin(tc_titulo, 120, 120, 160, 160)
-            tp = tc_titulo.paragraphs[0]
-            tp.paragraph_format.space_before = Pt(4)
-            rn = tp.add_run(f'#{idx}  ')
-            rn.font.name = 'Arial'; rn.font.size = Pt(11); rn.font.bold = True
-            rn.font.color.rgb = _hex_to_rgb(color_acento)
-            rt = tp.add_run(ReportService._texto_seguro(g.get('titulo')))
-            rt.font.name = 'Arial'; rt.font.size = Pt(11); rt.font.bold = True
-            rt.font.color.rgb = _hex_to_rgb(color_texto_claro)
-            tc_titulo.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-            tc_sev = enc.rows[0].cells[1]
-            tc_sev.width = Cm(4)
-            _set_cell_bg(tc_sev, sev_hex)
-            _set_cell_borders(tc_sev, 'FFFFFF', '2')
-            _set_cell_margin(tc_sev)
-            sp = tc_sev.paragraphs[0]
-            sp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            sr = sp.add_run(sev)
-            sr.font.name = 'Arial'; sr.font.size = Pt(11); sr.font.bold = True
-            sr.font.color.rgb = _hex_to_rgb(color_texto_claro)
-            tc_sev.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-            meta = doc.add_table(rows=1, cols=1)
-            _remove_table_borders(meta)
-            mc = meta.rows[0].cells[0]
-            mc.width = Cm(17)
-            _set_cell_bg(mc, color_fila_par.lstrip('#'))
-            _set_cell_borders(mc, 'CCCCCC', '2')
-            _set_cell_margin(mc)
-            mp = mc.paragraphs[0]
-            mr_label = mp.add_run('Servicio: ')
-            mr_label.font.name = 'Arial'; mr_label.font.size = Pt(9); mr_label.font.bold = True
-            mr_label.font.color.rgb = _hex_to_rgb(color_secundario)
-            mr_val = mp.add_run(ReportService._texto_seguro(g.get('servicio')))
-            mr_val.font.name = 'Arial'; mr_val.font.size = Pt(9)
-            mr_val.font.color.rgb = _hex_to_rgb(color_oscuro)
-            mc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-            ficha_campos = [
-                ('Descripción', ReportService._texto_seguro(g.get('descripcion'))),
-                ('Condición',   ReportService._texto_seguro(g.get('condicion_logica'))),
-                ('Remediación', ReportService._texto_seguro(g.get('remediacion'))),
-                ('Referencia',  ReportService._texto_seguro(g.get('referencia'))),
-            ]
-            ficha = doc.add_table(rows=len(ficha_campos), cols=2)
-            _remove_table_borders(ficha)
-            for fi, (fl, fv) in enumerate(ficha_campos):
-                bg = color_fila_par.lstrip('#') if fi % 2 == 0 else 'FFFFFF'
-                lc = ficha.rows[fi].cells[0]
-                lc.width = Cm(3.5)
-                _set_cell_bg(lc, color_secundario.lstrip('#'))
-                _set_cell_borders(lc, 'FFFFFF', '2')
-                _set_cell_margin(lc)
-                lp = lc.paragraphs[0]
-                lp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                lr = lp.add_run(fl)
-                lr.font.name = 'Arial'; lr.font.size = Pt(9); lr.font.bold = True
-                lr.font.color.rgb = _hex_to_rgb(color_acento)
-                lc.vertical_alignment = WD_ALIGN_VERTICAL.TOP
-
-                vc = ficha.rows[fi].cells[1]
-                vc.width = Cm(13.5)
-                _set_cell_bg(vc, bg)
-                _set_cell_borders(vc, 'DDDDDD', '2')
-                _set_cell_margin(vc)
-                vp = vc.paragraphs[0]
-                vr = vp.add_run(fv)
-                vr.font.name = 'Arial'; vr.font.size = Pt(9)
-                vr.font.color.rgb = _hex_to_rgb(color_oscuro)
-                vc.vertical_alignment = WD_ALIGN_VERTICAL.TOP
-
-            doc.add_paragraph()
-            if idx < len(grupos):
-                _page_break(doc)
 
     @staticmethod
     def _bloque_seccion_estatica(doc, subtitulo, contenido, tema):
@@ -730,7 +711,7 @@ class ReportService:
 
     @staticmethod
     def _bloque_resumen(doc, findings, tema, severidades):
-        """Tabla resumen de vulnerabilidades únicas por severidad."""
+        """Tabla resumen de hallazgos únicos por severidad."""
         ReportService._seccion_titulo(doc, 'Resumen de Hallazgos', tema)
 
         color_primario    = tema.get('fondo_primario',      '#1E1B4B')
@@ -751,19 +732,75 @@ class ReportService:
             else:
                 sin_clasificar += 1
 
-        total_vulnerabilidades = len(grupos)
+        total_hallazgos= len(grupos)
         total_recursos = sum(len(g['recursos']) for g in grupos)
+        
+        # ── Gráficos ───────────────────────────────────────────────
+        try:
+            grafico_severidad = ReportService._generar_grafico_severidad(findings, severidades, tema)
+            grafico_servicios = ReportService._generar_grafico_servicios(findings, tema)
+
+            tabla_graficos = doc.add_table(rows=1, cols=2)
+            _remove_table_borders(tabla_graficos)
+
+            c1 = tabla_graficos.rows[0].cells[0]
+            c1.width = Cm(8.5)
+            p1 = c1.paragraphs[0]
+            p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p1.add_run().add_picture(grafico_severidad, width=Cm(8))
+
+            c2 = tabla_graficos.rows[0].cells[1]
+            c2.width = Cm(8.5)
+            p2 = c2.paragraphs[0]
+            p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p2.add_run().add_picture(grafico_servicios, width=Cm(8))
+        except Exception:
+            pass  # Si matplotlib no está disponible, el reporte se genera igual sin los gráficos
 
         intro = doc.add_paragraph()
         ri = intro.add_run(
-            f"Durante la evaluación se identificaron {total_vulnerabilidades} vulnerabilidad(es) "
-            f"distintas, afectando un total de {total_recursos} recurso(s), distribuidas en las "
+            f"Durante la evaluación se identificaron {total_hallazgos} hallazgo(s) "
+            f"distintos, afectando un total de {total_recursos} recurso(s), distribuidos en las "
             f"siguientes categorías de riesgo:"
         )
         ri.font.name      = 'Arial'
         ri.font.size      = Pt(10)
         ri.font.color.rgb = _hex_to_rgb(color_oscuro)
         intro.paragraph_format.space_after = Pt(8)
+        
+        # ── Nivel de Riesgo General ───────────────────────────────
+        riesgo_general, riesgo_color = ReportService._calcular_riesgo_general(findings, severidades)
+
+        if riesgo_general:
+            banner = doc.add_table(rows=1, cols=1)
+            _remove_table_borders(banner)
+            bc = banner.rows[0].cells[0]
+            _set_cell_bg(bc, riesgo_color.lstrip('#'))
+            _set_cell_borders(bc, 'FFFFFF', '2')
+            _set_cell_margin(bc, 160, 160, 200, 200)
+            bp = bc.paragraphs[0]
+            bp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            br_label = bp.add_run('NIVEL DE RIESGO GENERAL: ')
+            br_label.font.name = 'Arial'; br_label.font.size = Pt(13); br_label.font.bold = True
+            br_label.font.color.rgb = _hex_to_rgb(color_texto_claro)
+            br_val = bp.add_run(riesgo_general)
+            br_val.font.name = 'Arial'; br_val.font.size = Pt(15); br_val.font.bold = True
+            br_val.font.color.rgb = _hex_to_rgb(color_texto_claro)
+            bc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+            nota = doc.add_paragraph()
+            nota.paragraph_format.space_before = Pt(6)
+            nota.paragraph_format.space_after  = Pt(10)
+            rn = nota.add_run(
+                'El nivel de riesgo general del presente informe corresponde al del hallazgo '
+                'de mayor criticidad identificada, dado que la explotación de un único hallazgo grave '
+                'puede comprometer la totalidad del entorno evaluado, independientemente de la '
+                'cantidad de hallazgos de menor severidad presentes.'
+            )
+            rn.font.name      = 'Arial'
+            rn.font.size      = Pt(8)
+            rn.font.italic     = True
+            rn.font.color.rgb = _hex_to_rgb(color_oscuro)
 
         table = doc.add_table(rows=1, cols=3)
         _remove_table_borders(table)
@@ -785,7 +822,7 @@ class ReportService:
         for sev, qty in conteo.items():
             if qty == 0:
                 continue
-            pct      = f"{(qty / total_vulnerabilidades * 100):.0f}%" if total_vulnerabilidades > 0 else "0%"
+            pct      = f"{(qty / total_hallazgos* 100):.0f}%" if total_hallazgos> 0 else "0%"
             sev_hex  = sev_map.get(sev, 'CCCCCC')
             row      = table.add_row()
 
@@ -828,7 +865,7 @@ class ReportService:
             pc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
         if sin_clasificar > 0:
-            pct = f"{(sin_clasificar / total_vulnerabilidades * 100):.0f}%" if total_vulnerabilidades > 0 else "0%"
+            pct = f"{(sin_clasificar / total_hallazgos* 100):.0f}%" if total_hallazgos> 0 else "0%"
             row = table.add_row()
 
             sc = row.cells[0]
@@ -946,7 +983,7 @@ class ReportService:
         doc.add_paragraph()
 
     @staticmethod
-    def _bloque_detalle_hallazgos(doc, findings, tema, severidades, base_dir=None):
+    def _bloque_detalle_hallazgos(doc, findings, tema, severidades, base_dir=None, incluir_evidencia=True):
         """Una ficha completa por cada vulnerabilidad única, con sus recursos afectados y evidencia."""
         ReportService._seccion_titulo(doc, 'Detalle de Hallazgos', tema)
         color_primario    = tema.get('fondo_primario',       '#1E1B4B')
@@ -960,7 +997,7 @@ class ReportService:
         intro = doc.add_paragraph()
         intro.paragraph_format.space_after = Pt(12)
         ri = intro.add_run(
-            'A continuación se presenta el detalle técnico de cada vulnerabilidad identificada '
+            'A continuación se presenta el detalle técnico de cada hallazgo identificado '
             'durante la evaluación, incluyendo descripción, condición lógica, remediación, '
             'referencias asociadas, recursos afectados y evidencia de las pruebas realizadas.'
         )
@@ -1097,74 +1134,73 @@ class ReportService:
                 r1.font.name = 'Arial'; r1.font.size = Pt(9)
                 r1.font.color.rgb = _hex_to_rgb(color_oscuro)
 
-            # ── Evidencia por recurso (solo los que tienen) ───────
-            recursos_con_evidencia = [r for r in recursos if r['comment'] or r['evidencias'] or r.get('inventory_data')]
-            if recursos_con_evidencia:
-                p_ev_titulo = doc.add_paragraph()
-                p_ev_titulo.paragraph_format.space_before = Pt(10)
-                p_ev_titulo.paragraph_format.space_after  = Pt(4)
-                rev_titulo = p_ev_titulo.add_run('Evidencia:')
-                rev_titulo.font.name = 'Arial'; rev_titulo.font.size = Pt(9); rev_titulo.font.bold = True
-                rev_titulo.font.color.rgb = _hex_to_rgb(color_secundario)
+            # ── Evidencia por recurso (solo si el tipo de informe la incluye) ──
+            if incluir_evidencia:
+                recursos_con_evidencia = [r for r in recursos if r['comment'] or r['evidencias'] or r.get('inventory_data')]
+                if recursos_con_evidencia:
+                    p_ev_titulo = doc.add_paragraph()
+                    p_ev_titulo.paragraph_format.space_before = Pt(10)
+                    p_ev_titulo.paragraph_format.space_after  = Pt(4)
+                    rev_titulo = p_ev_titulo.add_run('Evidencia:')
+                    rev_titulo.font.name = 'Arial'; rev_titulo.font.size = Pt(9); rev_titulo.font.bold = True
+                    rev_titulo.font.color.rgb = _hex_to_rgb(color_secundario)
 
-                for rec_idx, rec in enumerate(recursos_con_evidencia):
-                    if rec_idx > 0:
-                        _page_break(doc)
+                    for rec_idx, rec in enumerate(recursos_con_evidencia):
+                        if rec_idx > 0:
+                            _page_break(doc)
 
-                    p_res = doc.add_paragraph()
-                    p_res.paragraph_format.space_before = Pt(4)
-                    r_res = p_res.add_run(f"• {rec['resource_id']}")
-                    r_res.font.name = 'Arial'; r_res.font.size = Pt(9); r_res.font.bold = True
-                    r_res.font.color.rgb = _hex_to_rgb(color_acento)
+                        p_res = doc.add_paragraph()
+                        p_res.paragraph_format.space_before = Pt(4)
+                        r_res = p_res.add_run(f"• {rec['resource_id']}")
+                        r_res.font.name = 'Arial'; r_res.font.size = Pt(9); r_res.font.bold = True
+                        r_res.font.color.rgb = _hex_to_rgb(color_acento)
 
-                    # ── Salida de la herramienta (solo si hay dato) ───────────
-                    if rec.get('inventory_data'):
-                        p_tool_label = doc.add_paragraph()
-                        p_tool_label.paragraph_format.space_before = Pt(6)
-                        p_tool_label.paragraph_format.space_after  = Pt(2)
-                        rt_label = p_tool_label.add_run('Salida de la herramienta:')
-                        rt_label.font.name = 'Arial'; rt_label.font.size = Pt(8); rt_label.font.bold = True
-                        rt_label.font.color.rgb = _hex_to_rgb(color_secundario)
+                        if rec.get('inventory_data'):
+                            p_tool_label = doc.add_paragraph()
+                            p_tool_label.paragraph_format.space_before = Pt(6)
+                            p_tool_label.paragraph_format.space_after  = Pt(2)
+                            rt_label = p_tool_label.add_run('Salida de la herramienta:')
+                            rt_label.font.name = 'Arial'; rt_label.font.size = Pt(8); rt_label.font.bold = True
+                            rt_label.font.color.rgb = _hex_to_rgb(color_secundario)
 
-                        tabla_tool = doc.add_table(rows=1, cols=1)
-                        _remove_table_borders(tabla_tool)
-                        c_tool = tabla_tool.rows[0].cells[0]
-                        _set_cell_bg(c_tool, '1E1E1E')
-                        _set_cell_borders(c_tool, 'CCCCCC', '2')
-                        _set_cell_margin(c_tool)
-                        p_tool = c_tool.paragraphs[0]
-                        r_tool = p_tool.add_run(rec['inventory_data'])
-                        r_tool.font.name = 'Consolas'; r_tool.font.size = Pt(8)
-                        r_tool.font.color.rgb = _hex_to_rgb('D4D4D4')
+                            tabla_tool = doc.add_table(rows=1, cols=1)
+                            _remove_table_borders(tabla_tool)
+                            c_tool = tabla_tool.rows[0].cells[0]
+                            _set_cell_bg(c_tool, '1E1E1E')
+                            _set_cell_borders(c_tool, 'CCCCCC', '2')
+                            _set_cell_margin(c_tool)
+                            p_tool = c_tool.paragraphs[0]
+                            r_tool = p_tool.add_run(rec['inventory_data'])
+                            r_tool.font.name = 'Consolas'; r_tool.font.size = Pt(8)
+                            r_tool.font.color.rgb = _hex_to_rgb('D4D4D4')
 
-                    # ── Prueba manual: comentario + captura (solo si hay alguno) ──
-                    if rec['comment'] or rec['evidencias']:
-                        p_manual_label = doc.add_paragraph()
-                        p_manual_label.paragraph_format.space_before = Pt(8)
-                        p_manual_label.paragraph_format.space_after  = Pt(2)
-                        rm_label = p_manual_label.add_run('Prueba Manual:')
-                        rm_label.font.name = 'Arial'; rm_label.font.size = Pt(8); rm_label.font.bold = True
-                        rm_label.font.color.rgb = _hex_to_rgb(color_secundario)
+                        if rec['comment'] or rec['evidencias']:
+                            p_manual_label = doc.add_paragraph()
+                            p_manual_label.paragraph_format.space_before = Pt(8)
+                            p_manual_label.paragraph_format.space_after  = Pt(2)
+                            rm_label = p_manual_label.add_run('Prueba Manual:')
+                            rm_label.font.name = 'Arial'; rm_label.font.size = Pt(8); rm_label.font.bold = True
+                            rm_label.font.color.rgb = _hex_to_rgb(color_secundario)
 
-                        if rec['comment']:
-                            p_comment = doc.add_paragraph()
-                            p_comment.paragraph_format.space_after = Pt(4)
-                            rc = p_comment.add_run(rec['comment'])
-                            rc.font.name = 'Arial'; rc.font.size = Pt(9)
-                            rc.font.color.rgb = _hex_to_rgb(color_oscuro)
+                            if rec['comment']:
+                                p_comment = doc.add_paragraph()
+                                p_comment.paragraph_format.space_after = Pt(4)
+                                rc = p_comment.add_run(rec['comment'])
+                                rc.font.name = 'Arial'; rc.font.size = Pt(9)
+                                rc.font.color.rgb = _hex_to_rgb(color_oscuro)
 
-                        if rec['evidencias'] and base_dir:
-                            for img_path in rec['evidencias']:
-                                abs_path = os.path.join(base_dir, img_path)
-                                if os.path.exists(abs_path):
-                                    try:
-                                        p_img = doc.add_paragraph()
-                                        p_img.paragraph_format.space_before = Pt(4)
-                                        p_img.paragraph_format.space_after  = Pt(4)
-                                        run_img = p_img.add_run()
-                                        run_img.add_picture(abs_path, width=Cm(16.5))
-                                    except Exception:
-                                        pass
+                            if rec['evidencias'] and base_dir:
+                                for img_path in rec['evidencias']:
+                                    abs_path = os.path.join(base_dir, img_path)
+                                    if os.path.exists(abs_path):
+                                        try:
+                                            p_img = doc.add_paragraph()
+                                            p_img.paragraph_format.space_before = Pt(4)
+                                            p_img.paragraph_format.space_after  = Pt(4)
+                                            run_img = p_img.add_run()
+                                            run_img.add_picture(abs_path, width=Cm(16.5))
+                                        except Exception:
+                                            pass
 
             doc.add_paragraph()
             if idx < len(grupos):
@@ -1174,17 +1210,23 @@ class ReportService:
     # DOCX — punto de entrada público
     # ─────────────────────────────────────────────────────────────
     @staticmethod
-    def generar_docx(data, proyecto, tema, estructura, severidades, contenido_secciones=None, base_dir=None):
+    def generar_docx(data, proyecto, tema, estructura, severidades, contenido_secciones=None, base_dir=None, tipo_informe='tecnico'):
         contenido_secciones = contenido_secciones or {}
+        config = ReportService.TIPOS_INFORME.get(tipo_informe, ReportService.TIPOS_INFORME['tecnico'])
 
-        # Procesar imágenes que vienen como string separado por |
         for f in data:
             imagenes_raw  = f.get('imagenes') or ''
             f['evidencias'] = [img for img in imagenes_raw.split('|') if img]
 
         doc = ReportService._doc_base(proyecto, tema)
-        ReportService._bloque_portada(doc, proyecto, tema)
+        ReportService._bloque_portada(doc, proyecto, tema, tipo_informe=tipo_informe)
         ReportService._bloque_toc(doc, estructura, tema)
+
+        secciones_render = [
+            s for s in estructura
+            if s['tipo'] not in ('portada', 'toc') and s['clave'] not in config.get('excluir_secciones', [])
+        ]
+        ultima_clave = secciones_render[-1]['clave'] if secciones_render else None
 
         for seccion in estructura:
             tipo      = seccion['tipo']
@@ -1195,15 +1237,20 @@ class ReportService:
             if tipo in ('portada', 'toc'):
                 continue
 
+            if clave in config.get('excluir_secciones', []):
+                continue
+
             if dinamico:
                 if clave == 'resumen_hallazgos':
                     ReportService._bloque_resumen(doc, data, tema, severidades)
                 elif clave == 'hallazgos':
                     ReportService._bloque_tabla_hallazgos(doc, data, tema, severidades)
-                elif clave == 'detalle_vulnerabilidades':
-                    ReportService._bloque_detalle_vulnerabilidades(doc, data, tema, severidades)
                 elif clave == 'detalle_hallazgos':
-                    ReportService._bloque_detalle_hallazgos(doc, data, tema, severidades, base_dir=base_dir)
+                    ReportService._bloque_detalle_hallazgos(
+                        doc, data, tema, severidades,
+                        base_dir=base_dir,
+                        incluir_evidencia=config['incluir_evidencia']
+                    )
             else:
                 contenido = contenido_secciones.get(clave)
                 if clave == 'anexo_clasificacion':
@@ -1211,7 +1258,7 @@ class ReportService:
                 else:
                     ReportService._bloque_seccion_estatica(doc, subtitulo, contenido, tema)
 
-            if seccion != estructura[-1]:
+            if clave != ultima_clave:
                 _page_break(doc)
 
         output = BytesIO()
@@ -1293,3 +1340,23 @@ class ReportService:
             sep.paragraph_format.space_after = Pt(2)
 
         doc.add_paragraph()
+        
+    @staticmethod
+    def _calcular_riesgo_general(findings, severidades):
+        """Determina el nivel de riesgo general según la vulnerabilidad de mayor severidad detectada."""
+        grupos = ReportService._agrupar_findings_por_check(findings)
+        sev_rank  = {s['nombre'].upper(): s['orden'] for s in severidades}
+        sev_color = {s['nombre'].upper(): s['color'] for s in severidades}
+
+        max_sev   = None
+        max_orden = -1
+        for g in grupos:
+            sev = ReportService._texto_seguro(g.get('severidad')).upper()
+            orden = sev_rank.get(sev, -1)
+            if orden > max_orden:
+                max_orden = orden
+                max_sev = sev
+
+        if max_sev is None:
+            return None, 'CCCCCC'
+        return max_sev, sev_color.get(max_sev, 'CCCCCC')

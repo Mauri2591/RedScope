@@ -3,3 +3,4 @@ venv
 data
 requirements.txt
 uploads/
+tasking_stg.sql

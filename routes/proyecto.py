@@ -461,9 +461,13 @@ def gestionar_hallazgos(proyecto_id, ejecucion_id):
         abort(404)
 
     findings = CloudEjecucion.extract_interesting(data["resultado"])
-
-    # Enriquecer cada finding con su finding_id de DB
     findings = Proyecto.enrich_findings_with_ids(findings, proyecto_id, ejecucion_id)
+
+    # Regla existe en el catálogo, independiente de si el finding fue guardado
+    check_ids_unicos = {f['check_id'] for f in findings}
+    check_ids_con_regla = Proyecto.get_check_ids_con_regla(check_ids_unicos)
+    for f in findings:
+        f['regla_existe'] = f['check_id'] in check_ids_con_regla
 
     return render_template(
         'proyecto/proyectos-cloud/GestionHallazgos.html',
@@ -671,9 +675,13 @@ def exportar_csv(proyecto_id):
 #---------------------------------------------------------------------------#
 #-------------------------------- Docx ------------------------------#
 
-@proyecto_bp.route('/proyecto/<int:proyecto_id>/export/docx')
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/export/docx/<tipo_informe>')
 @login_required
-def exportar_docx(proyecto_id):
+def exportar_docx(proyecto_id, tipo_informe):
+
+    if tipo_informe not in ('tecnico', 'ejecutivo'):
+        abort(404)
+
     sector_id = session.get('sector_id')
     proyecto  = Proyecto.get_by_id(proyecto_id, sector_id)
 
@@ -686,14 +694,15 @@ def exportar_docx(proyecto_id):
     tema               = Proyecto.get_reporte_tema()
     estructura         = Proyecto.get_reporte_estructura(proveedor=tipo_servicio)
     severidades        = Proyecto.get_severidades()
-    contenido_secciones = Proyecto.get_contenido_secciones(tipo_servicio)  # ← nuevo
+    contenido_secciones = Proyecto.get_contenido_secciones(tipo_servicio)
 
     output = ReportService.generar_docx(
         data, proyecto, tema, estructura, severidades,
         contenido_secciones,
-        base_dir=Config.BASE_DIR
-    )    
-    filename = ReportService.generar_nombre_archivo(data, proyecto_id, extension="docx")
+        base_dir=Config.BASE_DIR,
+        tipo_informe=tipo_informe
+    )
+    filename = ReportService.generar_nombre_archivo(data, proyecto_id, extension="docx", tipo_informe=tipo_informe)
 
     return Response(
         output.getvalue(),

@@ -28,35 +28,51 @@
                     <tr>
                         <th>RESOURCE_ID</th>
                         <th>CHECK_ID</th>
-                        <th>Verificar</th>
+                        <th class="text-center">REGLA</th>
+                        <th class="text-center">VERIFICADO</th>
+                        <th>GESTIONAR</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% if findings %}
-                        {% for f in findings %}
-                        <tr>
-                            <td>{{ f.resource_id }}</td>
-                            <td><span class="badge bg-dark text-warning">{{ f.check_id }}</span></td>
-                            <td>
-                                {% if f.finding_id %}
-                                <button onclick="verificarHallazgo({{ f.finding_id }})"
-                                    class="btn btn-sm btn-secondary py-0 px-1">
-                                    <i class="bi bi-pencil-square"></i>
-                                </button>
-                                <button onclick="eliminarHallazgo({{ f.finding_id }})"
-                                    class="btn btn-sm btn-danger py-0 px-1">
-                                    <i class="bi bi-pencil-square"></i>
-                                </button>
-                                {% else %}
-                                <span class="badge bg-warning text-dark">Sin finding</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
+                    {% for f in findings %}
+                    <tr>
+                        <td>{{ f.resource_id }}</td>
+                        <td><span class="badge bg-dark text-warning">{{ f.check_id }}</span></td>
+                        <td class="text-center">
+                            {% if f.regla_existe %}
+                                <i class="bi bi-shield-fill-check text-success" title="Regla clasificada"></i>
+                            {% else %}
+                                <i class="bi bi-shield-exclamation text-secondary" title="Regla sin clasificar"></i>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if f.verificado == 'SI' %}
+                            <i class="bi bi-check-circle-fill text-success" title="Hallazgo verificado"></i>
+                            {% else %}
+                            <i class="bi bi-circle text-secondary" title="Hallazgo sin verificar"></i>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if f.finding_id %}
+                            <button onclick="verificarHallazgo({{ f.finding_id }})"
+                                class="btn btn-sm btn-secondary py-0 px-1">
+                                <i class="bi bi-pencil-square"></i>
+                            </button>
+                            <button onclick="eliminarHallazgo({{ f.finding_id }})"
+                                class="btn btn-sm btn-danger py-0 px-1">
+                                <i class="bi bi-pencil-square"></i>
+                            </button>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">Sin finding</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
                     {% else %}
-                        <tr>
-                            <td colspan="3" class="text-center">No se detectaron hallazgos interesantes</td>
-                        </tr>
+                    <tr>
+                        <td colspan="5" class="text-center">No se detectaron hallazgos interesantes</td>
+                    </tr>
                     {% endif %}
                 </tbody>
             </table>

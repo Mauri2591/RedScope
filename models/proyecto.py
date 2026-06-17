@@ -251,15 +251,23 @@ class Proyecto:
             ce.fecha_fin,
             (SELECT COUNT(*) 
             FROM findings f 
-            WHERE f.cloud_ejecucion_id = ce.id) AS total_hallazgos,
+            WHERE f.cloud_ejecucion_id = ce.id
+            AND f.estado_id = 1) AS total_hallazgos,
             (SELECT COUNT(*) 
             FROM findings f
             LEFT JOIN security_rules sr 
                 ON sr.check_id = f.check_id 
                 AND sr.service = f.service 
                 AND sr.provider = f.provider
+                AND sr.estado_id = 1
             WHERE f.cloud_ejecucion_id = ce.id 
-            AND sr.id IS NULL) AS hallazgos_sin_clasificar
+            AND f.estado_id = 1
+            AND sr.id IS NULL) AS hallazgos_sin_clasificar,
+            (SELECT COUNT(*)
+            FROM findings f
+            WHERE f.cloud_ejecucion_id = ce.id
+            AND f.estado_id = 1
+            AND (f.verificado IS NULL OR f.verificado != 'SI')) AS hallazgos_sin_verificar
         FROM cloud_ejecuciones ce
         LEFT JOIN servicios_aws_acciones saa
             ON saa.id = ce.accion_id
@@ -281,7 +289,8 @@ class Proyecto:
                 "error": row["error"],
                 "fecha_fin": str(row["fecha_fin"]) if row["fecha_fin"] else None,
                 "total_hallazgos": row["total_hallazgos"],
-                "hallazgos_sin_clasificar": row["hallazgos_sin_clasificar"]
+                "hallazgos_sin_clasificar": row["hallazgos_sin_clasificar"],
+                "hallazgos_sin_verificar": row["hallazgos_sin_verificar"]
             }
         return data
 
@@ -507,6 +516,7 @@ class Proyecto:
 
             ON DUPLICATE KEY UPDATE
                 usuario_id = VALUES(usuario_id),
+                security_rules_id = VALUES(security_rules_id),
                 severidad_id = VALUES(severidad_id),
                 estados_findings_id = VALUES(estados_findings_id),
                 finding_comment = VALUES(finding_comment),
@@ -550,6 +560,23 @@ class Proyecto:
 
         return finding_id
 
+    @staticmethod
+    def get_check_ids_con_regla(check_ids):
+        """Devuelve el set de check_id que ya tienen una security_rule activa en el catálogo."""
+        if not check_ids:
+            return set()
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        format_strings = ','.join(['%s'] * len(check_ids))
+        cursor.execute(f"""
+            SELECT DISTINCT check_id FROM security_rules
+            WHERE check_id IN ({format_strings})
+            AND estado_id = 1
+        """, list(check_ids))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return {r['check_id'] for r in rows}
     
     @staticmethod
     def get_finding(check_id, proyecto_id, resource_id=None, cloud_ejecucion_id=None):
@@ -592,7 +619,7 @@ class Proyecto:
         enriched = []
         for f in findings:
             cursor.execute("""
-                SELECT id, security_rules_id, estados_findings_id, finding_comment
+                SELECT id, security_rules_id, estados_findings_id, finding_comment, verificado
                 FROM findings
                 WHERE proyecto_id = %s
                 AND cloud_ejecucion_id = %s
@@ -604,6 +631,8 @@ class Proyecto:
             """, (proyecto_id, ejecucion_id, f['resource_id'], f['check_id']))
             row = cursor.fetchone()
             f['finding_id'] = row['id'] if row else None
+            f['security_rules_id'] = row['security_rules_id'] if row else None
+            f['verificado'] = row['verificado'] if row else None
             enriched.append(f)
 
         cursor.close()

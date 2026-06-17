@@ -537,16 +537,23 @@
 
                 const totalHallazgos = contenido.total_hallazgos || 0;
                 const sinClasificar = contenido.hallazgos_sin_clasificar || 0;
+                const sinVerificar = contenido.hallazgos_sin_verificar || 0;
 
                 if (totalHallazgos === 0) {
                     colorIconoChecks = "bg-light text-secondary";
                     titleIconoChecks = "No posee hallazgos";
-                } else if (sinClasificar > 0) {
-                    colorIconoChecks = "bg-warning text-light";
-                    titleIconoChecks = `${sinClasificar} hallazgo(s) sin clasificar`;
                 } else {
-                    colorIconoChecks = "bg-success text-light";
-                    titleIconoChecks = `${totalHallazgos} hallazgo(s) clasificado(s)`;
+                    const pendientes = [];
+                    if (sinClasificar > 0) pendientes.push(`${sinClasificar} sin clasificar`);
+                    if (sinVerificar > 0) pendientes.push(`${sinVerificar} sin verificar`);
+
+                    if (pendientes.length > 0) {
+                        colorIconoChecks = "bg-warning text-dark";
+                        titleIconoChecks = pendientes.join(' y ');
+                    } else {
+                        colorIconoChecks = "bg-success text-light";
+                        titleIconoChecks = `${totalHallazgos} hallazgo(s) clasificado(s) y verificado(s)`;
+                    }
                 }
             }
             const habilitarBtngestionarResultadoChecks = `class="badge ${colorIconoChecks}" title="${titleIconoChecks}" ${onclickAttr}`;
@@ -574,8 +581,8 @@
         window.location.href = `/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}/hallazgos`;
     }
 
-    function descargarDoc(id) {
-        window.location.href = `/proyecto/${id}/export/docx`;
+    function descargarDoc(id, tipo) {
+        window.location.href = `/proyecto/${id}/export/docx/${tipo}`;
     }
 
     function descargarXlsx(id) {
@@ -836,13 +843,12 @@
             .then(res => res.json())
             .then(res => {
                 if (res.success) {
-                    // ✅ Asignar rule_id para que guardarFinding lo use
                     $("#rule_id").val(res.rule_id);
 
-                    // ✅ Habilitar botón guardar
                     $("#btnGuardarFinding").prop("disabled", false);
 
                     alert('Rule Information guardada correctamente!');
+                    location.reload();
                 }
             })
     }

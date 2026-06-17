@@ -29,7 +29,8 @@
 
                 <div class="terminal-herramientas">
                     <div>
-                        <button class="btn btn-sm px-1 py-0 mb-1 btn-outline-secondary" onclick="ejecutar_todos()">Ejecutar todos</button>
+                        <button class="btn btn-sm px-1 py-0 mb-1 btn-outline-secondary"
+                            onclick="ejecutar_todos()">Ejecutar todos</button>
                     </div>
                     {% for servicio_aws in servicios_aws %}
                     <button value="{{ servicio_aws.id }}" type="button" title="{{servicio_aws.descripcion}}"
@@ -60,8 +61,12 @@
             <div class="col-8">
                 <div class="d-flex justify-content-end">
                     <div class="d-flex gap-1 rounded p-1 contenedor-iconos-formulario">
-                        <span class="badge btn-export btn-docx" title="Descargar DOCX"
-                            onclick="descargarDoc('{{ proyecto.id }}')">
+                        <span class="badge btn-export btn-docx" title="Descargar Informe Ejecutivo"
+                            onclick="descargarDoc('{{ proyecto.id }}', 'ejecutivo')">
+                            <i class="bi bi-file-earmark-text"></i>
+                        </span>
+                        <span class="badge btn-export btn-docx" title="Descargar Informe Técnico"
+                            onclick="descargarDoc('{{ proyecto.id }}', 'tecnico')">
                             <i class="bi bi-file-earmark-word"></i>
                         </span>
 
