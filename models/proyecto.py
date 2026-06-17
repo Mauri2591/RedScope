@@ -243,18 +243,29 @@ class Proyecto:
 
         cursor.execute("""
             SELECT 
-                saa.nombre_ui,
-                ce.id,
-                ce.estado,
-                ce.resultado,
-                ce.error,
-                ce.fecha_fin
-            FROM cloud_ejecuciones ce
-            LEFT JOIN servicios_aws_acciones saa
-                ON saa.id = ce.accion_id
-            WHERE ce.proyecto_id = %s
-            AND ce.estado_id != 2
-            ORDER BY ce.id ASC  -- ← agregás esto
+            saa.nombre_ui,
+            ce.id,
+            ce.estado,
+            ce.resultado,
+            ce.error,
+            ce.fecha_fin,
+            (SELECT COUNT(*) 
+            FROM findings f 
+            WHERE f.cloud_ejecucion_id = ce.id) AS total_hallazgos,
+            (SELECT COUNT(*) 
+            FROM findings f
+            LEFT JOIN security_rules sr 
+                ON sr.check_id = f.check_id 
+                AND sr.service = f.service 
+                AND sr.provider = f.provider
+            WHERE f.cloud_ejecucion_id = ce.id 
+            AND sr.id IS NULL) AS hallazgos_sin_clasificar
+        FROM cloud_ejecuciones ce
+        LEFT JOIN servicios_aws_acciones saa
+            ON saa.id = ce.accion_id
+        WHERE ce.proyecto_id = %s
+        AND ce.estado_id != 2
+        ORDER BY ce.id ASC
         """, (proyecto_id,))
 
         rows = cursor.fetchall()
@@ -268,7 +279,9 @@ class Proyecto:
                 "estado": row["estado"],
                 "resultado": row["resultado"],
                 "error": row["error"],
-                "fecha_fin": str(row["fecha_fin"]) if row["fecha_fin"] else None
+                "fecha_fin": str(row["fecha_fin"]) if row["fecha_fin"] else None,
+                "total_hallazgos": row["total_hallazgos"],
+                "hallazgos_sin_clasificar": row["hallazgos_sin_clasificar"]
             }
         return data
 
@@ -617,7 +630,7 @@ class Proyecto:
         cursor.execute("""
             SELECT id, proyecto_id, cloud_ejecucion_id, security_rules_id,
                 check_id, provider, service, resource_id,
-                severidad_id, estados_findings_id, finding_comment
+                severidad_id, estados_findings_id, finding_comment, inventory_data
             FROM findings
             WHERE id = %s AND estado_id = 1
         """, (finding_id,))
@@ -625,6 +638,20 @@ class Proyecto:
         cursor.close()
         conn.close()
         return data
+    
+    @staticmethod
+    def get_resultado_ejecucion(cloud_ejecucion_id):
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT resultado
+            FROM cloud_ejecuciones
+            WHERE id = %s
+        """, (cloud_ejecucion_id,))
+        data = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return data['resultado'] if data else None
 
     @staticmethod
     def get_finding_evidencias(finding_id):
@@ -702,14 +729,28 @@ class Proyecto:
             sr.remediation AS remediacion,
             sr.reference AS referencia,
             f.resource_id,
+            f.inventory_data,
             ef.nombre AS estado,
             f.finding_comment,
             GROUP_CONCAT(fe.file_path ORDER BY fe.id SEPARATOR '|') AS imagenes
         FROM findings f
         INNER JOIN proyectos p 
             ON p.id = f.proyecto_id
+        INNER JOIN cloud_ejecuciones ce
+            ON ce.id = f.cloud_ejecucion_id
+        INNER JOIN (
+            SELECT accion_id, MAX(id) AS ultima_ejecucion_id
+            FROM cloud_ejecuciones
+            WHERE proyecto_id = %s
+            AND estado_id != 2
+            GROUP BY accion_id
+        ) ultima 
+            ON ultima.accion_id = ce.accion_id
+            AND ultima.ultima_ejecucion_id = ce.id
         LEFT JOIN security_rules sr 
             ON sr.check_id = f.check_id
+            AND sr.service = f.service
+            AND sr.provider = f.provider
         LEFT JOIN severidades sev 
             ON sev.id = sr.severidad_id
         LEFT JOIN estados_findings ef
@@ -720,11 +761,13 @@ class Proyecto:
         GROUP BY f.id
         ORDER BY sev.orden DESC;
         """
-        cursor.execute(query, (proyecto_id,))
+        cursor.execute(query, (proyecto_id, proyecto_id))
         data = cursor.fetchall()
         cursor.close()
         conn.close()
         return data
+    
+    
     
     @staticmethod
     def get_reporte_tema():

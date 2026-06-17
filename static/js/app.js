@@ -497,9 +497,7 @@
     function actualizarTablaCloud(data) {
 
         const tbody = document.querySelector("#tablaEjecuciones tbody");
-
         if (!tbody) return;
-
         tbody.innerHTML = "";
 
         for (const [accion, contenido] of Object.entries(data)) {
@@ -528,21 +526,44 @@
                     badgeClass = "bg-dark";
             }
 
-            const habilitarBtngestionarResultadoChecks = contenido.estado == "RUNNING" || contenido.estado == "QUEUED" ? "" : `class="badge bg-success text-light" type=button onclick=gestionarResultadoChecks('${contenido.id}')`;
+            const enEjecucion = contenido.estado === "RUNNING" || contenido.estado === "QUEUED";
+
+            let colorIconoChecks = "bg-light text-secondary";
+            let titleIconoChecks = "Sin hallazgos";
+            let onclickAttr = "";
+
+            if (!enEjecucion) {
+                onclickAttr = `type="button" onclick="gestionarResultadoChecks('${contenido.id}')"`;
+
+                const totalHallazgos = contenido.total_hallazgos || 0;
+                const sinClasificar = contenido.hallazgos_sin_clasificar || 0;
+
+                if (totalHallazgos === 0) {
+                    colorIconoChecks = "bg-light text-secondary";
+                    titleIconoChecks = "No posee hallazgos";
+                } else if (sinClasificar > 0) {
+                    colorIconoChecks = "bg-warning text-light";
+                    titleIconoChecks = `${sinClasificar} hallazgo(s) sin clasificar`;
+                } else {
+                    colorIconoChecks = "bg-success text-light";
+                    titleIconoChecks = `${totalHallazgos} hallazgo(s) clasificado(s)`;
+                }
+            }
+            const habilitarBtngestionarResultadoChecks = `class="badge ${colorIconoChecks}" title="${titleIconoChecks}" ${onclickAttr}`;
             tbody.innerHTML += `
-                <tr>
-                    <td>${accion}</td>
-                    <td>
-                        <span class="badge ${badgeClass}">
-                            ${badgeText}
-                        </span>
-                    </td>
-                    <td>
-                    <span ${habilitarBtngestionarResultadoChecks} class="badge bg-light text-secondary"><i class="bi bi-rocket-takeoff-fill"></i>
-                        </span>
-                    </td>
-                </tr>
-            `;
+            <tr>
+                <td>${accion}</td>
+                <td>
+                    <span class="badge ${badgeClass}">
+                        ${badgeText}
+                    </span>
+                </td>
+                <td>
+                <span ${habilitarBtngestionarResultadoChecks}><i class="bi bi-rocket-takeoff-fill"></i>
+                    </span>
+                </td>
+            </tr>
+        `;
         }
     }
 
@@ -620,6 +641,7 @@
             });
 
             $("#finding_comment").val(findingData.finding_comment);
+            $("#tool_output").val(findingData.inventory_data || '');
 
             // Severidades
             let selectSeverity = $("#rule_severity");
@@ -778,6 +800,7 @@
         $("#finding_comment").val("")
         $("#paste_evidence").val("")
         $("#evidence_preview").empty()
+        $("#tool_output").val("")
     }
 
 
@@ -845,11 +868,12 @@
             security_rules_id: $("#rule_id").val() ? parseInt($("#rule_id").val()) : null,
             check_id: $("#check_id").val(),
             provider: "aws",
-            service: "s3",
+            service: $("#finding_service").val(),
             resource_id: $("#resource_id").val(),
             severidad_id: parseInt($("#rule_severity").val()),
             estados_findings_id: parseInt($("#estados_findings_id").val()),
             finding_comment: $("#finding_comment").val(),
+            inventory_data: $("#tool_output").val(),
             evidencias: evidencias,
             evidencias_eliminadas: evidenciasEliminadas
         };
@@ -864,7 +888,7 @@
             })
             .then(res => res.json())
             .then(res => {
-                const finding_id = res.finding_id; // 👈 viene del backend
+                const finding_id = res.finding_id;
                 return fetch(`/proyecto/finding/${finding_id}/verificar`, {
                     method: "POST",
                     headers: {
@@ -935,33 +959,33 @@
         });
     }
 
-async function ejecutar_todos() {
-    if (!confirm("¿Desea ejecutar todos los Servicios?")) return;
-    const proyectoId = document.getElementById('cloudWorkspace').dataset.proyectoId;
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+    async function ejecutar_todos() {
+        if (!confirm("¿Desea ejecutar todos los Servicios?")) return;
+        const proyectoId = document.getElementById('cloudWorkspace').dataset.proyectoId;
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
-    // Traer todas las acciones
-    const res = await fetch(`/cloud/acciones/all/${proyectoId}`);
-    const data = await res.json();
-    if (!data.success || !data.acciones.length) {
-        alert("No se encontraron acciones para ejecutar");
-        return;
+        // Traer todas las acciones
+        const res = await fetch(`/cloud/acciones/all/${proyectoId}`);
+        const data = await res.json();
+        if (!data.success || !data.acciones.length) {
+            alert("No se encontraron acciones para ejecutar");
+            return;
+        }
+        // Encolar cada acción secuencialmente
+        for (const accion of data.acciones) {
+            await fetch('/cloud/run-roles', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({
+                    proyecto_id: parseInt(proyectoId),
+                    accion_id: accion.id
+                })
+            });
+        }
+        mostrarToast();
+        iniciarPollingCloud();
+        cargarResultadosCloud();
     }
-    // Encolar cada acción secuencialmente
-    for (const accion of data.acciones) {
-        await fetch('/cloud/run-roles', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken
-            },
-            body: JSON.stringify({
-                proyecto_id: parseInt(proyectoId),
-                accion_id: accion.id
-            })
-        });
-    }
-    mostrarToast();
-    iniciarPollingCloud();
-    cargarResultadosCloud();
-}

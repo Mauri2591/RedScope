@@ -52,7 +52,9 @@
                                     </div>
                                     <div class="col-8"> <!-- CONDITION LOGIC -->
                                         <div class="mb-3">
-                                            <label class="text-secondary small">Condicion Logica <i class="bi bi-question-circle text-info" title="Define la condición lógica que determina cuándo una regla de seguridad se considera incumplida."></i></label>
+                                            <label class="text-secondary small">Condicion Logica <i
+                                                    class="bi bi-question-circle text-info"
+                                                    title="Define la condición lógica que determina cuándo una regla de seguridad se considera incumplida."></i></label>
                                             <textarea
                                                 class="form-control form-control-sm bg-dark text-light border-secondary"
                                                 id="rule_condition_logic" rows="3"></textarea>
@@ -74,7 +76,7 @@
                                         class="form-control form-control-sm bg-dark text-light border-secondary"
                                         id="rule_reference">
                                     </textarea>
-                                    
+
                                 </div>
 
                                 <div class="d-flex justify-content-end">
@@ -88,7 +90,7 @@
                         </div>
                     </div>
 
-                    <!-- RIGHT COLUMN -->
+                    <!-- COLUMNA DERECHA -->
                     <div class="col-6 h-100">
                         <div class="card bg-black border-secondary h-100 overflow-auto">
                             <div class="card-body">
@@ -106,19 +108,35 @@
                                         id="resource_id" readonly>
                                 </div>
 
-                                <!-- STATUS -->
-                                <div class="mb-3">
-                                    <label class="text-secondary small">Estado</label>
-                                    <select class="form-select form-select-sm bg-dark text-light border-secondary"
-                                        id="estados_findings_id">
+                                <div class="row">
+                                    <div class="col-9">
+                                        <div class="mb-3">
+                                            <label for="tool_output"
+                                                class="form-label d-flex justify-content-between align-items-center">
+                                                <label class="text-secondary small">Salida de la herramienta</label>
+                                            </label>
+                                            <textarea id="tool_output" class="form-control bg-dark text-light" rows="4"
+                                                style="font-family: monospace; font-size: 0.85rem;"
+                                                placeholder="JSON devuelto por la herramienta..."></textarea>
+                                        </div>
+                                    </div>
+                                    <div class="col-3">
+                                        <!-- STATUS -->
+                                        <div class="mb-3">
+                                            <label class="text-secondary small">Estado</label>
+                                            <select
+                                                class="form-select form-select-sm bg-dark text-light border-secondary"
+                                                id="estados_findings_id">
 
-                                    </select>
+                                            </select>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- ANALYST COMMENT -->
                                 <div class="mb-3">
                                     <label class="text-secondary small">Notas de Analisis</label>
-                                    <textarea class="form-control form-control-sm bg-dark text-light border-secondary"
+                                    <textarea class="form-control form-control-sm bg-light text-dark border-secondary"
                                         id="finding_comment" rows="4"
                                         placeholder="Describe el análisis realizado..."></textarea>
                                 </div>
@@ -127,7 +145,7 @@
                                     <label class="text-secondary small">Evidencia (paste screenshots)</label>
 
                                     <input type="text"
-                                        class="form-control form-control-sm bg-dark text-light border-secondary"
+                                        class="form-control form-control-sm bg-light text-dark border-secondary"
                                         id="paste_evidence" placeholder="Press CTRL + V to paste screenshot">
 
                                     <!-- PREVIEW -->

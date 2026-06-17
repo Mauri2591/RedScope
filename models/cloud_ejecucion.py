@@ -16,7 +16,9 @@ class CloudEjecucion:
         "unrestricted",     # cubre unrestricted_egress_all_ports y peering_unrestricted_cidr
         "disabled",         # cubre flow_logs_disabled
         "default_vpc",      # cubre default_vpc_active
-        "allow_all"         # cubre nacl_allow_all
+        "allow_all",        # cubre nacl_allow_all
+        "unencrypted"       # ← agregás esto para RDS
+
     ]
     
     RISK_FALSE_KEYWORDS = [

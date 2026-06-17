@@ -2948,3 +2948,275 @@ def vpc_peering_job(ejecucion_id, proyecto_id):
 # ══════════════════════════════════════════════════════════════════
 # FIN VPC
 # ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# AMAZON RDS
+# ══════════════════════════════════════════════════════════════════
+
+def _rds_context(proyecto_id):
+    """Retorna (session, rds_client, account_id, region)."""
+    session, region = _get_aws_session(proyecto_id)
+    rds = session.client("rds", region_name=region)
+    account_id = _get_account_id(session)
+    return session, rds, account_id, region
+
+
+def rds_instances_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, rds, account_id, region = _rds_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = rds.get_paginator("describe_db_instances")
+            for page in paginator.paginate():
+                for db in page.get("DBInstances", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="RDS",
+                        resource_type="DBInstance",
+                        resource_id=db.get("DBInstanceIdentifier"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "engine": db.get("Engine"),
+                            "engine_version": db.get("EngineVersion"),
+                            "instance_class": db.get("DBInstanceClass"),
+                            "status": db.get("DBInstanceStatus"),
+                            "multi_az": db.get("MultiAZ", False),
+                            "vpc_id": db.get("DBSubnetGroup", {}).get("VpcId"),
+                            "availability_zone": db.get("AvailabilityZone"),
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"rds_instances_error: {e}")
+
+        return _build_resultado(
+            "AWS", "RDS", "RDS_INSTANCES_DISCOVERY",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def rds_public_access_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, rds, account_id, region = _rds_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = rds.get_paginator("describe_db_instances")
+            for page in paginator.paginate():
+                for db in page.get("DBInstances", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="RDS",
+                        resource_type="DBInstancePublicAccess",
+                        resource_id=db.get("DBInstanceIdentifier"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "publicly_accessible": db.get("PubliclyAccessible", False),
+                            "endpoint": db.get("Endpoint", {}).get("Address"),
+                            "port": db.get("Endpoint", {}).get("Port"),
+                            "vpc_id": db.get("DBSubnetGroup", {}).get("VpcId"),
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"rds_public_access_error: {e}")
+
+        return _build_resultado(
+            "AWS", "RDS", "RDS_PUBLIC_ACCESS_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def rds_encryption_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, rds, account_id, region = _rds_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = rds.get_paginator("describe_db_instances")
+            for page in paginator.paginate():
+                for db in page.get("DBInstances", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="RDS",
+                        resource_type="DBInstanceEncryption",
+                        resource_id=db.get("DBInstanceIdentifier"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "unencrypted_storage": not db.get("StorageEncrypted", False),
+                            "kms_key_id": db.get("KmsKeyId"),
+                            "storage_type": db.get("StorageType"),
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"rds_encryption_error: {e}")
+
+        return _build_resultado(
+            "AWS", "RDS", "RDS_ENCRYPTION_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def rds_snapshots_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, rds, account_id, region = _rds_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = rds.get_paginator("describe_db_snapshots")
+            for page in paginator.paginate(SnapshotType="manual"):
+                for snap in page.get("DBSnapshots", []):
+                    snapshot_id = snap.get("DBSnapshotIdentifier")
+
+                    is_public = False
+                    try:
+                        attrs = rds.describe_db_snapshot_attributes(
+                            DBSnapshotIdentifier=snapshot_id
+                        )
+                        for attr in attrs.get("DBSnapshotAttributesResult", {}).get("DBSnapshotAttributes", []):
+                            if attr.get("AttributeName") == "restore" and "all" in attr.get("AttributeValues", []):
+                                is_public = True
+                    except Exception:
+                        pass
+
+                    resources.append(_base_resource(
+                        provider="AWS", service="RDS",
+                        resource_type="DBSnapshot",
+                        resource_id=snapshot_id,
+                        account_id=account_id, region=region,
+                        analysis={
+                            "snapshot_public": is_public,
+                            "db_instance_identifier": snap.get("DBInstanceIdentifier"),
+                            "encrypted": snap.get("Encrypted", False),
+                            "status": snap.get("Status"),
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"rds_snapshots_error: {e}")
+
+        return _build_resultado(
+            "AWS", "RDS", "RDS_SNAPSHOTS_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def rds_backups_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, rds, account_id, region = _rds_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = rds.get_paginator("describe_db_instances")
+            for page in paginator.paginate():
+                for db in page.get("DBInstances", []):
+                    retention = db.get("BackupRetentionPeriod", 0)
+                    resources.append(_base_resource(
+                        provider="AWS", service="RDS",
+                        resource_type="DBInstanceBackup",
+                        resource_id=db.get("DBInstanceIdentifier"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "automated_backups_disabled": retention == 0,
+                            "backup_retention_period": retention,
+                            "preferred_backup_window": db.get("PreferredBackupWindow"),
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"rds_backups_error: {e}")
+
+        return _build_resultado(
+            "AWS", "RDS", "RDS_BACKUPS_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def rds_iam_auth_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, rds, account_id, region = _rds_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = rds.get_paginator("describe_db_instances")
+            for page in paginator.paginate():
+                for db in page.get("DBInstances", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="RDS",
+                        resource_type="DBInstanceIamAuth",
+                        resource_id=db.get("DBInstanceIdentifier"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "iam_auth_disabled": not db.get("IAMDatabaseAuthenticationEnabled", False),
+                            "engine": db.get("Engine"),
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"rds_iam_auth_error: {e}")
+
+        return _build_resultado(
+            "AWS", "RDS", "RDS_IAM_AUTH_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def rds_maintenance_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        _, rds, account_id, region = _rds_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = rds.get_paginator("describe_db_instances")
+            for page in paginator.paginate():
+                for db in page.get("DBInstances", []):
+                    resources.append(_base_resource(
+                        provider="AWS", service="RDS",
+                        resource_type="DBInstanceMaintenance",
+                        resource_id=db.get("DBInstanceIdentifier"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "minor_version_upgrade_disabled": not db.get("AutoMinorVersionUpgrade", False),
+                            "deletion_protection_disabled": not db.get("DeletionProtection", False),
+                            "engine_version": db.get("EngineVersion"),
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"rds_maintenance_error: {e}")
+
+        return _build_resultado(
+            "AWS", "RDS", "RDS_MAINTENANCE_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+# ══════════════════════════════════════════════════════════════════
+# FIN AMAZON RDS
+# ══════════════════════════════════════════════════════════════════

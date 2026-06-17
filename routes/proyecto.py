@@ -28,6 +28,7 @@ from cryptography.fernet import Fernet
 from redis import Redis
 from rq import Queue
 from routes.utils import abort
+import json
 
 proyecto_bp = Blueprint('proyecto', __name__)
 
@@ -529,7 +530,14 @@ def get_finding_by_id(finding_id):
     finding = Proyecto.get_finding_by_id(finding_id)
     if not finding:
         return jsonify({"success": False}), 404
+
     evidencias_img = Proyecto.get_finding_evidencias_img(finding_id)
+
+    # Si todavía no se guardó manualmente, extraer la salida cruda de la herramienta
+    if not finding.get('inventory_data'):
+        resultado_raw = Proyecto.get_resultado_ejecucion(finding['cloud_ejecucion_id'])
+        finding['inventory_data'] = _extraer_bloque_recurso(resultado_raw, finding['resource_id'])
+
     return jsonify({
         "success": True,
         "data": {
@@ -537,6 +545,7 @@ def get_finding_by_id(finding_id):
             "evidencias_img": evidencias_img
         }
     })
+
     
 @proyecto_bp.route('/proyecto/finding', methods=['POST'])
 @login_required
@@ -708,3 +717,19 @@ def obtener_todas_acciones(proyecto_id):
         "success": True,
         "acciones": acciones
     })
+    
+def _extraer_bloque_recurso(resultado_raw, resource_id):
+    """Busca dentro del JSON de la ejecución el bloque correspondiente a un resource_id puntual."""
+    if not resultado_raw:
+        return ""
+
+    try:
+        resultado = json.loads(resultado_raw) if isinstance(resultado_raw, str) else resultado_raw
+    except (TypeError, ValueError):
+        return ""
+
+    for recurso in resultado.get("resources", []):
+        if recurso.get("resource_id") == resource_id:
+            return json.dumps(recurso, indent=2, ensure_ascii=False)
+
+    return ""
