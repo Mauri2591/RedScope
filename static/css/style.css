@@ -292,6 +292,15 @@ th {
 .vpc {font-size: .7rem; font-weight: bold; background-color: #8c4fff; color: var(--color-blanco-primario); padding: .1rem; }
 .rds {font-size: .7rem; font-weight: bold; background-color: #3b48cc; color: var(--color-blanco-primario); padding: .1rem; }
 
+.icono-spin {
+    display: inline-block;
+    animation: spin-regla 1s linear infinite;
+}
+@keyframes spin-regla {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .borde-terminal-salida {
     border: 2px solid #dee2e6;
     border-radius: 6px;

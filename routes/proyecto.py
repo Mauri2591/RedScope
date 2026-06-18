@@ -444,7 +444,7 @@ def obtener_detalle_ejecucion(proyecto_id, ejecucion_id):
         return jsonify({"error": "No encontrado"}), 404
 
     # TRAIGO LOS INFDINGS
-    findings = CloudEjecucion.extract_interesting(data["resultado"])
+    findings = CloudEjecucion.extract_interesting(data["resultado"], data.get("servicio"))
     data["interesting"] = findings
 
     return jsonify(data)
@@ -460,7 +460,7 @@ def gestionar_hallazgos(proyecto_id, ejecucion_id):
     if not data:
         abort(404)
 
-    findings = CloudEjecucion.extract_interesting(data["resultado"])
+    findings = CloudEjecucion.extract_interesting(data["resultado"], data.get("servicio"))
     findings = Proyecto.enrich_findings_with_ids(findings, proyecto_id, ejecucion_id)
 
     check_ids_unicos = {f['check_id'] for f in findings}
@@ -484,6 +484,25 @@ def gestionar_hallazgos(proyecto_id, ejecucion_id):
         ejecucion=data,
         findings=findings
     )
+    
+@proyecto_bp.route('/proyecto/cloud/estado-reglas', methods=['POST'])
+@login_required
+def estado_reglas_ajax():
+    data = request.get_json()
+    check_ids = data.get('check_ids', [])
+    estado_reglas = Proyecto.get_estado_reglas(set(check_ids))
+
+    resultado = {}
+    for check_id in check_ids:
+        info = estado_reglas.get(check_id)
+        if not info:
+            resultado[check_id] = 'sin_regla'
+        elif info['creado_por_ia'] and info['validado_por'] is None:
+            resultado[check_id] = 'ia_sin_validar'
+        else:
+            resultado[check_id] = 'validada'
+
+    return jsonify(resultado)
 
 def _encolar_generacion_ia(check_ids_faltantes, findings):
     """Encola generación de security_rules vía IA para check_ids nuevos, sin duplicar jobs."""

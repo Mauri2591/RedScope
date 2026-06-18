@@ -1015,3 +1015,54 @@
         iniciarPollingCloud();
         cargarResultadosCloud();
     }
+
+    function pollEstadoReglas() {
+        const pendientes = $('[data-regla-estado="sin_regla"]')
+            .map(function () {
+                return $(this).data('check-id');
+            })
+            .get();
+
+        if (pendientes.length === 0) return;
+
+        const interval = setInterval(() => {
+            fetch('/proyecto/cloud/estado-reglas', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCSRFToken()
+                    },
+                    body: JSON.stringify({
+                        check_ids: pendientes
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    let quedanPendientes = false;
+
+                    for (const [checkId, estado] of Object.entries(data)) {
+                        if (estado === 'sin_regla') {
+                            quedanPendientes = true;
+                            continue;
+                        }
+
+                        const celda = $(`[data-check-id="${checkId}"][data-regla-estado="sin_regla"]`);
+                        if (celda.length === 0) continue;
+
+                        celda.attr('data-regla-estado', estado);
+
+                        if (estado === 'ia_sin_validar') {
+                            celda.html('<i class="bi bi-shield-fill-check text-info" title="Regla generada por IA — sin validar"></i>');
+                        } else if (estado === 'validada') {
+                            celda.html('<i class="bi bi-shield-fill-check text-success" title="Regla validada"></i>');
+                        }
+                    }
+
+                    if (!quedanPendientes) clearInterval(interval);
+                });
+        }, 4000);
+    }
+
+    $(document).ready(function () {
+        pollEstadoReglas();
+    });

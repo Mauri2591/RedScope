@@ -299,9 +299,10 @@ class Proyecto:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         query = """
-       SELECT 
+    SELECT 
     saa.nombre_ui,
     saa.descripcion,
+    sa.nombre AS servicio,
     ce.id AS cloud_ejecuciones_id,
     ce.estado,
     ce.error,
@@ -312,6 +313,8 @@ class Proyecto:
     FROM cloud_ejecuciones ce
     INNER JOIN servicios_aws_acciones saa
         ON ce.accion_id = saa.id
+    INNER JOIN servicios_aws sa
+        ON sa.id = saa.servicios_aws_id
     INNER JOIN proyectos p
         ON p.id = ce.proyecto_id
     WHERE ce.proyecto_id = %s

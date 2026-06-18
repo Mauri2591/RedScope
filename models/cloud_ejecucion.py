@@ -72,22 +72,17 @@ class CloudEjecucion:
 
             proyecto_id = ejecucion['proyecto_id']
             usuario_id  = ejecucion['usuario_id']
+            service     = ejecucion['service_nombre']  # única fuente de verdad: servicios_aws.nombre
 
             resultado = resultado_json
             if isinstance(resultado, str):
                 resultado = json.loads(resultado)
 
-            interesting = CloudEjecucion.extract_interesting(resultado)
+            interesting = CloudEjecucion.extract_interesting(resultado, service)
             if not interesting:
                 return
 
-            # ✅ Si el resultado es lista directa, provider y service son lambda por defecto
-            if isinstance(resultado, list):
-                provider = 'aws'
-                service  = 'lambda'
-            else:
-                provider = resultado.get('provider', 'aws').lower()
-                service  = resultado.get('service', '').lower()
+            provider = 'aws'  # este módulo es exclusivamente AWS
 
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -119,7 +114,7 @@ class CloudEjecucion:
                     ejecucion_id,
                     check_id,
                     provider,
-                    service,
+                    item.get('service', service),
                     resource_id
                 ))
 
@@ -244,7 +239,7 @@ class CloudEjecucion:
             
 
     @staticmethod
-    def extract_interesting(resultado):
+    def extract_interesting(resultado, service=None):
         if isinstance(resultado, str):
             try:
                 resultado = json.loads(resultado)
@@ -258,7 +253,7 @@ class CloudEjecucion:
             for item in resultado:
                 function_name = item.get('FunctionName', '')
                 issue = item.get('Issue', '')
-                
+
                 if not function_name:
                     continue
 
@@ -273,6 +268,7 @@ class CloudEjecucion:
 
                 interesting.append({
                     'resource_id': function_name,
+                    'service': service,
                     'check_id': check_id
                 })
             return interesting
@@ -305,6 +301,7 @@ class CloudEjecucion:
                 check_id = analysis.get("vulnerability_id") or "cve_finding"
                 interesting.append({
                     "resource_id": r.get("resource_id"),
+                    "service": r.get("service", service),
                     "check_id": check_id
                 })
             return interesting
@@ -323,6 +320,7 @@ class CloudEjecucion:
                             if key not in added_keys:
                                 interesting.append({
                                     "resource_id": r.get("resource_id"),
+                                    "service": r.get("service", service),
                                     "check_id": key
                                 })
                                 added_keys.add(key)
@@ -334,6 +332,7 @@ class CloudEjecucion:
                             if key not in added_keys:
                                 interesting.append({
                                     "resource_id": r.get("resource_id"),
+                                    "service": r.get("service", service),
                                     "check_id": key
                                 })
                                 added_keys.add(key)
