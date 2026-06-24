@@ -1269,7 +1269,7 @@ class ReportService:
     @staticmethod
     def _bloque_anexo_clasificacion(doc, contenido, tema, severidades):
         """Anexo de clasificación de riesgo con badges de color tomados dinámicamente de severidades."""
-        ReportService._seccion_titulo(doc, 'Anexo 3: Clasificación del Riesgo', tema)
+        ReportService._seccion_titulo(doc, 'Anexo 3: Clasificación de Severidades', tema)
 
         color_oscuro      = tema.get('texto_oscuro', '#111827')
         color_texto_claro = tema.get('texto_claro',  '#FFFFFF')

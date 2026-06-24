@@ -6,7 +6,6 @@ from models.proyecto import Proyecto
 log = logging.getLogger(__name__)
 
 SEVERIDAD_MAP = {
-    "INFORMATIVO": 1,
     "BAJO": 2,
     "MEDIO": 3,
     "ALTO": 4,
@@ -42,7 +41,7 @@ Sé conciso: respetá el límite de palabras indicado en cada campo, sin cortar 
 {{
   "title": "...",
   "description": "máximo 40 palabras",
-  "risk_level": "INFORMATIVO|BAJO|MEDIO|ALTO|CRITICO",
+  "risk_level": "BAJO|MEDIO|ALTO|CRITICO",
   "condition_logic": "máximo 35 palabras",
   "remediation": "máximo 40 palabras",
   "reference": "URL de documentación oficial de {provider.upper()}"

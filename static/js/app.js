@@ -105,6 +105,7 @@
 
             // Cambiar título modal dinámicamente
             $('#exampleModalLabel').text('Ejecutar acción ' + servicioNombre);
+            $('#lblServicioModal').text(servicioNombre);
 
             // Limpiar select
             $('#selectAccionAws').html('<option value="">Cargando...</option>');
@@ -327,6 +328,40 @@
 
 
     function ejecutarAccionCloud() {
+        $('#btnEjecutarTodosServicio').off('click').on('click', async function () {
+            const opciones = $('#selectAccionAws option').filter(function () {
+                return $(this).val() !== '';
+            });
+
+            if (!opciones.length) return;
+
+            const proyectoId = $('#cloudWorkspace').data('proyecto-id');
+            const csrfToken = $('meta[name="csrf-token"]').attr('content');
+
+            $('#mdlEjecutarEscaneo').modal('hide');
+
+            for (const opt of opciones.toArray()) {
+                await $.ajax({
+                    type: 'POST',
+                    url: '/cloud/run-roles',
+                    contentType: 'application/json',
+                    headers: {
+                        'X-CSRFToken': csrfToken
+                    },
+                    data: JSON.stringify({
+                        proyecto_id: proyectoId,
+                        accion_id: $(opt).val()
+                    })
+                });
+            }
+
+            mostrarToast();
+            const terminalBox = document.querySelector('.borde-terminal-salida');
+            if (terminalBox) terminalBox.classList.add('borde-terminal-running');
+            iniciarPollingCloud();
+            cargarResultadosCloud();
+        });
+
         $('#formEjecutarAccionCloud').on('submit', function (e) {
             e.preventDefault();
 

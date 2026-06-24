@@ -296,6 +296,10 @@ th {
     display: inline-block;
     animation: spin-regla 1s linear infinite;
 }
+#btnEjecutarTodosServicio:hover {
+    background-color: #6c757d !important;
+    color: #fff !important;
+}
 @keyframes spin-regla {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
