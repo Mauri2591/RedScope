@@ -3220,3 +3220,954 @@ def rds_maintenance_job(ejecucion_id, proyecto_id):
 # ══════════════════════════════════════════════════════════════════
 # FIN AMAZON RDS
 # ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# AWS CLOUDTRAIL
+# ══════════════════════════════════════════════════════════════════
+
+def _cloudtrail_context(proyecto_id):
+    """Retorna (session, ct_client, account_id, region)."""
+    session, region = _get_aws_session(proyecto_id)
+    ct = session.client("cloudtrail", region_name=region)
+    account_id = _get_account_id(session)
+    return session, ct, account_id, region
+
+
+def cloudtrail_enabled_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, ct, account_id, region = _cloudtrail_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            trails = ct.describe_trails(includeShadowTrails=False).get("trailList", [])
+
+            if not trails:
+                resources.append(_base_resource(
+                    provider="AWS", service="CloudTrail",
+                    resource_type="Trail",
+                    resource_id="no-trail",
+                    account_id=account_id, region=region,
+                    analysis={"cloudtrail_enabled": False},
+                    errors=[]
+                ))
+            else:
+                for trail in trails:
+                    status = ct.get_trail_status(Name=trail["TrailARN"])
+                    resources.append(_base_resource(
+                        provider="AWS", service="CloudTrail",
+                        resource_type="Trail",
+                        resource_id=trail.get("TrailARN"),
+                        account_id=account_id, region=region,
+                        analysis={
+                            "cloudtrail_enabled": status.get("IsLogging", False),
+                            "is_multi_region": trail.get("IsMultiRegionTrail", False),
+                            "trail_name": trail.get("Name"),
+                        },
+                        errors=[]
+                    ))
+        except Exception as e:
+            errors.append(f"cloudtrail_enabled_error: {e}")
+
+        return _build_resultado(
+            "AWS", "CloudTrail", "CLOUDTRAIL_ENABLED_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def cloudtrail_log_validation_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, ct, account_id, region = _cloudtrail_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            trails = ct.describe_trails(includeShadowTrails=False).get("trailList", [])
+            for trail in trails:
+                resources.append(_base_resource(
+                    provider="AWS", service="CloudTrail",
+                    resource_type="Trail",
+                    resource_id=trail.get("TrailARN"),
+                    account_id=account_id, region=region,
+                    analysis={
+                        "log_file_validation_disabled": not trail.get("LogFileValidationEnabled", False),
+                        "trail_name": trail.get("Name"),
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"cloudtrail_log_validation_error: {e}")
+
+        return _build_resultado(
+            "AWS", "CloudTrail", "CLOUDTRAIL_LOG_VALIDATION_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def cloudtrail_s3_bucket_public_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, ct, account_id, region = _cloudtrail_context(proyecto_id)
+        s3 = session.client("s3")
+        resources = []
+        errors = []
+
+        try:
+            trails = ct.describe_trails(includeShadowTrails=False).get("trailList", [])
+            for trail in trails:
+                bucket = trail.get("S3BucketName")
+                if not bucket:
+                    continue
+
+                is_public = False
+                try:
+                    pab = s3.get_public_access_block(Bucket=bucket)
+                    cfg = pab.get("PublicAccessBlockConfiguration", {})
+                    is_public = not all([
+                        cfg.get("BlockPublicAcls", False),
+                        cfg.get("IgnorePublicAcls", False),
+                        cfg.get("BlockPublicPolicy", False),
+                        cfg.get("RestrictPublicBuckets", False),
+                    ])
+                except s3.exceptions.NoSuchPublicAccessBlockConfiguration:
+                    is_public = True
+                except Exception as e:
+                    errors.append(f"s3_public_access_block_error ({bucket}): {e}")
+
+                resources.append(_base_resource(
+                    provider="AWS", service="CloudTrail",
+                    resource_type="Trail",
+                    resource_id=trail.get("TrailARN"),
+                    account_id=account_id, region=region,
+                    analysis={
+                        "s3_bucket_public": is_public,
+                        "s3_bucket_name": bucket,
+                        "trail_name": trail.get("Name"),
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"cloudtrail_s3_bucket_public_error: {e}")
+
+        return _build_resultado(
+            "AWS", "CloudTrail", "CLOUDTRAIL_S3_BUCKET_PUBLIC_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def cloudtrail_s3_access_logging_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, ct, account_id, region = _cloudtrail_context(proyecto_id)
+        s3 = session.client("s3")
+        resources = []
+        errors = []
+
+        try:
+            trails = ct.describe_trails(includeShadowTrails=False).get("trailList", [])
+            for trail in trails:
+                bucket = trail.get("S3BucketName")
+                if not bucket:
+                    continue
+
+                logging_enabled = False
+                try:
+                    log_cfg = s3.get_bucket_logging(Bucket=bucket)
+                    logging_enabled = "LoggingEnabled" in log_cfg
+                except Exception as e:
+                    errors.append(f"s3_logging_error ({bucket}): {e}")
+
+                resources.append(_base_resource(
+                    provider="AWS", service="CloudTrail",
+                    resource_type="Trail",
+                    resource_id=trail.get("TrailARN"),
+                    account_id=account_id, region=region,
+                    analysis={
+                        "s3_access_logging_disabled": not logging_enabled,
+                        "s3_bucket_name": bucket,
+                        "trail_name": trail.get("Name"),
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"cloudtrail_s3_access_logging_error: {e}")
+
+        return _build_resultado(
+            "AWS", "CloudTrail", "CLOUDTRAIL_S3_ACCESS_LOGGING_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def cloudtrail_cloudwatch_integration_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, ct, account_id, region = _cloudtrail_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            trails = ct.describe_trails(includeShadowTrails=False).get("trailList", [])
+            for trail in trails:
+                log_group = trail.get("CloudWatchLogsLogGroupArn")
+                integrated = bool(log_group)
+
+                delivery_recent = False
+                if integrated:
+                    try:
+                        status = ct.get_trail_status(Name=trail["TrailARN"])
+                        last_delivery = status.get("LatestCloudWatchLogsDeliveryTime")
+                        if last_delivery:
+                            from datetime import timedelta
+                            now = datetime.now(timezone.utc)
+                            last = last_delivery if last_delivery.tzinfo else last_delivery.replace(tzinfo=timezone.utc)
+                            delivery_recent = (now - last) < timedelta(hours=24)
+                    except Exception:
+                        pass
+
+                resources.append(_base_resource(
+                    provider="AWS", service="CloudTrail",
+                    resource_type="Trail",
+                    resource_id=trail.get("TrailARN"),
+                    account_id=account_id, region=region,
+                    analysis={
+                        "cloudwatch_integration_disabled": not integrated,
+                        "log_group_arn": log_group,
+                        "delivery_recent": delivery_recent,
+                        "trail_name": trail.get("Name"),
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"cloudtrail_cloudwatch_integration_error: {e}")
+
+        return _build_resultado(
+            "AWS", "CloudTrail", "CLOUDTRAIL_CLOUDWATCH_INTEGRATION_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def cloudtrail_kms_encryption_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, ct, account_id, region = _cloudtrail_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            trails = ct.describe_trails(includeShadowTrails=False).get("trailList", [])
+            for trail in trails:
+                kms_key = trail.get("KMSKeyId")
+                resources.append(_base_resource(
+                    provider="AWS", service="CloudTrail",
+                    resource_type="Trail",
+                    resource_id=trail.get("TrailARN"),
+                    account_id=account_id, region=region,
+                    analysis={
+                        "kms_encryption_disabled": not bool(kms_key),
+                        "kms_key_id": kms_key,
+                        "trail_name": trail.get("Name"),
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"cloudtrail_kms_encryption_error: {e}")
+
+        return _build_resultado(
+            "AWS", "CloudTrail", "CLOUDTRAIL_KMS_ENCRYPTION_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+# ══════════════════════════════════════════════════════════════════
+# FIN AWS CLOUDTRAIL
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# AWS KMS
+# ══════════════════════════════════════════════════════════════════
+
+def _kms_context(proyecto_id):
+    """Retorna (session, kms_client, account_id, region)."""
+    session, region = _get_aws_session(proyecto_id)
+    kms = session.client("kms", region_name=region)
+    account_id = _get_account_id(session)
+    return session, kms, account_id, region
+
+
+def _iter_customer_keys(kms):
+    """Itera solo claves de tipo CUSTOMER (no AWS managed)."""
+    paginator = kms.get_paginator("list_keys")
+    for page in paginator.paginate():
+        for key in page.get("Keys", []):
+            try:
+                meta = kms.describe_key(KeyId=key["KeyId"])["KeyMetadata"]
+                if meta.get("KeyManager") == "CUSTOMER" and meta.get("KeyState") != "PendingDeletion":
+                    yield meta
+            except Exception:
+                continue
+
+
+def kms_key_rotation_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, kms, account_id, region = _kms_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            for meta in _iter_customer_keys(kms):
+                key_id = meta["KeyId"]
+                rotation_enabled = False
+                try:
+                    rotation = kms.get_key_rotation_status(KeyId=key_id)
+                    rotation_enabled = rotation.get("KeyRotationEnabled", False)
+                except Exception as e:
+                    errors.append(f"rotation_check_error ({key_id}): {e}")
+
+                resources.append(_base_resource(
+                    provider="AWS", service="KMS",
+                    resource_type="KMSKey",
+                    resource_id=key_id,
+                    account_id=account_id, region=region,
+                    analysis={
+                        "key_alias": meta.get("Description"),
+                        "key_state": meta.get("KeyState"),
+                        "key_rotation_disabled": not rotation_enabled,
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"kms_key_rotation_error: {e}")
+
+        return _build_resultado(
+            "AWS", "KMS", "KMS_KEY_ROTATION_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def kms_key_exposed_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, kms, account_id, region = _kms_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            for meta in _iter_customer_keys(kms):
+                key_id = meta["KeyId"]
+                is_public = False
+                is_cross_account = False
+                policy_doc = {}
+
+                try:
+                    policy_str = kms.get_key_policy(KeyId=key_id, PolicyName="default").get("Policy", "{}")
+                    policy_doc = json.loads(policy_str)
+                    for stmt in policy_doc.get("Statement", []):
+                        if stmt.get("Effect") != "Allow":
+                            continue
+                        principal = stmt.get("Principal")
+                        if principal == "*":
+                            is_public = True
+                        elif isinstance(principal, dict):
+                            aws_p = principal.get("AWS", [])
+                            if aws_p == "*":
+                                is_public = True
+                            principals = [aws_p] if isinstance(aws_p, str) else (aws_p or [])
+                            for p in principals:
+                                if f":{account_id}:" not in str(p) and p != "*":
+                                    is_cross_account = True
+                except Exception as e:
+                    errors.append(f"policy_check_error ({key_id}): {e}")
+
+                resources.append(_base_resource(
+                    provider="AWS", service="KMS",
+                    resource_type="KMSKey",
+                    resource_id=key_id,
+                    account_id=account_id, region=region,
+                    analysis={
+                        "key_state": meta.get("KeyState"),
+                        "key_exposed_public": is_public,
+                        "key_cross_account_access": is_cross_account,
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"kms_key_exposed_error: {e}")
+
+        return _build_resultado(
+            "AWS", "KMS", "KMS_KEY_EXPOSED_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def kms_key_unused_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, kms, account_id, region = _kms_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            from datetime import timedelta
+            threshold = datetime.now(timezone.utc) - timedelta(days=90)
+
+            for meta in _iter_customer_keys(kms):
+                key_id = meta["KeyId"]
+                last_used = None
+                unused = False
+
+                try:
+                    resp = kms.get_key_rotation_status(KeyId=key_id)
+                    # boto3 no expone last_used_date directamente en describe_key,
+                    # usamos creation_date como fallback
+                    creation = meta.get("CreationDate")
+                    if creation:
+                        last_used = creation if creation.tzinfo else creation.replace(tzinfo=timezone.utc)
+                        unused = last_used < threshold
+                except Exception as e:
+                    errors.append(f"unused_check_error ({key_id}): {e}")
+
+                resources.append(_base_resource(
+                    provider="AWS", service="KMS",
+                    resource_type="KMSKey",
+                    resource_id=key_id,
+                    account_id=account_id, region=region,
+                    analysis={
+                        "key_state": meta.get("KeyState"),
+                        "key_unused_90_days": unused,
+                        "creation_date": str(meta.get("CreationDate")),
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"kms_key_unused_error: {e}")
+
+        return _build_resultado(
+            "AWS", "KMS", "KMS_KEY_UNUSED_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def kms_key_pending_deletion_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, kms, account_id, region = _kms_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = kms.get_paginator("list_keys")
+            for page in paginator.paginate():
+                for key in page.get("Keys", []):
+                    try:
+                        meta = kms.describe_key(KeyId=key["KeyId"])["KeyMetadata"]
+                        if meta.get("KeyManager") != "CUSTOMER":
+                            continue
+                        if meta.get("KeyState") == "PendingDeletion":
+                            resources.append(_base_resource(
+                                provider="AWS", service="KMS",
+                                resource_type="KMSKey",
+                                resource_id=meta["KeyId"],
+                                account_id=account_id, region=region,
+                                analysis={
+                                    "key_pending_deletion": True,
+                                    "deletion_date": str(meta.get("DeletionDate")),
+                                    "key_state": meta.get("KeyState"),
+                                },
+                                errors=[]
+                            ))
+                    except Exception as e:
+                        errors.append(f"pending_deletion_check_error ({key['KeyId']}): {e}")
+        except Exception as e:
+            errors.append(f"kms_key_pending_deletion_error: {e}")
+
+        return _build_resultado(
+            "AWS", "KMS", "KMS_KEY_PENDING_DELETION_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def kms_key_disabled_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, kms, account_id, region = _kms_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            paginator = kms.get_paginator("list_keys")
+            for page in paginator.paginate():
+                for key in page.get("Keys", []):
+                    try:
+                        meta = kms.describe_key(KeyId=key["KeyId"])["KeyMetadata"]
+                        if meta.get("KeyManager") != "CUSTOMER":
+                            continue
+                        if meta.get("KeyState") == "Disabled":
+                            resources.append(_base_resource(
+                                provider="AWS", service="KMS",
+                                resource_type="KMSKey",
+                                resource_id=meta["KeyId"],
+                                account_id=account_id, region=region,
+                                analysis={
+                                    "key_disabled": True,
+                                    "key_state": meta.get("KeyState"),
+                                    "creation_date": str(meta.get("CreationDate")),
+                                },
+                                errors=[]
+                            ))
+                    except Exception as e:
+                        errors.append(f"disabled_check_error ({key['KeyId']}): {e}")
+        except Exception as e:
+            errors.append(f"kms_key_disabled_error: {e}")
+
+        return _build_resultado(
+            "AWS", "KMS", "KMS_KEY_DISABLED_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def kms_key_no_policy_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, kms, account_id, region = _kms_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            for meta in _iter_customer_keys(kms):
+                key_id = meta["KeyId"]
+                has_custom_policy = False
+
+                try:
+                    policy_str = kms.get_key_policy(KeyId=key_id, PolicyName="default").get("Policy", "{}")
+                    policy_doc = json.loads(policy_str)
+                    stmts = policy_doc.get("Statement", [])
+                    # Si tiene más de 1 statement o el único no es el root default, tiene customización
+                    has_custom_policy = len(stmts) > 1 or any(
+                        stmt.get("Sid") not in ("", "Enable IAM User Permissions", None)
+                        for stmt in stmts
+                    )
+                except Exception as e:
+                    errors.append(f"policy_check_error ({key_id}): {e}")
+
+                resources.append(_base_resource(
+                    provider="AWS", service="KMS",
+                    resource_type="KMSKey",
+                    resource_id=key_id,
+                    account_id=account_id, region=region,
+                    analysis={
+                        "key_state": meta.get("KeyState"),
+                        "key_default_policy_only": not has_custom_policy,
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"kms_key_no_policy_error: {e}")
+
+        return _build_resultado(
+            "AWS", "KMS", "KMS_KEY_NO_POLICY_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def kms_key_grants_review_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, kms, account_id, region = _kms_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            for meta in _iter_customer_keys(kms):
+                key_id = meta["KeyId"]
+                grants = []
+                has_external_grants = False
+
+                try:
+                    paginator = kms.get_paginator("list_grants")
+                    for page in paginator.paginate(KeyId=key_id):
+                        for grant in page.get("Grants", []):
+                            grantee = grant.get("GranteePrincipal", "")
+                            is_external = f":{account_id}:" not in grantee
+                            if is_external:
+                                has_external_grants = True
+                            grants.append({
+                                "grant_id": grant.get("GrantId"),
+                                "grantee_principal": grantee,
+                                "operations": grant.get("Operations", []),
+                                "is_external": is_external,
+                            })
+                except Exception as e:
+                    errors.append(f"grants_check_error ({key_id}): {e}")
+
+                resources.append(_base_resource(
+                    provider="AWS", service="KMS",
+                    resource_type="KMSKey",
+                    resource_id=key_id,
+                    account_id=account_id, region=region,
+                    analysis={
+                        "key_state": meta.get("KeyState"),
+                        "total_grants": len(grants),
+                        "key_external_grants": has_external_grants,
+                        "grants": grants,
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"kms_key_grants_review_error: {e}")
+
+        return _build_resultado(
+            "AWS", "KMS", "KMS_KEY_GRANTS_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+# ══════════════════════════════════════════════════════════════════
+# FIN AWS KMS
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# AWS SECRETS MANAGER
+# ══════════════════════════════════════════════════════════════════
+
+def _secretsmanager_context(proyecto_id):
+    """Retorna (session, sm_client, account_id, region)."""
+    session, region = _get_aws_session(proyecto_id)
+    sm = session.client("secretsmanager", region_name=region)
+    account_id = _get_account_id(session)
+    return session, sm, account_id, region
+
+
+def _iter_secrets(sm):
+    """Itera todos los secrets de la cuenta."""
+    paginator = sm.get_paginator("list_secrets")
+    for page in paginator.paginate():
+        yield from page.get("SecretList", [])
+
+
+def secretsmanager_rotation_disabled_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, sm, account_id, region = _secretsmanager_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            for secret in _iter_secrets(sm):
+                resources.append(_base_resource(
+                    provider="AWS", service="SecretsManager",
+                    resource_type="Secret",
+                    resource_id=secret.get("ARN"),
+                    account_id=account_id, region=region,
+                    analysis={
+                        "secret_name": secret.get("Name"),
+                        "rotation_disabled": not secret.get("RotationEnabled", False),
+                        "rotation_rules": secret.get("RotationRules"),
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"secretsmanager_rotation_disabled_error: {e}")
+
+        return _build_resultado(
+            "AWS", "SecretsManager", "SECRETSMANAGER_ROTATION_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def secretsmanager_unused_secret_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, sm, account_id, region = _secretsmanager_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            from datetime import timedelta
+            threshold = datetime.now(timezone.utc) - timedelta(days=90)
+
+            for secret in _iter_secrets(sm):
+                last_accessed = secret.get("LastAccessedDate")
+                if last_accessed and last_accessed.tzinfo is None:
+                    last_accessed = last_accessed.replace(tzinfo=timezone.utc)
+
+                unused = last_accessed is None or last_accessed < threshold
+
+                resources.append(_base_resource(
+                    provider="AWS", service="SecretsManager",
+                    resource_type="Secret",
+                    resource_id=secret.get("ARN"),
+                    account_id=account_id, region=region,
+                    analysis={
+                        "secret_name": secret.get("Name"),
+                        "secret_unused_90_days": unused,
+                        "last_accessed_date": str(last_accessed) if last_accessed else None,
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"secretsmanager_unused_secret_error: {e}")
+
+        return _build_resultado(
+            "AWS", "SecretsManager", "SECRETSMANAGER_UNUSED_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def secretsmanager_exposed_secret_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, sm, account_id, region = _secretsmanager_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            for secret in _iter_secrets(sm):
+                secret_arn = secret.get("ARN")
+                is_public = False
+                is_cross_account = False
+
+                try:
+                    policy_str = sm.get_resource_policy(SecretId=secret_arn).get("ResourcePolicy")
+                    if policy_str:
+                        policy_doc = json.loads(policy_str)
+                        for stmt in policy_doc.get("Statement", []):
+                            if stmt.get("Effect") != "Allow":
+                                continue
+                            principal = stmt.get("Principal")
+                            if principal == "*":
+                                is_public = True
+                            elif isinstance(principal, dict):
+                                aws_p = principal.get("AWS", [])
+                                if aws_p == "*":
+                                    is_public = True
+                                principals = [aws_p] if isinstance(aws_p, str) else (aws_p or [])
+                                for p in principals:
+                                    if f":{account_id}:" not in str(p) and p != "*":
+                                        is_cross_account = True
+                except Exception as e:
+                    errors.append(f"policy_check_error ({secret_arn}): {e}")
+
+                resources.append(_base_resource(
+                    provider="AWS", service="SecretsManager",
+                    resource_type="Secret",
+                    resource_id=secret_arn,
+                    account_id=account_id, region=region,
+                    analysis={
+                        "secret_name": secret.get("Name"),
+                        "secret_exposed_public": is_public,
+                        "secret_cross_account_access": is_cross_account,
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"secretsmanager_exposed_secret_error: {e}")
+
+        return _build_resultado(
+            "AWS", "SecretsManager", "SECRETSMANAGER_EXPOSED_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def secretsmanager_no_kms_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, sm, account_id, region = _secretsmanager_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            for secret in _iter_secrets(sm):
+                kms_key = secret.get("KmsKeyId")
+                uses_default_kms = not kms_key or kms_key == "aws/secretsmanager"
+
+                resources.append(_base_resource(
+                    provider="AWS", service="SecretsManager",
+                    resource_type="Secret",
+                    resource_id=secret.get("ARN"),
+                    account_id=account_id, region=region,
+                    analysis={
+                        "secret_name": secret.get("Name"),
+                        "secret_no_customer_kms": uses_default_kms,
+                        "kms_key_id": kms_key,
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"secretsmanager_no_kms_error: {e}")
+
+        return _build_resultado(
+            "AWS", "SecretsManager", "SECRETSMANAGER_KMS_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def secretsmanager_old_secret_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, sm, account_id, region = _secretsmanager_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            from datetime import timedelta
+            threshold = datetime.now(timezone.utc) - timedelta(days=90)
+
+            for secret in _iter_secrets(sm):
+                last_rotated = secret.get("LastRotatedDate")
+                last_changed = secret.get("LastChangedDate")
+
+                if last_rotated and last_rotated.tzinfo is None:
+                    last_rotated = last_rotated.replace(tzinfo=timezone.utc)
+                if last_changed and last_changed.tzinfo is None:
+                    last_changed = last_changed.replace(tzinfo=timezone.utc)
+
+                reference_date = last_rotated or last_changed
+                secret_outdated = reference_date is None or reference_date < threshold
+
+                resources.append(_base_resource(
+                    provider="AWS", service="SecretsManager",
+                    resource_type="Secret",
+                    resource_id=secret.get("ARN"),
+                    account_id=account_id, region=region,
+                    analysis={
+                        "secret_name": secret.get("Name"),
+                        "secret_not_rotated_90_days": secret_outdated,
+                        "last_rotated_date": str(last_rotated) if last_rotated else None,
+                        "last_changed_date": str(last_changed) if last_changed else None,
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"secretsmanager_old_secret_error: {e}")
+
+        return _build_resultado(
+            "AWS", "SecretsManager", "SECRETSMANAGER_OLD_SECRET_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def secretsmanager_missing_tags_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, sm, account_id, region = _secretsmanager_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            for secret in _iter_secrets(sm):
+                tags = secret.get("Tags", [])
+                resources.append(_base_resource(
+                    provider="AWS", service="SecretsManager",
+                    resource_type="Secret",
+                    resource_id=secret.get("ARN"),
+                    account_id=account_id, region=region,
+                    analysis={
+                        "secret_name": secret.get("Name"),
+                        "secret_missing_tags": len(tags) == 0,
+                        "tags": tags,
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"secretsmanager_missing_tags_error: {e}")
+
+        return _build_resultado(
+            "AWS", "SecretsManager", "SECRETSMANAGER_MISSING_TAGS_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+def secretsmanager_cross_account_access_job(ejecucion_id, proyecto_id):
+
+    def _execute():
+        session, sm, account_id, region = _secretsmanager_context(proyecto_id)
+        resources = []
+        errors = []
+
+        try:
+            for secret in _iter_secrets(sm):
+                secret_arn = secret.get("ARN")
+                cross_account_principals = []
+
+                try:
+                    policy_str = sm.get_resource_policy(SecretId=secret_arn).get("ResourcePolicy")
+                    if policy_str:
+                        policy_doc = json.loads(policy_str)
+                        for stmt in policy_doc.get("Statement", []):
+                            if stmt.get("Effect") != "Allow":
+                                continue
+                            principal = stmt.get("Principal")
+                            aws_p = principal if isinstance(principal, str) else principal.get("AWS", []) if isinstance(principal, dict) else []
+                            principals = [aws_p] if isinstance(aws_p, str) else (aws_p or [])
+                            for p in principals:
+                                if f":{account_id}:" not in str(p) and p != "*":
+                                    cross_account_principals.append(p)
+                except Exception as e:
+                    errors.append(f"policy_check_error ({secret_arn}): {e}")
+
+                resources.append(_base_resource(
+                    provider="AWS", service="SecretsManager",
+                    resource_type="Secret",
+                    resource_id=secret_arn,
+                    account_id=account_id, region=region,
+                    analysis={
+                        "secret_name": secret.get("Name"),
+                        "secret_cross_account_access": len(cross_account_principals) > 0,
+                        "cross_account_principals": cross_account_principals,
+                    },
+                    errors=[]
+                ))
+        except Exception as e:
+            errors.append(f"secretsmanager_cross_account_access_error: {e}")
+
+        return _build_resultado(
+            "AWS", "SecretsManager", "SECRETSMANAGER_CROSS_ACCOUNT_REVIEW",
+            account_id, region, resources
+        )
+
+    _run_job(ejecucion_id, _execute)
+
+
+# ══════════════════════════════════════════════════════════════════
+# FIN AWS SECRETS MANAGER
+# ══════════════════════════════════════════════════════════════════

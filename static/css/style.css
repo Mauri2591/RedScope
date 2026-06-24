@@ -280,17 +280,21 @@ th {
     padding: 1rem;
     border-radius: .4rem;
     overflow-y: auto;
+    height: 12rem;
     /* rompe líneas largas */
 }
 
-.s3 {font-size: .7rem; font-weight: bold; background-color: #208d20; color: var(--color-blanco-primario); padding: .1rem; }
-.ec2 {font-size: .7rem; font-weight: bold; background-color: rgb(212, 138, 0); color: var(--color-blanco-primario); padding: .1rem; }
-.iam {font-size: .7rem; font-weight: bold; background-color: #e23636; color: var(--color-blanco-primario); padding: .1rem; }
-.api-gateway {font-size: .7rem; font-weight: bold; background-color: rgb(136, 48, 136); color: var(--color-blanco-primario); padding: .1rem; }
-.aws-lambda {font-size: .7rem; font-weight: bold; background-color: rgb(212, 138, 0); color: var(--color-blanco-primario); padding: .1rem; }
-.amazon-inspector {font-size: .7rem;   font-weight: bold; background-color: #1a6fa8; color: var(--color-blanco-primario);padding: .1rem; }
-.vpc {font-size: .7rem; font-weight: bold; background-color: #8c4fff; color: var(--color-blanco-primario); padding: .1rem; }
-.rds {font-size: .7rem; font-weight: bold; background-color: #3b48cc; color: var(--color-blanco-primario); padding: .1rem; }
+.s3 {font-size: .7rem; font-weight: bold; background-color: #208d20; color: var(--color-blanco-primario); padding:0 }
+.ec2 {font-size: .7rem; font-weight: bold; background-color: rgb(212, 138, 0); color: var(--color-blanco-primario); padding:0}
+.iam {font-size: .7rem; font-weight: bold; background-color: #e23636; color: var(--color-blanco-primario); padding:0}
+.api-gateway {font-size: .7rem; font-weight: bold; background-color: rgb(136, 48, 136); color: var(--color-blanco-primario); padding:0}
+.aws-lambda {font-size: .7rem; font-weight: bold; background-color: rgb(212, 138, 0); color: var(--color-blanco-primario); padding:0}
+.amazon-inspector {font-size: .7rem;   font-weight: bold; background-color: #1a6fa8; color: var(--color-blanco-primario);padding:0}
+.vpc {font-size: .7rem; font-weight: bold; background-color: #8c4fff; color: var(--color-blanco-primario); padding:0}
+.rds {font-size: .7rem; font-weight: bold; background-color: #3b48cc; color: var(--color-blanco-primario); padding:0}
+.cloudtrail { font-size: .7rem; font-weight: bold; background-color: #D35400; color: var(--color-blanco-primario); padding:0}
+.kms { font-size: .7rem; font-weight: bold; background-color: #B7950B; color: var(--color-blanco-primario); padding:0}
+.secrets-manager { font-size: .7rem; font-weight: bold; background-color: #1E8449; color: var(--color-blanco-primario); padding:0; }
 
 .icono-spin {
     display: inline-block;

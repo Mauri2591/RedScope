@@ -4,22 +4,28 @@ import json
 class CloudEjecucion:
     
     RISK_KEYWORDS = [
-        "public",
-        "exposed",
-        "wildcard",
-        "dangerous",
-        "cross_account",
-        "privilege",
-        "ingress",
-        "anonymous",
-        "write",
-        "unrestricted",     # cubre unrestricted_egress_all_ports y peering_unrestricted_cidr
-        "disabled",         # cubre flow_logs_disabled
-        "default_vpc",      # cubre default_vpc_active
-        "allow_all",        # cubre nacl_allow_all
-        "unencrypted"       # ← agregás esto para RDS
-
-    ]
+    "public",
+    "exposed",          # cubre key_exposed_public, secret_exposed_public
+    "wildcard",
+    "dangerous",
+    "cross_account",    # cubre key_cross_account_access, secret_cross_account_access
+    "privilege",
+    "ingress",
+    "anonymous",
+    "write",
+    "unrestricted",     # cubre unrestricted_egress_all_ports y peering_unrestricted_cidr
+    "disabled",         # cubre flow_logs_disabled, key_disabled, rotation_disabled
+    "default_vpc",
+    "allow_all",
+    "unencrypted",      # cubre RDS encryption
+    "s3_bucket_public", # cubre CloudTrail bucket público
+    "key_pending_deletion",
+    "key_external_grants",
+    "secret_no_customer_kms",
+    "secret_not_rotated_90_days",
+    "secret_missing_tags",
+    "unused"
+]
     
     RISK_FALSE_KEYWORDS = [
     "lifecycle_enabled",
