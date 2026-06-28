@@ -263,12 +263,13 @@ class ReportService:
                     'recursos': []
                 }
             grupos[key]['recursos'].append({
-                'resource_id': f.get('resource_id'),
-                'estado': f.get('estado', 'ABIERTO'),
-                'comment': f.get('finding_comment') or '',
-                'inventory_data': f.get('inventory_data') or '',   # ← nuevo
-                'evidencias': f.get('evidencias', [])
-            })
+            'resource_id': f.get('resource_id'),
+            'region': f.get('region', ''),        # ← agregar esto
+            'estado': f.get('estado', 'ABIERTO'),
+            'comment': f.get('finding_comment') or '',
+            'inventory_data': f.get('inventory_data') or '',
+            'evidencias': f.get('evidencias', [])
+        })
         return list(grupos.values())
 
     @staticmethod
@@ -709,6 +710,153 @@ class ReportService:
         r.font.color.rgb = _hex_to_rgb(tema.get('borde', '#CCCCCC'))
         doc.add_paragraph()
 
+
+    @staticmethod
+    def _generar_grafico_top_hallazgos(findings, severidades, tema):
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        sev_orden = {s['nombre'].upper(): s['orden'] for s in severidades}
+        sev_color = {s['nombre'].upper(): s['color'] for s in severidades}
+
+        grupos = ReportService._agrupar_findings_por_check(findings)
+
+        # Ordenar por severidad descendente y tomar top 5
+        grupos_ordenados = sorted(
+        grupos,
+        key=lambda g: (
+            sev_orden.get(ReportService._texto_seguro(g.get('severidad')).upper(), 0),
+            len(g.get('recursos', []))
+        ),
+        reverse=True
+    )[:5]
+
+        if not grupos_ordenados:
+            return None
+
+        labels = []
+        valores = []
+        colors = []
+
+        for g in grupos_ordenados:
+            titulo = ReportService._texto_seguro(g.get('titulo'), 'N/A')
+            label = titulo[:40] + '...' if len(titulo) > 40 else titulo
+            sev = ReportService._texto_seguro(g.get('severidad'), '').upper()
+            labels.append(label)
+            valores.append(len(g.get('recursos', [])))  # ← cantidad de recursos, no orden
+            colors.append(sev_color.get(sev, '#CCCCCC'))
+
+        color_primario = tema.get('fondo_primario', '#1E1B4B')
+
+        fig, ax = plt.subplots(figsize=(6, max(2.5, len(grupos_ordenados) * 0.8)), dpi=150)
+        bars = ax.barh(labels, valores, color=colors, edgecolor=color_primario, linewidth=0.8)
+        ax.invert_yaxis()
+        ax.set_xlabel('Nivel de severidad', fontsize=9)
+        titulo_grafico = f"Top {len(grupos_ordenados)} Hallazgos Críticos" if len(grupos_ordenados) < 5 else "Top 5 Hallazgos Críticos"
+        ax.set_title(titulo_grafico, fontsize=11, fontweight='bold', color=color_primario)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.tick_params(axis='both', labelsize=8)
+
+        for bar, g in zip(bars, grupos_ordenados):
+            sev = ReportService._texto_seguro(g.get('severidad'), '').upper()
+            ax.text(bar.get_width() + 0.05, bar.get_y() + bar.get_height() / 2,
+                    sev, va='center', fontsize=8, fontweight='bold', color=color_primario)
+
+        buf = BytesIO()
+        plt.tight_layout()
+        plt.savefig(buf, format='png', transparent=True, bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+        return buf
+
+    @staticmethod
+    def _generar_grafico_regiones(findings, tema):
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        conteo = {}
+        for f in findings:
+            region = ReportService._texto_seguro(f.get('region'), 'GLOBAL').upper() or 'GLOBAL'
+            conteo[region] = conteo.get(region, 0) + 1
+
+        if not conteo:
+            return None
+
+        items = sorted(conteo.items(), key=lambda x: x[1], reverse=True)
+        labels = [i[0] for i in items]
+        valores = [i[1] for i in items]
+
+        color_acento   = tema.get('acento', '#00B4D8')
+        color_primario = tema.get('fondo_primario', '#1E1B4B')
+
+        fig, ax = plt.subplots(figsize=(6, max(3, len(labels) * 0.5)), dpi=150)
+        bars = ax.barh(labels, valores, color=color_acento, edgecolor=color_primario, linewidth=0.8)
+        ax.invert_yaxis()
+        ax.set_xlabel('Cantidad de hallazgos', fontsize=9)
+        ax.set_title('Hallazgos por Región', fontsize=11, fontweight='bold', color=color_primario)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.tick_params(axis='both', labelsize=8)
+
+        for bar, val in zip(bars, valores):
+            ax.text(bar.get_width() + 0.1, bar.get_y() + bar.get_height() / 2, str(val),
+                    va='center', fontsize=8, fontweight='bold', color=color_primario)
+
+        buf = BytesIO()
+        plt.tight_layout()
+        plt.savefig(buf, format='png', transparent=True, bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+        return buf
+
+    @staticmethod
+    def _generar_grafico_top_checks(findings, tema):
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        grupos = ReportService._agrupar_findings_por_check(findings)
+        conteo = {}
+        for g in grupos:
+            check = ReportService._texto_seguro(g.get('titulo') or list(g.keys())[0] if isinstance(g, dict) else '', 'N/A')
+            recursos = len(g.get('recursos', []))
+            conteo[check] = conteo.get(check, 0) + recursos
+
+        top = sorted(conteo.items(), key=lambda x: x[1], reverse=True)[:5]
+        if not top:
+            return None
+
+        labels = [i[0][:35] + '...' if len(i[0]) > 35 else i[0] for i in top]
+        valores = [i[1] for i in top]
+
+        color_acento   = tema.get('acento', '#00B4D8')
+        color_primario = tema.get('fondo_primario', '#1E1B4B')
+
+        fig, ax = plt.subplots(figsize=(6, 3.5), dpi=150)
+        bars = ax.barh(labels, valores, color=color_acento, edgecolor=color_primario, linewidth=0.8)
+        ax.invert_yaxis()
+        ax.set_xlabel('Recursos afectados', fontsize=9)
+        
+        titulo = f"Top {len(top)} Vulnerabilidades" if len(top) < 5 else "Top 5 Vulnerabilidades"
+        ax.set_title('Top 5 Vulnerabilidades', fontsize=11, fontweight='bold', color=color_primario)
+        
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.tick_params(axis='both', labelsize=8)
+
+        for bar, val in zip(bars, valores):
+            ax.text(bar.get_width() + 0.1, bar.get_y() + bar.get_height() / 2, str(val),
+                    va='center', fontsize=8, fontweight='bold', color=color_primario)
+
+        buf = BytesIO()
+        plt.tight_layout()
+        plt.savefig(buf, format='png', transparent=True, bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+        return buf
     @staticmethod
     def _bloque_resumen(doc, findings, tema, severidades):
         """Tabla resumen de hallazgos únicos por severidad."""
@@ -905,7 +1053,58 @@ class ReportService:
             pr.font.size      = Pt(10)
             pr.font.color.rgb = _hex_to_rgb(color_oscuro)
             pc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        # ── Hallazgos por Región ──────────────────────────────────────
+        regiones_conteo = {}
+        for g in grupos:
+            for rec in g['recursos']:
+                region = ReportService._texto_seguro(rec.get('region', 'GLOBAL')).upper() or 'GLOBAL'
+                regiones_conteo[region] = regiones_conteo.get(region, 0) + 1
 
+        if regiones_conteo:
+            p_reg_titulo = doc.add_paragraph()
+            p_reg_titulo.paragraph_format.space_before = Pt(14)
+            p_reg_titulo.paragraph_format.space_after  = Pt(6)
+            rr = p_reg_titulo.add_run('Hallazgos por Región')
+            rr.font.name = 'Arial'; rr.font.size = Pt(11); rr.font.bold = True
+            rr.font.color.rgb = _hex_to_rgb(color_primario)
+
+            tabla_reg = doc.add_table(rows=1, cols=2)
+            _remove_table_borders(tabla_reg)
+
+            for ci, txt in enumerate(['Región', 'Recursos Afectados']):
+                c = tabla_reg.rows[0].cells[ci]
+                _set_cell_bg(c, color_primario.lstrip('#'))
+                _set_cell_borders(c, 'FFFFFF', '2')
+                _set_cell_margin(c)
+                p = c.paragraphs[0]
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                r = p.add_run(txt)
+                r.font.name = 'Arial'; r.font.size = Pt(10); r.font.bold = True
+                r.font.color.rgb = _hex_to_rgb(color_texto_claro)
+                c.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+            for ri_idx, (region, qty) in enumerate(
+                sorted(regiones_conteo.items(), key=lambda x: x[1], reverse=True)
+            ):
+                bg = color_fila_par.lstrip('#') if ri_idx % 2 == 0 else 'FFFFFF'
+                row = tabla_reg.add_row()
+
+                c0 = row.cells[0]
+                _set_cell_bg(c0, bg); _set_cell_borders(c0, 'DDDDDD', '2'); _set_cell_margin(c0)
+                p0 = c0.paragraphs[0]
+                r0 = p0.add_run(region)
+                r0.font.name = 'Arial'; r0.font.size = Pt(10)
+                r0.font.color.rgb = _hex_to_rgb(color_oscuro)
+                c0.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+                c1 = row.cells[1]
+                _set_cell_bg(c1, bg); _set_cell_borders(c1, 'DDDDDD', '2'); _set_cell_margin(c1)
+                p1 = c1.paragraphs[0]
+                p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                r1 = p1.add_run(str(qty))
+                r1.font.name = 'Arial'; r1.font.size = Pt(10); r1.font.bold = True
+                r1.font.color.rgb = _hex_to_rgb(color_oscuro)
+                c1.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
         doc.add_paragraph()
 
     @staticmethod
@@ -919,6 +1118,7 @@ class ReportService:
         color_oscuro      = tema.get('texto_oscuro',         '#111827')
         sev_map           = {s['nombre'].upper(): s['color'].lstrip('#') for s in severidades}
 
+        # DESPUÉS:
         cols    = ['#', 'Título', 'Servicio', 'Recurso', 'Severidad']
         widths  = [1.0, 5.5, 2.5, 5.0, 2.5]
 
@@ -947,11 +1147,11 @@ class ReportService:
             row     = table.add_row()
 
             valores = [
-                str(idx),
-                ReportService._texto_seguro(f.get('titulo')),
-                ReportService._texto_seguro(f.get('servicio')),
-                ReportService._texto_seguro(f.get('resource_id')),
-                sev,
+            str(idx),
+            ReportService._texto_seguro(f.get('titulo')),
+            ReportService._texto_seguro(f.get('servicio')),
+            ReportService._texto_seguro(f.get('resource_id')),
+            sev,
             ]
 
             for ci, (val, w) in enumerate(zip(valores, widths)):
@@ -1056,7 +1256,6 @@ class ReportService:
             # ── Campos técnicos ────────────────────────────────────
             ficha_campos = [
                 ('Descripción', ReportService._texto_seguro(g.get('descripcion'))),
-                ('Condición',   ReportService._texto_seguro(g.get('condicion_logica'))),
                 ('Remediación', ReportService._texto_seguro(g.get('remediacion'))),
                 ('Referencia',  ReportService._texto_seguro(g.get('referencia'))),
             ]
@@ -1095,9 +1294,9 @@ class ReportService:
             rrec.font.name = 'Arial'; rrec.font.size = Pt(9); rrec.font.bold = True
             rrec.font.color.rgb = _hex_to_rgb(color_secundario)
 
-            tabla_rec = doc.add_table(rows=1, cols=2)
+            tabla_rec = doc.add_table(rows=1, cols=3)
             _remove_table_borders(tabla_rec)
-            for ci, (txt, w) in enumerate([('Recurso', 13.5), ('Estado', 3.5)]):
+            for ci, (txt, w) in enumerate([('Recurso', 9.5), ('Región', 4.0), ('Estado', 3.5)]):
                 c = tabla_rec.rows[0].cells[ci]
                 c.width = Cm(w)
                 _set_cell_bg(c, color_primario.lstrip('#'))
@@ -1115,7 +1314,7 @@ class ReportService:
                 row = tabla_rec.add_row()
 
                 c0 = row.cells[0]
-                c0.width = Cm(13.5)
+                c0.width = Cm(9.5)
                 _set_cell_bg(c0, bg)
                 _set_cell_borders(c0, 'DDDDDD', '2')
                 _set_cell_margin(c0)
@@ -1124,15 +1323,28 @@ class ReportService:
                 r0.font.color.rgb = _hex_to_rgb(color_oscuro)
 
                 c1 = row.cells[1]
-                c1.width = Cm(3.5)
+                c1.width = Cm(4.0)
                 _set_cell_bg(c1, bg)
                 _set_cell_borders(c1, 'DDDDDD', '2')
                 _set_cell_margin(c1)
                 p1 = c1.paragraphs[0]
                 p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                r1 = p1.add_run(ReportService._texto_seguro(rec['estado'], 'ABIERTO'))
+                r1 = p1.add_run(ReportService._texto_seguro(rec.get('region', '—')))
                 r1.font.name = 'Arial'; r1.font.size = Pt(9)
                 r1.font.color.rgb = _hex_to_rgb(color_oscuro)
+                c1.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+                c2 = row.cells[2]
+                c2.width = Cm(3.5)
+                _set_cell_bg(c2, bg)
+                _set_cell_borders(c2, 'DDDDDD', '2')
+                _set_cell_margin(c2)
+                p2 = c2.paragraphs[0]
+                p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                r2 = p2.add_run(ReportService._texto_seguro(rec['estado'], 'ABIERTO'))
+                r2.font.name = 'Arial'; r2.font.size = Pt(9)
+                r2.font.color.rgb = _hex_to_rgb(color_oscuro)
+                c2.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
             # ── Evidencia por recurso (solo si el tipo de informe la incluye) ──
             if incluir_evidencia:
@@ -1166,7 +1378,7 @@ class ReportService:
                             tabla_tool = doc.add_table(rows=1, cols=1)
                             _remove_table_borders(tabla_tool)
                             c_tool = tabla_tool.rows[0].cells[0]
-                            _set_cell_bg(c_tool, '1E1E1E')
+                            _set_cell_bg(c_tool, "#5F5F5F")
                             _set_cell_borders(c_tool, 'CCCCCC', '2')
                             _set_cell_margin(c_tool)
                             p_tool = c_tool.paragraphs[0]
@@ -1251,6 +1463,10 @@ class ReportService:
                         base_dir=base_dir,
                         incluir_evidencia=config['incluir_evidencia']
                     )
+                elif clave == 'analisis_exposicion':
+                    ReportService._bloque_analisis_exposicion(doc, data, tema, severidades)
+                elif clave == 'mitre_attack':
+                    ReportService._bloque_mitre_attack(doc, data, tema, base_dir)
             else:
                 contenido = contenido_secciones.get(clave)
                 if clave == 'anexo_clasificacion':
@@ -1265,6 +1481,33 @@ class ReportService:
         doc.save(output)
         output.seek(0)
         return output
+    
+    @staticmethod
+    def _bloque_analisis_exposicion(doc, findings, tema, severidades):
+        ReportService._seccion_titulo(doc, 'Análisis de Exposición', tema)
+
+        try:
+            grafico_recursos = ReportService._generar_grafico_top_hallazgos(findings, severidades, tema)
+            grafico_regiones = ReportService._generar_grafico_regiones(findings, tema)
+
+            if grafico_recursos:
+                t1 = doc.add_table(rows=1, cols=1)
+                _remove_table_borders(t1)
+                c = t1.rows[0].cells[0]
+                p = c.paragraphs[0]
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p.add_run().add_picture(grafico_recursos, width=Cm(14))
+
+            if grafico_regiones:
+                t2 = doc.add_table(rows=1, cols=1)
+                _remove_table_borders(t2)
+                c = t2.rows[0].cells[0]
+                p = c.paragraphs[0]
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p.add_run().add_picture(grafico_regiones, width=Cm(14))
+
+        except Exception:
+            pass
         
     @staticmethod
     def _bloque_anexo_clasificacion(doc, contenido, tema, severidades):
@@ -1360,3 +1603,153 @@ class ReportService:
         if max_sev is None:
             return None, 'CCCCCC'
         return max_sev, sev_color.get(max_sev, 'CCCCCC')
+
+    @staticmethod
+    def _cargar_mitre_tecnicas(base_dir):
+        ruta = os.path.join(base_dir, 'data', 'mitre_attack', 'mitre_tecnicas.json')
+        try:
+            with open(ruta, encoding='utf-8') as f:
+                import json as _json
+                return _json.load(f)
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _bloque_mitre_attack(doc, findings, tema, base_dir):
+        import json as _json
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+
+        mitre_map = ReportService._cargar_mitre_tecnicas(base_dir)
+        if not mitre_map:
+            return
+
+        color_texto_claro = tema.get('texto_claro',          '#FFFFFF')
+        color_fila_par    = tema.get('fondo_tabla_fila_par', '#E8EAF6')
+        color_oscuro      = tema.get('texto_oscuro',         '#111827')
+        color_acento      = tema.get('acento',               '#00B4D8')
+
+        tecnicas_map = {}
+        for f in findings:
+            inv = f.get('inventory_data')
+            if not inv:
+                continue
+            try:
+                data = _json.loads(inv) if isinstance(inv, str) else inv
+                tecnicas = data.get('compliance', {}).get('MITRE-ATTACK', [])
+                for t_id in tecnicas:
+                    if t_id not in mitre_map:
+                        continue
+                    if t_id not in tecnicas_map:
+                        tecnicas_map[t_id] = {
+                            'info':      mitre_map[t_id],
+                            'hallazgos': set(),
+                            'recursos':  set()
+                        }
+                    titulo  = f.get('check_id', '')
+                    recurso = f.get('resource_id', '')
+                    if titulo:
+                        tecnicas_map[t_id]['hallazgos'].add(titulo)
+                    if recurso:
+                        tecnicas_map[t_id]['recursos'].add(recurso)
+            except Exception:
+                continue
+
+        if not tecnicas_map:
+            return
+
+        ReportService._seccion_titulo(doc, 'Mapeo MITRE ATT&CK', tema)
+
+        intro = doc.add_paragraph()
+        ri = intro.add_run(
+            f'Se identificaron {len(tecnicas_map)} técnica(s) del framework MITRE ATT&CK '
+            f'asociadas a los hallazgos detectados durante la evaluación.'
+        )
+        ri.font.name = 'Arial'; ri.font.size = Pt(10)
+        ri.font.color.rgb = _hex_to_rgb(color_oscuro)
+        intro.paragraph_format.space_after = Pt(8)
+
+        headers    = ['ID', 'Técnica', 'Descripción', 'Checks']
+        col_widths = [2.0, 3.0, 6.5, 6.5]
+
+        table = doc.add_table(rows=1, cols=4)
+        _remove_table_borders(table)
+        table.autofit = False
+        table.allow_autofit = False
+        table.autofit = False
+        table.allow_autofit = False
+        tbl_pr = table._tbl.find(qn('w:tblPr'))
+        tbl_w = OxmlElement('w:tblW')
+        tbl_w.set(qn('w:w'), '10206')   # 18cm en twips
+        tbl_w.set(qn('w:type'), 'dxa')
+        tbl_pr.append(tbl_w)
+        
+
+        # Encabezado
+        for ci, (txt, w) in enumerate(zip(headers, col_widths)):
+            c = table.rows[0].cells[ci]
+            c.width = Cm(w)
+            _set_cell_bg(c, 'c63f1f')
+            _set_cell_borders(c, 'FFFFFF', '2')
+            _set_cell_margin(c)
+            p = c.paragraphs[0]
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            r = p.add_run(txt)
+            r.font.name = 'Arial'; r.font.size = Pt(9); r.font.bold = True
+            r.font.color.rgb = _hex_to_rgb(color_texto_claro)
+
+        # Filas
+        for idx, (t_id, entry) in enumerate(sorted(tecnicas_map.items())):
+            bg   = color_fila_par.lstrip('#') if idx % 2 == 0 else 'FFFFFF'
+            info = entry['info']
+            row  = table.add_row()
+
+            hallazgos_txt = ', '.join(h.capitalize() for h in sorted(entry['hallazgos']))
+
+            valores      = [t_id, info.get('nombre', ''), info.get('descripcion', ''), hallazgos_txt]
+            alineaciones = [WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.LEFT]
+            font_sizes   = [9, 9, 8, 8]
+            bold_flags   = [True, False, False, False]
+
+            for ci, (val, w, alin, fsize, bold) in enumerate(
+                zip(valores, col_widths, alineaciones, font_sizes, bold_flags)
+            ):
+                c = row.cells[ci]
+                c.width = Cm(w)
+                _set_cell_bg(c, bg)
+                _set_cell_borders(c, 'DDDDDD', '2')
+                _set_cell_margin(c)
+                p = c.paragraphs[0]
+                p.alignment = alin
+
+                if ci == 0:
+                    url  = info.get('url', f'https://attack.mitre.org/techniques/{t_id}/')
+                    r_id = doc.part.relate_to(url, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink', is_external=True)
+                    hyperlink = OxmlElement('w:hyperlink')
+                    hyperlink.set(qn('r:id'), r_id)
+                    run_elem = OxmlElement('w:r')
+                    rpr = OxmlElement('w:rPr')
+                    rFonts = OxmlElement('w:rFonts')
+                    rFonts.set(qn('w:ascii'), 'Arial')
+                    rpr.append(rFonts)
+                    sz = OxmlElement('w:sz')
+                    sz.set(qn('w:val'), '18')
+                    rpr.append(sz)
+                    rpr.append(OxmlElement('w:b'))
+                    color_elem = OxmlElement('w:color')
+                    color_elem.set(qn('w:val'), '4f7cac')
+                    rpr.append(color_elem)
+                    run_elem.append(rpr)
+                    t_elem = OxmlElement('w:t')
+                    t_elem.text = val
+                    run_elem.append(t_elem)
+                    hyperlink.append(run_elem)
+                    p._p.append(hyperlink)
+                else:
+                    r = p.add_run(val)
+                    r.font.name  = 'Arial'
+                    r.font.size  = Pt(fsize)
+                    r.font.bold  = bold
+                    r.font.color.rgb = _hex_to_rgb(color_acento if ci == 3 else color_oscuro)
+
+        doc.add_paragraph()

@@ -1,0 +1,33 @@
+<!-- Modal Importar Archivo Findings -->
+<div class="modal fade" id="mdlAbrirModalImportArchivoFindings" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Importar Findings</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="formImportFindings">
+                    <div class="mb-3">
+                        <label class="form-label">Herramienta</label>
+                        <select id="herramientaImport" name="herramienta" class="form-select form-select-sm">
+                            <option value="prowler">Prowler</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Archivo JSON</label>
+                        <input type="file" class="form-control form-control-sm" id="archivoImport" accept=".json">
+                        <div id="errorArchivoImport" class="text-danger small mt-1" style="display:none;"></div>
+                    </div>
+                    <div class="d-flex justify-content-end">
+                        <button type="button" class="btn btn-sm btn-secondary mx-1 py-0 px-2"
+                            data-bs-dismiss="modal">Cerrar</button>
+                        <button type="button" id="btnImportFindings"
+                            class="btn btn-sm btn-primary mx-1 py-0 px-2">Importar</button>
+                    </div>
+                </form>
+
+            </div>
+        </div>
+    </div>
+</div>

@@ -149,7 +149,6 @@ def guardar_cloud_config(proyecto_id):
             "message": "No es proyecto Cloud"
         }), 400
 
-    # 🔹 Campos del form
     auth_method = request.form.get('auth_method')
     access_key  = request.form.get('access_key')
     secret_key  = request.form.get('secret_key')
@@ -170,7 +169,7 @@ def guardar_cloud_config(proyecto_id):
     try:
 
         # ==========================================================
-        # 🔐 MODO ROLE
+        # MODO ROLE
         # ==========================================================
         if auth_method == "role":
 
@@ -222,7 +221,7 @@ def guardar_cloud_config(proyecto_id):
             access_key           = access_key.strip()
 
         # ==========================================================
-        # 🔑 MODO ACCESS KEYS
+        # MODO ACCESS KEYS
         # ==========================================================
         elif auth_method == "keys":
 
@@ -277,7 +276,7 @@ def guardar_cloud_config(proyecto_id):
         }), 500
 
     # ==========================================================
-    # 💾 Guardar en DB
+    # Guardar en DB
     # ==========================================================
     try:
 
@@ -469,7 +468,9 @@ def gestionar_hallazgos(proyecto_id, ejecucion_id):
         info = estado_reglas.get(f['check_id'])
         if not info:
             f['regla_estado'] = 'sin_regla'
-        elif info['creado_por_ia'] and info['validado_por'] is None:
+        elif info['origen'] in ('prowler', 'scoutsuite'):
+            f['regla_estado'] = 'herramienta'
+        elif info['validado_por'] is None:
             f['regla_estado'] = 'ia_sin_validar'
         else:
             f['regla_estado'] = 'validada'
@@ -525,12 +526,12 @@ def _encolar_generacion_ia(check_ids_faltantes, findings):
             continue
 
         q.enqueue(
-            generar_security_rule,
-            f.get('provider', 'aws'),
-            f.get('service'),
-            check_id,
-            f.get('resource_id', '')
-        )
+        generar_security_rule,
+        f.get('provider', 'aws'),
+        f.get('service'),
+        check_id,
+        f'check_id={check_id} service={f.get("service")}'
+    )
     
 @proyecto_bp.route('/proyecto/finding/<int:finding_id>/verificar', methods=['POST'])
 @login_required
@@ -799,3 +800,136 @@ def _extraer_bloque_recurso(resultado_raw, resource_id):
             return json.dumps(recurso, indent=2, ensure_ascii=False)
 
     return ""
+
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud/import-findings/lista', methods=['GET'])
+@login_required
+def get_imported_findings(proyecto_id):
+    resultado = Proyecto.get_imported_findings_by_proyecto(proyecto_id)
+    return jsonify(resultado)
+
+#---------------------------------------------------------------------------#
+#-------------------------------- Importar archivos de findings de herramientas ------------#
+IMPORT_CONFIG = {
+    'prowler': {
+        'extensiones': ['.json'],
+        'parser': 'parse_prowler'
+    },
+    'scoutsuite': {
+        'extensiones': ['.json'],
+        'parser': 'parse_scoutsuite'
+    }
+}
+
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud/import-findings', methods=['POST'])
+@login_required
+def import_findings(proyecto_id):
+    herramienta = request.form.get('herramienta')
+    archivo = request.files.get('archivo')
+
+    if not herramienta or herramienta not in IMPORT_CONFIG:
+        return jsonify({"success": False, "message": "Herramienta no soportada."}), 400
+
+    if not archivo:
+        return jsonify({"success": False, "message": "No se envió ningún archivo."}), 400
+
+    config = IMPORT_CONFIG[herramienta]
+    ext = '.' + archivo.filename.rsplit('.', 1)[-1].lower()
+    if ext not in config['extensiones']:
+        return jsonify({"success": False, "message": f"Para {herramienta} se esperaba: {', '.join(config['extensiones'])}."}), 400
+
+    try:
+        data = json.loads(archivo.read())
+    except Exception:
+        return jsonify({"success": False, "message": "El archivo no es un JSON válido."}), 400
+
+    resultado = Proyecto.import_findings(proyecto_id, herramienta, data, session.get('user_id'))
+
+    return jsonify({"success": True, "imported": resultado})
+
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud/importados/<string:herramienta>/hallazgos')
+@login_required
+def gestionar_hallazgos_importados(proyecto_id, herramienta):
+    sector_id = session.get('sector_id')
+    proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
+    if not proyecto:
+        abort(404)
+
+    findings = Proyecto.get_findings_importados(proyecto_id, herramienta)
+
+    check_ids_unicos = {f['check_id'] for f in findings}
+    estado_reglas = Proyecto.get_estado_reglas(check_ids_unicos)
+    for f in findings:
+        info = estado_reglas.get(f['check_id'])
+        if not info:
+            f['regla_estado'] = 'sin_regla'
+        elif info.get('origen') == 'prowler' or info.get('origen') not in (None, 'manual', 'ia'):
+            f['regla_estado'] = 'herramienta'
+        elif info['validado_por'] is None:
+            f['regla_estado'] = 'ia_sin_validar'
+        else:
+            f['regla_estado'] = 'validada'
+
+    return render_template(
+        'proyecto/proyectos-cloud/GestionHallazgos.html',
+        proyecto=proyecto,
+        ejecucion=None,
+        findings=findings
+    )
+    
+@proyecto_bp.route('/proyecto/findings/verificar-masivo', methods=['POST'])
+@login_required
+def verificar_findings_masivo():
+    data = request.get_json()
+    ids = data.get('finding_ids', [])
+    Proyecto.verificar_findings_masivo(ids)
+    return jsonify({"success": True})
+
+@proyecto_bp.route('/proyecto/findings/eliminar-masivo', methods=['POST'])
+@login_required
+def eliminar_findings_masivo():
+    data = request.get_json()
+    ids = data.get('finding_ids', [])
+    Proyecto.eliminar_findings_masivo(ids)
+    return jsonify({"success": True})
+
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud/mitre-tecnicas', methods=['GET'])
+@login_required
+def get_mitre_tecnicas(proyecto_id):
+    import json as _json
+    findings = Proyecto.get_findings_con_inventory(proyecto_id)
+    tecnicas = {}
+    for f in findings:
+        inv = f.get('inventory_data')
+        if not inv:
+            continue
+        try:
+            data = _json.loads(inv) if isinstance(inv, str) else inv
+            for t_id in data.get('compliance', {}).get('MITRE-ATTACK', []):
+                tecnicas[t_id] = tecnicas.get(t_id, 0) + 1
+        except Exception:
+            continue
+    return jsonify(tecnicas)
+
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud/mitre-findings/<string:tecnica>', methods=['GET'])
+@login_required
+def get_findings_by_mitre(proyecto_id, tecnica):
+    import json as _json
+    findings = Proyecto.get_findings_con_inventory(proyecto_id)
+    resultado = []
+    for f in findings:
+        inv = f.get('inventory_data')
+        if not inv:
+            continue
+        try:
+            data = _json.loads(inv) if isinstance(inv, str) else inv
+            if tecnica in data.get('compliance', {}).get('MITRE-ATTACK', []):
+                resultado.append({
+                    'finding_id': f.get('id'),
+                    'check_id': f.get('check_id'),
+                    'resource_id': f.get('resource_id'),
+                    'service': f.get('service'),
+                    'severidad': f.get('severidad_id')
+                })
+        except Exception:
+            continue
+    return jsonify(resultado)

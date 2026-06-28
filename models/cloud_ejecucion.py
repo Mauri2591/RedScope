@@ -96,33 +96,37 @@ class CloudEjecucion:
             for item in interesting:
                 resource_id = item.get('resource_id', '')
                 check_id    = item.get('check_id', '')
+                print(f"[auto_insert] check_id={check_id} resource_id={resource_id} region={item.get('region', 'SIN_REGION')}")
 
                 if not resource_id or not check_id:
                     continue
 
                 cursor.execute("""
-                    INSERT INTO findings (
-                        proyecto_id,
-                        usuario_id,
-                        cloud_ejecucion_id,
-                        security_rules_id,
-                        check_id,
-                        provider,
-                        service,
-                        resource_id,
-                        severidad_id,
-                        estados_findings_id,
-                        estado_id
-                    ) VALUES (%s,%s,%s,NULL,%s,%s,%s,%s,1,1,1)
-                """, (
+                INSERT INTO findings (
                     proyecto_id,
                     usuario_id,
-                    ejecucion_id,
+                    cloud_ejecucion_id,
+                    security_rules_id,
                     check_id,
                     provider,
-                    item.get('service', service),
-                    resource_id
-                ))
+                    service,
+                    resource_id,
+                    region,
+                    severidad_id,
+                    estados_findings_id,
+                    estado_id
+                ) VALUES (%s,%s,%s,NULL,%s,%s,%s,%s,%s,1,1,1)
+            """, (
+                proyecto_id,
+                usuario_id,
+                ejecucion_id,
+                check_id,
+                provider,
+                item.get('service', service),
+                resource_id,
+                item.get('region', '')   # ← nuevo
+            ))
+            print(f"[INSERT] region_value={item.get('region', '')} rowcount={cursor.rowcount}")
 
             conn.commit()
             cursor.close()
@@ -275,11 +279,12 @@ class CloudEjecucion:
                 interesting.append({
                     'resource_id': function_name,
                     'service': service,
-                    'check_id': check_id
+                    'check_id': check_id,
+                    'region': ''
                 })
             return interesting
 
-        # 🔴 Si la ejecución falló por permisos
+        # Si la ejecución falló por permisos
         if resultado.get("status") == "FAILED":
             error = resultado.get("error", "")
             if "AccessDenied" in error or "Unauthorized" in error:
@@ -308,7 +313,9 @@ class CloudEjecucion:
                 interesting.append({
                     "resource_id": r.get("resource_id"),
                     "service": r.get("service", service),
-                    "check_id": check_id
+                    "check_id": check_id,
+                    "region": r.get("region", "")
+
                 })
             return interesting
 
@@ -327,7 +334,8 @@ class CloudEjecucion:
                                 interesting.append({
                                     "resource_id": r.get("resource_id"),
                                     "service": r.get("service", service),
-                                    "check_id": key
+                                    "check_id": key,
+                                    "region": r.get("region", "")
                                 })
                                 added_keys.add(key)
                             break
@@ -339,10 +347,12 @@ class CloudEjecucion:
                                 interesting.append({
                                     "resource_id": r.get("resource_id"),
                                     "service": r.get("service", service),
-                                    "check_id": key
+                                    "check_id": key,
+                                    "region": r.get("region", "")
                                 })
                                 added_keys.add(key)
                             break
+        print(f"[extract_interesting] version=CON_REGION service={service}")
 
         return interesting
     

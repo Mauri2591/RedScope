@@ -6,16 +6,22 @@ from models.proyecto import Proyecto
 log = logging.getLogger(__name__)
 
 SEVERIDAD_MAP = {
+    "INFORMATIONAL": 1,
+    "INFORMATIVO": 1,
+    "LOW": 2,
     "BAJO": 2,
+    "MEDIUM": 3,
     "MEDIO": 3,
+    "HIGH": 4,
     "ALTO": 4,
+    "CRITICAL": 5,
     "CRITICO": 5,
 }
 
 def _mapear_severidad(valor):
     if not valor:
-        return SEVERIDAD_MAP["MEDIO"]  # fallback conservador si la IA no devuelve nada usable
-    return SEVERIDAD_MAP.get(valor.strip().upper(), SEVERIDAD_MAP["MEDIO"])
+        return SEVERIDAD_MAP["MEDIUM"]
+    return SEVERIDAD_MAP.get(valor.strip().upper(), SEVERIDAD_MAP["MEDIUM"])
 
 
 def generar_security_rule(provider, service, check_id, contexto=""):
@@ -37,6 +43,7 @@ El campo "title" debe estar en inglés, estilo CVE/CWE (ej: "S3 Bucket Versionin
 El campo "reference" debe apuntar a documentación oficial en inglés (no versiones traducidas).
 Todos los demás campos de texto deben estar en español (Argentina/Rioplatense), sin excepción.
 Sé conciso: respetá el límite de palabras indicado en cada campo, sin cortar palabras a la mitad.
+IMPORTANTE: No menciones nombres de recursos, buckets, IDs, ARNs ni valores específicos del entorno escaneado. La regla debe ser genérica y aplicable a cualquier recurso del mismo tipo.
 
 {{
   "title": "...",

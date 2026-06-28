@@ -390,7 +390,6 @@
 
                         iniciarPollingCloud();
 
-                        // 🔹 SOLO refrescá estados actuales
                         cargarResultadosCloud();
 
                         $('#mdlEjecutarEscaneo').modal('hide');
@@ -421,7 +420,6 @@
             const data = await response.json();
             if (!data.success) return;
 
-            // 👉 actualizar tabla en tiempo real
             actualizarTablaCloud(data.data);
 
             let algunaCorriendo = false;
@@ -493,7 +491,6 @@
         const data = await response.json();
         if (!data.success) return;
 
-        // 🔥 ESTA LÍNEA FALTABA
         actualizarTablaCloud(data.data);
 
         let salida = "";
@@ -526,6 +523,7 @@
         }
 
         document.querySelector(".terminal-salida-herramienta").textContent = salida;
+        cargarFindingsImportados(proyectoId);
     }
 
 
@@ -668,6 +666,7 @@
             $("#resource_id").val(findingData.resource_id);
             $("#finding_id").val(finding_id);
             $("#finding_service").val(findingData.service);
+            $("#finding_region").val(findingData.region || '');
 
             // Evidencias
             $("#evidence_preview").empty();
@@ -802,7 +801,7 @@
     // ===============================
     // PEGAR CAPTURAS
     // ===============================
-    // 🔹 Mover fuera de cualquier función que se ejecute varias veces
+    // Mover fuera de cualquier función que se ejecute varias veces
     $("#paste_evidence").off("paste").on("paste", function (e) {
         e.preventDefault();
         let clipboard = e.originalEvent.clipboardData || e.clipboardData;
@@ -863,6 +862,7 @@
         $("#evidence_preview").empty()
         $("#tool_output").val("")
         $("#aviso_ia_regla").hide()
+        $("#finding_region").val('')
     }
 
 
@@ -936,7 +936,8 @@
             finding_comment: $("#finding_comment").val(),
             inventory_data: $("#tool_output").val(),
             evidencias: evidencias,
-            evidencias_eliminadas: evidenciasEliminadas
+            evidencias_eliminadas: evidenciasEliminadas,
+            region: $("#finding_region").val() || ''
         };
 
         fetch("/proyecto/finding", {
@@ -1098,6 +1099,237 @@
         }, 4000);
     }
 
+    function abrirModalImport() {
+        $("#mdlAbrirModalImportArchivoFindings").modal("show")
+    }
+
+    $("#btnImportFindings").on("click", function () {
+        const herramienta = $("#herramientaImport").val();
+        const archivo = $("#archivoImport")[0].files[0];
+        const proyectoId = $("#cloudWorkspace").data("proyecto-id");
+
+        $("#errorArchivoImport").hide().text("");
+
+        if (!archivo) {
+            $("#errorArchivoImport").text("Seleccioná un archivo.").show();
+            return;
+        }
+
+        const extensionesValidas = {
+            "prowler": [".json"],
+            "scoutsuite": [".json"]
+        };
+
+        const ext = "." + archivo.name.split(".").pop().toLowerCase();
+        if (!extensionesValidas[herramienta]?.includes(ext)) {
+            $("#errorArchivoImport").text("Para " + herramienta + " el archivo debe ser " + extensionesValidas[herramienta].join(", ") + ".").show();
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("herramienta", herramienta);
+        formData.append("archivo", archivo);
+
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            console.log("[IMPORT] JSON:", JSON.parse(e.target.result));
+        };
+        reader.readAsText(archivo);
+
+        fetch(`/proyecto/${proyectoId}/cloud/import-findings`, {
+                method: "POST",
+                headers: {
+                    "X-CSRFToken": $('meta[name="csrf-token"]').attr("content")
+                },
+                body: formData
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    $("#mdlAbrirModalImportArchivoFindings").modal("hide");
+                    cargarFindingsImportados(proyectoId);
+                    alert(`Se importaron ${data.imported} hallazgo(s) correctamente.`);
+                } else {
+                    $("#errorArchivoImport").text(data.message).show();
+                }
+            });
+    });
+
+function cargarFindingsImportados(proyectoId) {
+    fetch(`/proyecto/${proyectoId}/cloud/import-findings/lista`)
+        .then(r => r.json())
+        .then(data => {
+            $("#tablaImportados tbody").empty();
+            if (data.length === 0) return;
+
+            data.forEach(item => {
+                const herramienta = item.origen || 'desconocido';
+                const badgeClass = item.total > 0 ? 'bg-success' : 'bg-warning text-dark';
+
+                $("#tablaImportados tbody").append(`
+                    <tr>
+                        <td>${herramienta.charAt(0).toUpperCase() + herramienta.slice(1)}</td>
+                        <td><span class="badge bg-info">IMPORTADO (${item.total})</span></td>
+                        <td>
+                            <span class="badge ${badgeClass}" 
+                                  title="Ver hallazgos" 
+                                  onclick="verHallazgosImportados(${proyectoId}, '${herramienta}')"
+                                  style="cursor:pointer;">
+                                <i class="bi bi-rocket-takeoff-fill"></i>
+                            </span>
+                        </td>
+                    </tr>
+                `);
+            });
+        });
+}
+
+    function verHallazgosImportados(proyectoId, herramienta) {
+        window.location.href = `/proyecto/${proyectoId}/cloud/importados/${herramienta}/hallazgos`;
+    }
+
     $(document).ready(function () {
         pollEstadoReglas();
     });
+
+    document.getElementById("chkTodos").addEventListener("change", function () {
+        document.querySelectorAll(".chk-finding").forEach(c => c.checked = this.checked);
+        toggleAccionesMasivas();
+    });
+
+    document.addEventListener("change", function (e) {
+        if (e.target.classList.contains("chk-finding")) {
+            toggleAccionesMasivas();
+        }
+    });
+
+    function toggleAccionesMasivas() {
+        const haySeleccionados = document.querySelectorAll(".chk-finding:checked").length > 0;
+        document.getElementById("accionesMasivas").style.display = haySeleccionados ? "flex" : "none";
+    }
+
+    function getSeleccionados() {
+        return Array.from(document.querySelectorAll(".chk-finding:checked")).map(c => parseInt(c.value));
+    }
+
+    function verificarSeleccionados() {
+        const ids = getSeleccionados();
+        if (!ids.length) return;
+        fetch("/proyecto/findings/verificar-masivo", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCSRFToken()
+            },
+            body: JSON.stringify({
+                finding_ids: ids
+            })
+        }).then(r => r.json()).then(data => {
+            if (data.success) location.reload();
+        });
+    }
+
+    function eliminarSeleccionados() {
+        const ids = getSeleccionados();
+        if (!ids.length) return;
+        if (!confirm(`¿Eliminar ${ids.length} hallazgo(s)?`)) return;
+        fetch("/proyecto/findings/eliminar-masivo", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCSRFToken()
+            },
+            body: JSON.stringify({
+                finding_ids: ids
+            })
+        }).then(r => r.json()).then(data => {
+            if (data.success) location.reload();
+        });
+    }
+
+    let mitreTecnicas = {};
+
+    function abrirFiltroMitre() {
+        const proyectoId = document.getElementById('hallazgosWorkspace').dataset.proyectoId;
+        fetch(`/proyecto/${proyectoId}/cloud/mitre-tecnicas`)
+            .then(r => r.json())
+            .then(data => {
+                mitreTecnicas = data;
+                $("#mdlFiltrarHallazgos").modal("show");
+            });
+    }
+
+    document.getElementById('inputMitreTecnica').addEventListener('input', function () {
+        const val = this.value.trim().toUpperCase();
+        const sugerencias = document.getElementById('sugerenciasMitre');
+        if (val.length < 2) {
+            sugerencias.style.display = 'none';
+            return;
+        }
+
+        const matches = Object.keys(mitreTecnicas).filter(t => t.includes(val));
+        if (matches.length === 0) {
+            sugerencias.style.display = 'none';
+            return;
+        }
+
+        sugerencias.innerHTML = matches.map(t =>
+            `<a href="#" class="list-group-item list-group-item-action small py-1" 
+            onclick="seleccionarTecnica('${t}'); return false;">
+            ${t} (${mitreTecnicas[t]} hallazgo/s)
+        </a>`
+        ).join('');
+        sugerencias.style.display = 'block';
+    });
+
+    function seleccionarTecnica(id) {
+        document.getElementById('inputMitreTecnica').value = id;
+        document.getElementById('sugerenciasMitre').style.display = 'none';
+    }
+
+    function buscarPorMitre() {
+        const tecnica = document.getElementById('inputMitreTecnica').value.trim().toUpperCase();
+        const proyectoId = document.getElementById('hallazgosWorkspace').dataset.proyectoId;
+        if (!tecnica) return;
+
+        document.getElementById('tbodyMitreFindings').innerHTML = '';
+        document.getElementById('contenedorResultadosMitre').style.display = 'none';
+        document.getElementById('sinResultadosMitre').style.display = 'none';
+
+        fetch(`/proyecto/${proyectoId}/cloud/mitre-findings/${tecnica}`)
+            .then(r => r.json())
+            .then(data => {
+                const tbody = document.getElementById('tbodyMitreFindings');
+                tbody.innerHTML = '';
+                if (data.length === 0) {
+                    document.getElementById('contenedorResultadosMitre').style.display = 'none';
+                    document.getElementById('sinResultadosMitre').style.display = 'block';
+                    return;
+                }
+                document.getElementById('sinResultadosMitre').style.display = 'none';
+                document.getElementById('contenedorResultadosMitre').style.display = 'block';
+                data.forEach(f => {
+                    tbody.innerHTML += `
+                    <tr>
+                        <td>${f.resource_id}</td>
+                        <td><span class="badge bg-dark text-warning">${f.check_id}</span></td>
+                        <td>${f.service}</td>
+                        <td>${f.severidad}</td>
+                        <td>
+                            <button onclick="verificarHallazgo(${f.finding_id})" 
+                                    class="btn btn-sm btn-secondary py-0 px-1">
+                                <i class="bi bi-pencil-square"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+                });
+            });
+    }
+
+    document.getElementById('inputMitreTecnica').addEventListener('input', function() {
+    if (this.value.trim() === '') {
+        document.getElementById('tbodyMitreFindings').innerHTML = '';
+        document.getElementById('contenedorResultadosMitre').style.display = 'none';
+        document.getElementById('sinResultadosMitre').style.display = 'none';
+    }
+});

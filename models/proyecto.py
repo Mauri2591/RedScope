@@ -3,6 +3,7 @@ import os
 import base64
 import uuid
 from db import get_db_connection
+import json
 
 class Proyecto:
     @staticmethod
@@ -519,12 +520,13 @@ class Proyecto:
                 provider,
                 service,
                 resource_id,
+                region,
                 severidad_id,
                 estados_findings_id,
                 inventory_data,
                 finding_comment,
                 estado_id
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
 
             ON DUPLICATE KEY UPDATE
                 usuario_id = VALUES(usuario_id),
@@ -533,6 +535,7 @@ class Proyecto:
                 estados_findings_id = VALUES(estados_findings_id),
                 finding_comment = VALUES(finding_comment),
                 inventory_data = VALUES(inventory_data),
+                region = VALUES(region),
                 actualizacion = CURRENT_TIMESTAMP
         """, (
             data['proyecto_id'],
@@ -543,13 +546,14 @@ class Proyecto:
             data['provider'],
             data['service'],
             resource_id,
+            data.get('region', ''),   # ← nuevo
             data['severidad_id'],
             data['estados_findings_id'],
             data.get('inventory_data'),
             data.get('finding_comment')
         ))
 
-        # 🔥 IMPORTANTE: obtener ID correcto SIEMPRE
+        # IMPORTANTE: obtener ID correcto SIEMPRE
         finding_id = cursor.lastrowid
 
         if finding_id == 0:
@@ -581,7 +585,7 @@ class Proyecto:
         cursor = conn.cursor(dictionary=True)
         format_strings = ','.join(['%s'] * len(check_ids))
         cursor.execute(f"""
-            SELECT check_id, creado_por_ia, validado_por
+            SELECT check_id, creado_por_ia, validado_por, origen
             FROM security_rules
             WHERE check_id IN ({format_strings})
             AND estado_id = 1
@@ -593,7 +597,8 @@ class Proyecto:
             r['check_id']: {
                 'existe': True,
                 'creado_por_ia': bool(r['creado_por_ia']),
-                'validado_por': r['validado_por']
+                'validado_por': r['validado_por'],
+                'origen': r['origen']
             }
             for r in rows
         }
@@ -696,8 +701,8 @@ class Proyecto:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT id, proyecto_id, cloud_ejecucion_id, security_rules_id,
-                check_id, provider, service, resource_id,
-                severidad_id, estados_findings_id, finding_comment, inventory_data
+                check_id, provider, service, resource_id, region, severidad_id, 
+                estados_findings_id, finding_comment, inventory_data
             FROM findings
             WHERE id = %s AND estado_id = 1
         """, (finding_id,))
@@ -789,6 +794,7 @@ class Proyecto:
             f.provider AS proveedor,
             f.service AS servicio,
             f.check_id,
+            f.region,                       
             sr.title AS titulo,
             sr.description AS descripcion,
             sev.nombre AS severidad,
@@ -803,9 +809,9 @@ class Proyecto:
         FROM findings f
         INNER JOIN proyectos p 
             ON p.id = f.proyecto_id
-        INNER JOIN cloud_ejecuciones ce
+        LEFT JOIN cloud_ejecuciones ce
             ON ce.id = f.cloud_ejecucion_id
-        INNER JOIN (
+        LEFT JOIN (
             SELECT accion_id, MAX(id) AS ultima_ejecucion_id
             FROM cloud_ejecuciones
             WHERE proyecto_id = %s
@@ -824,7 +830,9 @@ class Proyecto:
             ON ef.id = f.estados_findings_id
         LEFT JOIN findings_evidence fe 
             ON fe.finding_id = f.id AND fe.estado_id = 1
-        WHERE f.proyecto_id = %s AND f.estado_id = 1
+        WHERE f.proyecto_id = %s 
+        AND f.estado_id = 1
+        AND (f.cloud_ejecucion_id IS NULL OR ultima.ultima_ejecucion_id IS NOT NULL)
         GROUP BY f.id
         ORDER BY sev.orden DESC;
         """
@@ -895,3 +903,172 @@ class Proyecto:
         cursor.close()
         conn.close()
         return acciones
+    
+    #---------------------------------------------------------------------------#
+    #-------------------------------- Importar archivos de findings de herramientas ------------#
+    @staticmethod
+    def import_findings(proyecto_id, herramienta, data, usuario_id):
+        if herramienta == 'prowler':
+            return Proyecto._import_prowler(proyecto_id, data, usuario_id)
+        return 0
+
+    @staticmethod
+    def get_imported_findings_by_proyecto(proyecto_id):
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT sr.origen, COUNT(DISTINCT f.id) as total
+            FROM findings f
+            LEFT JOIN security_rules sr ON sr.id = f.security_rules_id
+            WHERE f.proyecto_id = %s AND f.cloud_ejecucion_id IS NULL AND f.estado_id = 1
+            GROUP BY sr.origen
+        """, (proyecto_id,))
+        data = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return data
+
+    @staticmethod
+    def _import_prowler(proyecto_id, data, usuario_id):
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        importados = 0
+        severidades = Proyecto.get_severidades()
+        severidad_map = {s['nombre'].lower(): s['id'] for s in severidades}
+        
+        try:
+            for item in data:
+                print(f"[IMPORT] Status={item.get('Status')} CheckID={item.get('CheckID')}")
+                if item.get('Status') != 'FAIL':
+                    continue
+
+                severidad_id = severidad_map.get(item.get('Severity', '').lower(), 3)
+                check_id = item.get('CheckID')
+                provider = item.get('Provider', 'aws').lower()
+                service = item.get('ServiceName', '').lower()
+
+                # Insertar security_rule si no existe
+                cursor.execute("""
+                    INSERT INTO security_rules (provider, service, check_id, title, description, severidad_id, remediation, reference, estado_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1)
+                    ON DUPLICATE KEY UPDATE 
+                        reference = COALESCE(NULLIF(reference, ''), VALUES(reference)),
+                        estado_id = estado_id
+                """, (
+                    provider,
+                    service,
+                    check_id,
+                    item.get('CheckTitle'),
+                    item.get('Risk'),
+                    severidad_id,
+                    item.get('Remediation', {}).get('Recommendation', {}).get('Text'),
+                    item.get('RelatedUrl') or item.get('Remediation', {}).get('Recommendation', {}).get('Url') or None,
+                ))
+
+                # Obtener security_rule_id
+                cursor.execute("SELECT id FROM security_rules WHERE check_id = %s", (check_id,))
+                rule = cursor.fetchone()
+                security_rule_id = rule['id'] if rule else None
+
+               # Verificar si ya existe
+                cursor.execute("""
+                    SELECT id FROM findings 
+                    WHERE proyecto_id = %s AND check_id = %s AND resource_id = %s 
+                    AND cloud_ejecucion_id IS NULL AND estado_id = 1
+                """, (proyecto_id, check_id, item.get('ResourceId')))
+                
+                existe = cursor.fetchone()
+                print(f"[IMPORT CHECK] check_id={check_id} resource={item.get('ResourceId')} existe={existe}")
+
+                if existe:
+                    continue
+
+                # Insertar finding
+                inventory_data = json.dumps({
+                    "status_extended": item.get('StatusExtended'),
+                    "finding_unique_id": item.get('FindingUniqueId'),
+                    "resource_arn": item.get('ResourceArn'),
+                    "compliance": item.get('Compliance', {})
+                }, ensure_ascii=False)
+                cursor.execute("""
+                    INSERT INTO findings (proyecto_id, usuario_id, security_rules_id, check_id, provider, 
+                                        service, resource_id, region, severidad_id, estados_findings_id, 
+                                        inventory_data, estado_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, 1)
+                """, (
+                    proyecto_id, usuario_id, security_rule_id, check_id, provider,
+                    service, item.get('ResourceId'), item.get('Region'), severidad_id,
+                    inventory_data
+                ))
+
+                importados += 1
+
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"[IMPORT PROWLER ERROR] {e}")
+        finally:
+            cursor.close()
+            conn.close()
+
+        return importados
+    
+    @staticmethod
+    def get_findings_importados(proyecto_id, herramienta):
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT f.id as finding_id, f.check_id, f.resource_id, f.region,
+                f.severidad_id, f.estados_findings_id, f.finding_comment,
+                f.verificado, f.inventory_data, f.security_rules_id,
+                f.provider, f.service, f.cloud_ejecucion_id,
+                sr.origen AS rule_origen
+            FROM findings f
+            LEFT JOIN security_rules sr ON f.security_rules_id = sr.id
+            WHERE f.proyecto_id = %s 
+            AND f.cloud_ejecucion_id IS NULL
+            AND f.estado_id = 1
+        """, (proyecto_id,))
+        data = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return data
+    
+    @staticmethod
+    def verificar_findings_masivo(ids):
+        if not ids: return
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        format_strings = ','.join(['%s'] * len(ids))
+        cursor.execute(f"UPDATE findings SET verificado='SI' WHERE id IN ({format_strings})", ids)
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+    @staticmethod
+    def eliminar_findings_masivo(ids):
+        if not ids: return
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        format_strings = ','.join(['%s'] * len(ids))
+        cursor.execute(f"UPDATE findings SET estado_id=2 WHERE id IN ({format_strings})", ids)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+    @staticmethod
+    def get_findings_con_inventory(proyecto_id):
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT f.id, f.check_id, f.resource_id, f.service, 
+                f.severidad_id, f.inventory_data
+            FROM findings f
+            WHERE f.proyecto_id = %s 
+            AND f.estado_id = 1
+            AND f.inventory_data IS NOT NULL
+        """, (proyecto_id,))
+        data = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return data

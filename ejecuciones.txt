@@ -1,0 +1,4 @@
+truncate table cloud_ejecuciones
+truncate table findings
+truncate table findings_evidence
+truncate table security_rules
