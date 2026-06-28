@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Servidor: 127.0.0.1
--- Tiempo de generación: 24-06-2026 a las 21:31:06
+-- Tiempo de generación: 29-06-2026 a las 01:57:35
 -- Versión del servidor: 10.4.32-MariaDB
 -- Versión de PHP: 8.2.12
 
@@ -20,6 +20,31 @@ SET time_zone = "+00:00";
 --
 -- Base de datos: `red_scope`
 --
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `clientes`
+--
+
+CREATE TABLE `clientes` (
+  `id` int(11) NOT NULL,
+  `nombre` varchar(255) NOT NULL,
+  `cuit` varchar(20) DEFAULT NULL,
+  `referencia` text DEFAULT NULL,
+  `creacion` datetime DEFAULT current_timestamp(),
+  `actualizacion` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `estado_id` int(11) NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Volcado de datos para la tabla `clientes`
+--
+
+INSERT INTO `clientes` (`id`, `nombre`, `cuit`, `referencia`, `creacion`, `actualizacion`, `estado_id`) VALUES
+(1, 'Telecom', NULL, NULL, '2026-06-28 17:04:42', '2026-06-28 19:12:34', 1),
+(2, 'Pentest Cloud B2B', NULL, NULL, '2026-06-28 17:04:42', '2026-06-28 17:04:42', 1),
+(5, 'prueba', NULL, NULL, '2026-06-28 18:58:51', '2026-06-28 19:12:14', 2);
 
 -- --------------------------------------------------------
 
@@ -101,7 +126,7 @@ CREATE TABLE `estados_findings` (
 --
 
 INSERT INTO `estados_findings` (`id`, `nombre`, `color`, `orden`, `estado_id`) VALUES
-(1, 'ABIERTO', 'info', 1, 1),
+(1, 'ACTIVO', 'info', 1, 1),
 (2, 'ADMITIDO', 'warning', 2, 1),
 (3, 'RESUELTO', 'success', 3, 1),
 (4, 'FALSO POSITIVO', 'secondary', 4, 1);
@@ -116,18 +141,20 @@ CREATE TABLE `findings` (
   `id` int(11) NOT NULL,
   `proyecto_id` int(11) NOT NULL,
   `usuario_id` int(11) DEFAULT NULL,
-  `cloud_ejecucion_id` int(11) NOT NULL,
+  `cloud_ejecucion_id` int(11) DEFAULT NULL,
   `security_rules_id` int(11) DEFAULT NULL,
   `check_id` varchar(255) DEFAULT NULL,
   `provider` varchar(20) NOT NULL,
   `service` varchar(50) NOT NULL,
   `resource_id` varchar(255) NOT NULL,
+  `region` varchar(50) DEFAULT NULL,
   `severidad_id` int(11) NOT NULL,
   `estados_findings_id` int(11) DEFAULT NULL,
   `finding_comment` text DEFAULT NULL,
   `verificado` char(2) DEFAULT 'NO',
   `inventory_data` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `detectado` datetime DEFAULT current_timestamp(),
+  `herramienta` varchar(50) DEFAULT NULL,
   `actualizacion` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `estado_id` int(11) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -155,7 +182,8 @@ CREATE TABLE `findings_evidence` (
 CREATE TABLE `proyectos` (
   `id` int(11) NOT NULL,
   `titulo` varchar(255) NOT NULL,
-  `cliente` varchar(255) NOT NULL,
+  `cliente` varchar(255) DEFAULT NULL,
+  `cliente_id` int(11) DEFAULT NULL,
   `sector_id` int(11) DEFAULT NULL,
   `usuario_creador_id` int(11) NOT NULL,
   `tipo_proyecto_id` int(11) NOT NULL,
@@ -170,14 +198,12 @@ CREATE TABLE `proyectos` (
 -- Volcado de datos para la tabla `proyectos`
 --
 
-INSERT INTO `proyectos` (`id`, `titulo`, `cliente`, `sector_id`, `usuario_creador_id`, `tipo_proyecto_id`, `tipo_servicio_id`, `autenticado`, `creacion`, `actualizacion`, `estado_id`) VALUES
-(18, 'Prueba EH', 'Telecom', 1, 1, 3, 1, 'SI', '2026-02-18 11:10:57', '2026-02-18 11:10:57', 1),
-(20, 'Cloud Security B2B', 'Telecom', 1, 1, 3, 1, 'SI', '2026-02-18 14:40:46', '2026-02-18 14:40:46', 1),
-(25, 'Prueba Assume Role', 'Empresa Prueba Assume Role', 1, 1, 3, 1, 'SI', '2026-03-18 18:33:06', '2026-03-18 18:33:06', 1),
-(26, 'Cloud Security B2B - Parte 2', 'Telecom', 1, 1, 3, 1, 'SI', '2026-03-31 16:46:33', '2026-03-31 16:46:33', 1),
-(27, 'prueba', 'prueba', 1, 1, 3, 1, 'SI', '2026-04-15 16:50:03', '2026-04-15 16:50:03', 1),
-(28, 'prrueba 10', 'prueba 10', 1, 1, 3, 1, 'SI', '2026-04-23 12:12:17', '2026-04-23 12:12:17', 1),
-(29, 'PRUEBA CLAUDE', 'PRUEBA CLAUDE', 1, 1, 3, 1, 'SI', '2026-05-05 16:45:41', '2026-05-05 16:45:41', 1);
+INSERT INTO `proyectos` (`id`, `titulo`, `cliente`, `cliente_id`, `sector_id`, `usuario_creador_id`, `tipo_proyecto_id`, `tipo_servicio_id`, `autenticado`, `creacion`, `actualizacion`, `estado_id`) VALUES
+(20, 'Cloud Security B2B', 'Telecom', NULL, 1, 1, 3, 1, 'SI', '2026-02-18 14:40:46', '2026-02-18 14:40:46', 1),
+(25, 'Prueba Assume Role', 'Empresa Prueba Assume Role', NULL, 1, 1, 3, 1, 'SI', '2026-03-18 18:33:06', '2026-03-18 18:33:06', 1),
+(26, 'Cloud Security B2B - Parte 2', 'Telecom', NULL, 1, 1, 3, 1, 'SI', '2026-03-31 16:46:33', '2026-03-31 16:46:33', 1),
+(27, 'prueba', 'prueba', NULL, 1, 1, 3, 1, 'SI', '2026-04-15 16:50:03', '2026-04-15 16:50:03', 1),
+(29, 'PRUEBA CLAUDE', 'PRUEBA CLAUDE', NULL, 1, 1, 3, 1, 'SI', '2026-05-05 16:45:41', '2026-05-05 16:45:41', 1);
 
 -- --------------------------------------------------------
 
@@ -204,7 +230,6 @@ CREATE TABLE `proyecto_cloud_config` (
 --
 
 INSERT INTO `proyecto_cloud_config` (`id`, `proyecto_id`, `access_key`, `secret_key`, `aws_account_id`, `creacion`, `region`, `estado_id`, `auth_method`, `role_arn`, `external_id`) VALUES
-(10, 18, 'AKIAYX67PJ3VDX5T4GKM', 'gAAAAABplckUqdnL9JN0qC5aCJS5KTihseGEly3aM2_z0bAhj2b33DHqIBGCfNEUS5PAmrvxd6irSPQiQzjBswrF_5sBtQMlyVIdubpzgB_UhPIbtLFSMh3ikuV3cg3OHv2VCUxfmI6e', '601227218666', '2026-02-18 11:13:40', 'us-east-1', 1, 'keys', NULL, NULL),
 (11, 20, 'AKIARFP2NB4ACZHH7WTC', 'gAAAAABplfpdB0W9-MBRENdxkMIi00FBSsGWfMnn_23SuhTN5sOPRK0kmK7eLn1mqlZCSLd5OtCYGF43TOlXu9xQtmOQ0yqy_iaRvIGSzIJTWKeWD8F0RIgpwTvDsZddRkS9c8_PrTTA', '080518909696', '2026-02-18 14:43:57', 'us-east-1', 1, 'keys', NULL, NULL),
 (12, 26, 'AKIARFP2NB4ACZHH7WTC', 'gAAAAABpzCVpqriSlIyIpzTNoLHT91NkGg3gq72ZVenMfws9EdyU1Ux_31_vO5Dttsis8Y2CanB5TdyeLd_R0F0cIC3ZlA9QBWmgYNmyMkTwaMcpmgmB-ppqB6G9IUV-jSxg8nqD9U16', '080518909696', '2026-03-31 16:50:01', 'us-east-1', 1, 'keys', NULL, NULL),
 (13, 27, 'AKIAYX67PJ3VDX5T4GKM', 'gAAAAABp3_hA81nDfvYZc78rCqHppxU_GXouQDRmzcmR1OEs2oRemsTWsd0Rq3RKhBD18SQ7xCiYG48EL7ZAA2FD-zYF6LjDdlQ7iO4bKKYrC2CvZzDZZM7NPi6Pg7T0ETQ5KJpGiwRD', '601227218666', '2026-04-15 17:42:40', 'us-east-1', 1, 'role', 'arn:aws:iam::601227218666:role/RedScope-PentestRole', 'redscope-lab-2024');
@@ -255,7 +280,7 @@ CREATE TABLE `reporte_contenido_secciones` (
 --
 
 INSERT INTO `reporte_contenido_secciones` (`id`, `tipo_servicio`, `objetivos`, `alcance`, `conclusiones`, `recomendaciones`, `actividades`, `anexo_metodologia`, `anexo_herramientas`, `anexo_clasificacion`, `estado_id`) VALUES
-(1, 'aws', 'Evaluar el nivel de seguridad de los servicios y configuraciones cloud de la organización sobre Amazon Web Services (AWS), identificando configuraciones incorrectas, hallazgos y brechas de seguridad que puedan ser aprovechadas por actores maliciosos internos o externos.\n\nLos objetivos específicos del presente trabajo son:\n\n- Identificar configuraciones incorrectas en los principales servicios AWS evaluados (S3, EC2, IAM, Lambda, API Gateway, VPC), determinando el impacto potencial de cada hallazgo sobre la confidencialidad, integridad y disponibilidad de los activos.\n\n- Detectar permisos excesivos o mal configurados en políticas IAM, roles y usuarios, que puedan derivar en escalación de privilegios o acceso no autorizado a recursos críticos.\n\n- Verificar la exposición pública de recursos sensibles como buckets S3, instancias EC2, funciones Lambda, endpoints de API Gateway y configuraciones de red en VPC (Security Groups, subnets, NACLs), evaluando el riesgo asociado a cada superficie de ataque expuesta.\n\n- Comprobar el cumplimiento de buenas prácticas de seguridad según CIS AWS Foundations Benchmark y AWS Well-Architected Framework Security Pillar.\n\n- Proveer recomendaciones técnicas priorizadas por nivel de riesgo que permitan a la organización remediar los hallazgos identificados y fortalecer su postura de seguridad en la nube.', 'El presente trabajo de seguridad ofensiva abarca la evaluación de los servicios y configuraciones cloud del cliente sobre Amazon Web Services (AWS). El análisis se realizó de forma no intrusiva mediante técnicas de revisión de configuración y análisis de permisos, sin afectar la disponibilidad ni la integridad de los servicios productivos.\n\nLos servicios evaluados incluyen:\n\n- Amazon S3: revisión de políticas de bucket, ACLs, configuración de acceso público y cifrado.\n\n- Amazon EC2: análisis de grupos de seguridad, exposición de puertos, configuración de instancias y metadatos.\n\n- AWS IAM: evaluación de usuarios, roles, políticas y permisos, detección de privilegios excesivos y credenciales comprometidas.\n\n- AWS Lambda: revisión de funciones, permisos de ejecución, variables de entorno y exposición de endpoints.\n\n- Amazon API Gateway: análisis de endpoints expuestos, autenticación, autorización y configuración de seguridad.\n\n- Amazon VPC: revisión de Security Groups, exposición de subnets, Network ACLs, Flow Logs y configuración de VPC Peering.\n\n\nEl alcance del presente trabajo se circunscribe exclusivamente a la(s) cuenta(s) de AWS explícitamente autorizadas por el cliente, identificadas mediante su Account ID correspondiente. El acceso a cada cuenta fue habilitado a través de un IAM Role dedicado (Role ARN + External ID) con permisos de solo lectura, evitando cualquier mecanismo de delegación automática a nivel de AWS Organizations que pudiera extender el alcance a cuentas no contempladas en el presente acuerdo.\n\nQuedan fuera del alcance los sistemas on-premise del cliente, aplicaciones de terceros integradas a la plataforma, la evaluación de vulnerabilidades a nivel de sistema operativo o red interna de las instancias, y cualquier servicio AWS no listado explícitamente.', 'Como resultado del trabajo realizado, se identificaron hallazgos de seguridad distribuidos en distintos niveles de criticidad sobre los servicios y configuraciones AWS evaluados. Los hallazgos detectados evidencian patrones comunes en entornos cloud, entre los que se destacan la asignación de permisos excesivos en políticas IAM, la exposición pública de recursos de almacenamiento, la ausencia de controles de cifrado en servicios críticos y la presencia de reglas de red permisivas que amplían innecesariamente la superficie de exposición a Internet.\r\n\r\nLa superficie de ataque identificada representa un riesgo real para la confidencialidad e integridad de los datos gestionados por la organización en la nube. Se recomienda abordar con prioridad los hallazgos clasificados como Críticos y Altos, implementando los controles detallados en la sección de recomendaciones del presente informe.\r\n\r\nLa organización demuestra una base de configuración cloud estructurada, con oportunidades de mejora concretas y alcanzables mediante la aplicación de controles estándar de la industria.', 'En base a los hallazgos identificados durante la evaluación, se recomienda a la organización implementar las siguientes medidas de seguridad de forma prioritaria:\r\n\r\nGestión de Identidades y Accesos (IAM): aplicar el principio de mínimo privilegio en todas las políticas IAM, eliminando permisos wildcard (*) y revisando periódicamente los roles y usuarios activos. Habilitar MFA obligatorio para todos los usuarios con acceso a la consola AWS.\r\n\r\nAlmacenamiento (S3): bloquear el acceso público en todos los buckets que no requieran exposición externa, habilitar el cifrado en reposo con SSE-S3 o SSE-KMS y activar el versionado y logging de accesos en buckets críticos.\r\n\r\nCómputo (EC2): revisar y restringir los grupos de seguridad, eliminando reglas que permitan acceso desde 0.0.0.0/0 a puertos sensibles. Deshabilitar el servicio de metadatos IMDSv1 y migrar a IMDSv2 en todas las instancias.\r\n\r\nRedes (VPC): segmentar adecuadamente las subnets públicas y privadas, deshabilitando la asignación automática de IP pública en subnets que no la requieran. Habilitar VPC Flow Logs en todas las VPCs para garantizar visibilidad sobre el tráfico de red. Revisar las Network ACLs eliminando reglas permisivas de tipo \"allow all\", y restringir las rutas de VPC Peering al CIDR mínimo necesario en lugar de exponer el rango completo. Evaluar el retiro o hardening de la VPC default en cada región.\r\n\r\nFunciones Serverless (Lambda): eliminar variables de entorno con credenciales en texto plano, restringir los permisos de ejecución de cada función al mínimo necesario y auditar los triggers expuestos públicamente.\r\n\r\nAPI Gateway: implementar autenticación en todos los endpoints expuestos, habilitar throttling y WAF para proteger las APIs de abuso y accesos no autorizados.\r\n\r\nMonitoreo y Detección: habilitar AWS CloudTrail en todas las regiones, configurar AWS Config para detectar cambios de configuración y activar Amazon GuardDuty para detección continua de amenazas.', 'Durante el desarrollo del trabajo se llevaron a cabo las siguientes actividades:\n\nRelevamiento inicial: recopilación de información sobre la arquitectura AWS del cliente, servicios utilizados y modelo de responsabilidad compartida aplicable al entorno evaluado.\n\nConfiguración del entorno de análisis: configuración de credenciales de acceso de solo lectura mediante IAM Role con External ID, validación del alcance y verificación de conectividad con los servicios AWS objetivo.\n\nAnálisis automatizado: ejecución de herramientas especializadas de auditoría cloud sobre los servicios en alcance, recopilación de hallazgos y clasificación preliminar por severidad.\n\nAnálisis manual: revisión y validación manual de los hallazgos detectados, eliminación de falsos positivos y profundización en configuraciones de alto riesgo identificadas durante el análisis automatizado.\n\nDocumentación y clasificación: clasificación de hallazgos por severidad (Crítico, Alto, Medio, Bajo, Informativo), documentación técnica de cada hallazgo con descripción, condición lógica, remediación y referencias.\n\nElaboración del informe: redacción del presente informe técnico con los resultados obtenidos, conclusiones y recomendaciones priorizadas para la organización.', 'La evaluación fue realizada siguiendo una metodología estructurada de auditoría de seguridad en entornos cloud, basada en los siguientes marcos de referencia internacionales:\n\nCIS Amazon Web Services Foundations Benchmark: conjunto de controles de seguridad recomendados para entornos AWS, organizado por servicio y nivel de criticidad. Utilizado como referencia principal para la evaluación de configuraciones.\n\nAWS Well-Architected Framework — Security Pillar: pilar de seguridad del marco de buenas prácticas de AWS, que cubre áreas como gestión de identidades, protección de datos, detección de amenazas y respuesta a incidentes.\n\nOWASP Cloud Security: guía de seguridad para entornos cloud que complementa el análisis con perspectivas orientadas a aplicaciones y APIs expuestas.\n\nEl proceso de evaluación se desarrolló en las siguientes fases: reconocimiento y relevamiento, análisis de configuración automatizado, validación manual, clasificación de hallazgos y elaboración del informe. En todo momento se trabajó con credenciales de solo lectura, garantizando la no intrusividad del proceso sobre los entornos productivos del cliente.\n\nEl acceso a la infraestructura del cliente se realizó mediante el modelo de Cross-Account Role con External ID, mecanismo estándar de la industria para auditorías de terceros sobre entornos AWS (utilizado por plataformas como AWS Security Hub, Prowler y soluciones CSPM comerciales). Este modelo garantiza acceso auditable vía AWS CloudTrail, revocable de forma inmediata por el cliente sin necesidad de rotar credenciales compartidas, y mitiga el riesgo de \"confused deputy\" mediante el uso del External ID. El alcance de acceso quedó limitado estrictamente a las cuentas individuales autorizadas, sin visibilidad sobre otras cuentas de la organización del cliente.', 'Para el desarrollo del presente trabajo se utilizaron las siguientes herramientas y tecnologías:\n\nHerramientas Internas: Plataforma desarrollada sobre Boto3 para la ejecución automatizada de checks de seguridad sobre los principales servicios AWS (S3, EC2, IAM, Lambda, API Gateway). Permite el análisis de configuraciones, detección de hallazgos y generación de reportes de forma centralizada.\n\nAWS CLI: interfaz de línea de comandos oficial de Amazon Web Services, utilizada para consultas manuales de configuración y validación de hallazgos directamente sobre los entornos evaluados.\n\nBoto3: SDK oficial de AWS para Python, utilizado como motor de consulta en los módulos de análisis para interactuar programáticamente con los servicios en alcance.\n\nProwler: herramienta open source de auditoría de seguridad AWS utilizada como referencia complementaria para validación de controles CIS AWS Foundations Benchmark y verificación de hallazgos.\n\nScoutSuite: herramienta multi-cloud de auditoría de seguridad utilizada para análisis complementario de la superficie de ataque en el entorno AWS evaluado.\n\nPacu: framework open source de explotación y post-explotación en entornos AWS, utilizado para validación de hallazgos relacionados con escalación de privilegios y configuraciones IAM incorrectas.', 'Los hallazgos identificados durante la evaluación son clasificados según el siguiente esquema de severidad, basado en el impacto potencial sobre la confidencialidad, integridad y disponibilidad de los activos evaluados:\n\nCRÍTICO: Hallazgo o configuración incorrecta que permite acceso no autorizado a datos sensibles, ejecución remota de código o compromiso total del entorno cloud. Requiere remediación inmediata.\n\nALTO: Hallazgo que representa un riesgo significativo para la seguridad del entorno, con potencial de escalación de privilegios, exposición de datos o movimiento lateral. Remediación prioritaria en el corto plazo.\n\nMEDIO: Configuración incorrecta o debilidad que, combinada con otros factores, podría derivar en un incidente de seguridad. Remediación recomendada en el mediano plazo.\n\nBAJO: Hallazgo de impacto reducido que representa una desviación de buenas prácticas o un riesgo marginal en el contexto actual. Remediación recomendada como mejora continua.', 1);
+(1, 'aws', 'Evaluar el nivel de seguridad de los servicios y configuraciones cloud de la organización sobre Amazon Web Services (AWS), identificando configuraciones incorrectas, hallazgos y brechas de seguridad que puedan ser aprovechadas por actores maliciosos internos o externos.\n\nLos objetivos específicos del presente trabajo son:\n\n- Identificar configuraciones incorrectas en los principales servicios AWS evaluados (S3, EC2, IAM, Lambda, API Gateway, VPC), determinando el impacto potencial de cada hallazgo sobre la confidencialidad, integridad y disponibilidad de los activos.\n\n- Detectar permisos excesivos o mal configurados en políticas IAM, roles y usuarios, que puedan derivar en escalación de privilegios o acceso no autorizado a recursos críticos.\n\n- Verificar la exposición pública de recursos sensibles como buckets S3, instancias EC2, funciones Lambda, endpoints de API Gateway y configuraciones de red en VPC (Security Groups, subnets, NACLs), evaluando el riesgo asociado a cada superficie de ataque expuesta.\n\n- Comprobar el cumplimiento de buenas prácticas de seguridad según CIS AWS Foundations Benchmark y AWS Well-Architected Framework Security Pillar.\n\n- Proveer recomendaciones técnicas priorizadas por nivel de riesgo que permitan a la organización remediar los hallazgos identificados y fortalecer su postura de seguridad en la nube.', 'El presente trabajo de seguridad ofensiva abarca la evaluación de los servicios y configuraciones cloud del cliente sobre Amazon Web Services (AWS). El análisis se realizó de forma no intrusiva mediante técnicas de revisión de configuración y análisis de permisos, sin afectar la disponibilidad ni la integridad de los servicios productivos.\n\nLos servicios evaluados incluyen:\n\n- Amazon S3: revisión de políticas de bucket, ACLs, configuración de acceso público y cifrado.\n\n- Amazon EC2: análisis de grupos de seguridad, exposición de puertos, configuración de instancias y metadatos.\n\n- AWS IAM: evaluación de usuarios, roles, políticas y permisos, detección de privilegios excesivos y credenciales comprometidas.\n\n- AWS Lambda: revisión de funciones, permisos de ejecución, variables de entorno y exposición de endpoints.\n\n- Amazon API Gateway: análisis de endpoints expuestos, autenticación, autorización y configuración de seguridad.\n\n- Amazon VPC: revisión de Security Groups, exposición de subnets, Network ACLs, Flow Logs y configuración de VPC Peering.\n\n\nEl alcance del presente trabajo se circunscribe exclusivamente a la(s) cuenta(s) de AWS explícitamente autorizadas por el cliente, identificadas mediante su Account ID correspondiente. El acceso a cada cuenta fue habilitado a través de un IAM Role dedicado (Role ARN + External ID) con permisos de solo lectura, evitando cualquier mecanismo de delegación automática a nivel de AWS Organizations que pudiera extender el alcance a cuentas no contempladas en el presente acuerdo.\n\nQuedan fuera del alcance los sistemas on-premise del cliente, aplicaciones de terceros integradas a la plataforma, la evaluación de vulnerabilidades a nivel de sistema operativo o red interna de las instancias, y cualquier servicio AWS no listado explícitamente.', 'Como resultado del trabajo realizado, se identificaron hallazgos de seguridad distribuidos en distintos niveles de criticidad sobre los servicios y configuraciones AWS evaluados. Los hallazgos detectados evidencian patrones comunes en entornos cloud, entre los que se destacan la asignación de permisos excesivos en políticas IAM, la exposición pública de recursos de almacenamiento, la ausencia de controles de cifrado en servicios críticos y la presencia de reglas de red permisivas que amplían innecesariamente la superficie de exposición a Internet.\r\n\r\nLa superficie de ataque identificada representa un riesgo real para la confidencialidad e integridad de los datos gestionados por la organización en la nube. Se recomienda abordar con prioridad los hallazgos clasificados como Críticos y Altos, implementando los controles detallados en la sección de recomendaciones del presente informe.\r\n\r\nLa organización demuestra una base de configuración cloud estructurada, con oportunidades de mejora concretas y alcanzables mediante la aplicación de controles estándar de la industria.', 'En base a los hallazgos identificados durante la evaluación, se recomienda a la organización implementar las siguientes medidas de seguridad de forma prioritaria:\r\n\r\nGestión de Identidades y Accesos (IAM): aplicar el principio de mínimo privilegio en todas las políticas IAM, eliminando permisos wildcard (*) y revisando periódicamente los roles y usuarios activos. Habilitar MFA obligatorio para todos los usuarios con acceso a la consola AWS.\r\n\r\nAlmacenamiento (S3): bloquear el acceso público en todos los buckets que no requieran exposición externa, habilitar el cifrado en reposo con SSE-S3 o SSE-KMS y activar el versionado y logging de accesos en buckets críticos.\r\n\r\nCómputo (EC2): revisar y restringir los grupos de seguridad, eliminando reglas que permitan acceso desde 0.0.0.0/0 a puertos sensibles. Deshabilitar el servicio de metadatos IMDSv1 y migrar a IMDSv2 en todas las instancias.\r\n\r\nRedes (VPC): segmentar adecuadamente las subnets públicas y privadas, deshabilitando la asignación automática de IP pública en subnets que no la requieran. Habilitar VPC Flow Logs en todas las VPCs para garantizar visibilidad sobre el tráfico de red. Revisar las Network ACLs eliminando reglas permisivas de tipo \"allow all\", y restringir las rutas de VPC Peering al CIDR mínimo necesario en lugar de exponer el rango completo. Evaluar el retiro o hardening de la VPC default en cada región.\r\n\r\nFunciones Serverless (Lambda): eliminar variables de entorno con credenciales en texto plano, restringir los permisos de ejecución de cada función al mínimo necesario y auditar los triggers expuestos públicamente.\r\n\r\nAPI Gateway: implementar autenticación en todos los endpoints expuestos, habilitar throttling y WAF para proteger las APIs de abuso y accesos no autorizados.\r\n\r\nMonitoreo y Detección: habilitar AWS CloudTrail en todas las regiones, configurar AWS Config para detectar cambios de configuración y activar Amazon GuardDuty para detección continua de amenazas.', 'Durante el desarrollo del trabajo se llevaron a cabo las siguientes actividades:\n\nRelevamiento inicial: recopilación de información sobre la arquitectura AWS del cliente, servicios utilizados y modelo de responsabilidad compartida aplicable al entorno evaluado.\n\nConfiguración del entorno de análisis: configuración de credenciales de acceso de solo lectura mediante IAM Role con External ID, validación del alcance y verificación de conectividad con los servicios AWS objetivo.\n\nAnálisis automatizado: ejecución de herramientas especializadas de auditoría cloud sobre los servicios en alcance, recopilación de hallazgos y clasificación preliminar por severidad.\n\nAnálisis manual: revisión y validación manual de los hallazgos detectados, eliminación de falsos positivos y profundización en configuraciones de alto riesgo identificadas durante el análisis automatizado.\n\nDocumentación y clasificación: clasificación de hallazgos por severidad (Crítico, Alto, Medio, Bajo, Informativo), documentación técnica de cada hallazgo con descripción, condición lógica, remediación y referencias.\n\nElaboración del informe: redacción del presente informe técnico con los resultados obtenidos, conclusiones y recomendaciones priorizadas para la organización.', 'La evaluación fue realizada siguiendo una metodología estructurada de auditoría de seguridad en entornos cloud, basada en los siguientes marcos de referencia internacionales:\n\nCIS Amazon Web Services Foundations Benchmark: conjunto de controles de seguridad recomendados para entornos AWS, organizado por servicio y nivel de criticidad. Utilizado como referencia principal para la evaluación de configuraciones.\n\nAWS Well-Architected Framework — Security Pillar: pilar de seguridad del marco de buenas prácticas de AWS, que cubre áreas como gestión de identidades, protección de datos, detección de amenazas y respuesta a incidentes.\n\nOWASP Cloud Security: guía de seguridad para entornos cloud que complementa el análisis con perspectivas orientadas a aplicaciones y APIs expuestas.\n\nEl proceso de evaluación se desarrolló en las siguientes fases: reconocimiento y relevamiento, análisis de configuración automatizado, validación manual, clasificación de hallazgos y elaboración del informe. En todo momento se trabajó con credenciales de solo lectura, garantizando la no intrusividad del proceso sobre los entornos productivos del cliente.\n\nEl acceso a la infraestructura del cliente se realizó mediante el modelo de Cross-Account Role con External ID, mecanismo estándar de la industria para auditorías de terceros sobre entornos AWS (utilizado por plataformas como AWS Security Hub, Prowler y soluciones CSPM comerciales). Este modelo garantiza acceso auditable vía AWS CloudTrail, revocable de forma inmediata por el cliente sin necesidad de rotar credenciales compartidas, y mitiga el riesgo de \"confused deputy\" mediante el uso del External ID. El alcance de acceso quedó limitado estrictamente a las cuentas individuales autorizadas, sin visibilidad sobre otras cuentas de la organización del cliente.', 'Para el desarrollo del presente trabajo se utilizaron las siguientes herramientas y tecnologías:\n\nHerramientas Internas: Plataforma desarrollada sobre Boto3 para la ejecución automatizada de checks de seguridad sobre los principales servicios AWS (S3, EC2, IAM, Lambda, API Gateway). Permite el análisis de configuraciones, detección de hallazgos y generación de reportes de forma centralizada.\n\nAWS CLI: interfaz de línea de comandos oficial de Amazon Web Services, utilizada para consultas manuales de configuración y validación de hallazgos directamente sobre los entornos evaluados.\n\nBoto3: SDK oficial de AWS para Python, utilizado como motor de consulta en los módulos de análisis para interactuar programáticamente con los servicios en alcance.\n\nProwler: herramienta open source de auditoría de seguridad AWS utilizada como referencia complementaria para validación de controles CIS AWS Foundations Benchmark y verificación de hallazgos.\n\nScoutSuite: herramienta multi-cloud de auditoría de seguridad utilizada para análisis complementario de la superficie de ataque en el entorno AWS evaluado.\n\nPacu: framework open source de explotación y post-explotación en entornos AWS, utilizado para validación de hallazgos relacionados con escalación de privilegios y configuraciones IAM incorrectas.', 'Los hallazgos identificados durante la evaluación son clasificados según el siguiente esquema de severidad, basado en el impacto potencial sobre la confidencialidad, integridad y disponibilidad de los activos evaluados:\n\nCRITICAL: Hallazgo o configuración incorrecta que permite acceso no autorizado a datos sensibles, ejecución remota de código o compromiso total del entorno cloud. Requiere remediación inmediata.\nHIGH: Hallazgo que representa un riesgo significativo para la seguridad del entorno, con potencial de escalación de privilegios, exposición de datos o movimiento lateral. Remediación prioritaria en el corto plazo.\nMEDIUM: Configuración incorrecta o debilidad que, combinada con otros factores, podría derivar en un incidente de seguridad. Remediación recomendada en el mediano plazo.\nLOW: Hallazgo de impacto reducido que representa una desviación de buenas prácticas o un riesgo marginal en el contexto actual. Remediación recomendada como mejora continua.\nINFORMATIONAL: Observación sin impacto directo en la seguridad del entorno. No requiere remediación inmediata pero es recomendable su revisión como parte de una mejora continua.', 1);
 
 -- --------------------------------------------------------
 
@@ -287,12 +312,14 @@ INSERT INTO `reporte_estructura_cloud` (`id`, `clave`, `subtitulo`, `tipo`, `pro
 (5, 'resumen_hallazgos', 'Resumen de Hallazgos', 'seccion', 'aws', 4, 4, 1, 1),
 (6, 'hallazgos', 'Hallazgos', 'seccion', 'aws', 6, 5, 1, 1),
 (7, 'detalle_hallazgos', 'Detalle de Hallazgos', 'seccion', 'aws', 8, 6, 1, 1),
-(8, 'conclusiones', 'Conclusiones', 'seccion', 'aws', 40, 7, 0, 1),
-(9, 'recomendaciones', 'Recomendaciones Generales', 'seccion', 'aws', 41, 8, 0, 1),
-(10, 'actividades', 'Actividades Realizadas', 'seccion', 'aws', 42, 9, 0, 1),
-(11, 'anexo_metodologia', 'Anexo 1: Metodología', 'anexo', 'aws', 43, 10, 0, 1),
-(12, 'anexo_herramientas', 'Anexo 2: Herramientas', 'anexo', 'aws', 44, 11, 0, 1),
-(13, 'anexo_clasificacion', 'Anexo 3: Clasificación del Riesgo', 'anexo', 'aws', 45, 12, 0, 1);
+(8, 'conclusiones', 'Conclusiones', 'seccion', 'aws', 40, 65, 0, 1),
+(9, 'recomendaciones', 'Recomendaciones Generales', 'seccion', 'aws', 41, 66, 0, 1),
+(10, 'actividades', 'Actividades Realizadas', 'seccion', 'aws', 42, 67, 0, 1),
+(11, 'anexo_metodologia', 'Anexo 1: Metodología', 'anexo', 'aws', 43, 68, 0, 1),
+(12, 'anexo_herramientas', 'Anexo 2: Herramientas', 'anexo', 'aws', 44, 69, 0, 1),
+(13, 'anexo_clasificacion', 'Anexo 3: Clasificación del Riesgo', 'anexo', 'aws', 45, 70, 0, 1),
+(14, 'analisis_exposicion', 'Análisis de Exposición', 'seccion', 'aws', NULL, 7, 1, 1),
+(15, 'mitre_attack', 'Mapeo MITRE ATT&CK', 'seccion', 'aws', NULL, 8, 1, 1);
 
 -- --------------------------------------------------------
 
@@ -386,25 +413,11 @@ CREATE TABLE `security_rules` (
   `actualizacion` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `display_name` varchar(255) DEFAULT NULL,
   `creado_por_ia` tinyint(1) NOT NULL DEFAULT 0,
+  `origen` varchar(20) DEFAULT 'manual',
   `validado_por` int(11) DEFAULT NULL,
   `estado_id` int(11) DEFAULT 1,
   `validado_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Volcado de datos para la tabla `security_rules`
---
-
-INSERT INTO `security_rules` (`id`, `provider`, `service`, `check_id`, `title`, `description`, `severidad_id`, `condition_logic`, `remediation`, `reference`, `creacion`, `actualizacion`, `display_name`, `creado_por_ia`, `validado_por`, `estado_id`, `validado_at`) VALUES
-(1, 'aws', 'S3', 'logging_enabled', 'S3 Bucket Server Access Logging Disabled', 'El bucket S3 iamcheckers3-593fr9cloketodrzq3vl no tiene habilitado el registro de accesos. Sin logging, no es posible auditar quién accedió al bucket, qué operaciones realizó ni detectar accesos no autorizados.', 3, 'El check falla si la configuración de logging del bucket S3 no tiene definido un bucket destino para los logs de acceso al servidor.', 'Habilitá Server Access Logging en el bucket desde la consola de S3 o vía AWS CLI, especificando un bucket destino dedicado para almacenar los logs de acceso.', 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/ServerLogs.html', '2026-06-24 15:32:26', '2026-06-24 15:32:26', NULL, 1, NULL, 1, NULL),
-(2, 'aws', 'S3', 'versioning_enabled', 'S3 Bucket Versioning Disabled', 'El bucket S3 \'redscope-test-public\' no tiene el versionado habilitado. Esto impide recuperar versiones anteriores de objetos ante modificaciones accidentales, sobreescrituras o eliminaciones no autorizadas.', 3, 'El check falla cuando la configuración de versionado del bucket retorna estado \'Disabled\' o ausente, indicando que no se preservan versiones históricas de los objetos almacenados.', 'Habilitá el versionado en el bucket desde la consola de S3 o mediante AWS CLI con \'put-bucket-versioning\'. Considerá también habilitar MFA Delete para mayor protección contra eliminaciones accidentales.', 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html', '2026-06-24 15:32:31', '2026-06-24 15:32:31', NULL, 1, NULL, 1, NULL),
-(3, 'aws', 'S3', 'replication_enabled', 'S3 Bucket Replication Not Enabled', 'El bucket S3 no tiene configurada la replicación entre regiones o dentro de la misma región, lo que puede comprometer la disponibilidad y recuperación ante desastres de los datos almacenados.', 3, 'El check falla si el bucket S3 analizado no tiene ninguna regla de replicación activa configurada en su política de replicación.', 'Configurar una regla de replicación en el bucket S3, habilitando CRR o SRR según los requisitos de disponibilidad y cumplimiento, y asegurando que el rol IAM asociado tenga los permisos necesarios.', 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication.html', '2026-06-24 15:37:42', '2026-06-24 15:37:42', NULL, 1, NULL, 1, NULL),
-(4, 'aws', 'S3', 'public_access', 'S3 Bucket Public Access Enabled', 'El bucket S3 \'redscope-test-public\' tiene habilitado el acceso público. Esto expone potencialmente objetos almacenados a cualquier usuario de internet, lo que puede derivar en fuga de datos sensibles o acceso no autorizado.', 5, 'Se detecta el finding cuando el bucket S3 tiene deshabilitado el bloque de acceso público (Block Public Access) a nivel de bucket o cuenta, permitiendo políticas o ACLs que habiliten acceso anónimo.', 'Habilitá las cuatro opciones de \'Block Public Access\' en la configuración del bucket. Revisá las políticas de bucket y ACLs para eliminar permisos que otorguen acceso a \'*\' o a usuarios no autenticados.', 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html', '2026-06-24 15:40:23', '2026-06-24 15:40:23', NULL, 1, NULL, 1, NULL),
-(5, 'aws', 'S3', 'wildcard_resource', 'S3 Bucket Policy Allows Wildcard Resource', 'El bucket S3 \'redscope-test-public\' tiene una política que utiliza un comodín (*) en el elemento Resource, lo que puede permitir acceso no intencional a objetos o acciones sobre recursos no previstos.', 4, 'Se detecta cuando una política de bucket S3 contiene el carácter comodín \'*\' en el campo Resource, ampliando el alcance más allá del recurso específico deseado.', 'Reemplazá el comodín \'*\' en Resource por el ARN exacto del bucket y sus objetos. Usá el formato \'arn:aws:s3:::nombre-bucket\' y \'arn:aws:s3:::nombre-bucket/*\' según corresponda.', 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-policy-language-overview.html', '2026-06-24 15:40:29', '2026-06-24 15:40:29', NULL, 1, NULL, 1, NULL),
-(6, 'aws', 'S3', 'lifecycle_enabled', 'S3 Bucket Lifecycle Policy Not Enabled', 'El bucket S3 del contexto iamcheckers3-593fr9cloketodrzq3vl no tiene configurada una política de ciclo de vida. Esto puede generar acumulación innecesaria de objetos, incrementando costos y la superficie de exposición de datos.', 2, 'El check falla cuando el bucket S3 no posee ninguna regla de ciclo de vida activa configurada en su configuración de LifecycleConfiguration.', 'Configurar al menos una regla de ciclo de vida en el bucket para gestionar la expiración, transición o eliminación automática de objetos según políticas de retención definidas por la organización.', 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html', '2026-06-24 15:40:35', '2026-06-24 15:40:35', NULL, 1, NULL, 1, NULL),
-(7, 'aws', 'S3', 'block_public_access_disabled', 'S3 Block Public Access Disabled', 'El bucket S3 \'redscope-test-public\' no tiene habilitada la configuración de bloqueo de acceso público, lo que puede exponer objetos y datos sensibles a accesos no autorizados desde internet.', 4, 'Se detecta cuando alguna de las cuatro configuraciones de Block Public Access del bucket S3 está deshabilitada: BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy o RestrictPublicBuckets.', 'Habilitá las cuatro opciones de Block Public Access en el bucket S3 desde la consola AWS o mediante CLI. Revisá políticas y ACLs existentes para evitar exposición pública de objetos no intencionada.', 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html', '2026-06-24 15:40:41', '2026-06-24 15:40:41', NULL, 1, NULL, 1, NULL),
-(8, 'aws', 'S3', 'public_via_policy', 'S3 Bucket Publicly Accessible via Bucket Policy', 'El bucket S3 \'redscope-test-public\' tiene una política que permite acceso público. Esto expone objetos almacenados a cualquier usuario de internet, representando un riesgo significativo de fuga de datos sensibles.', 4, 'Se detecta cuando la política del bucket contiene declaraciones con Principal \'*\' o \'AWS: *\' y Effect \'Allow\', sin condiciones restrictivas que limiten el acceso.', 'Revisá y restringí la política del bucket eliminando permisos con Principal \'*\'. Habilitá S3 Block Public Access a nivel de bucket y cuenta para prevenir exposiciones accidentales.', 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html', '2026-06-24 15:40:47', '2026-06-24 15:40:47', NULL, 1, NULL, 1, NULL),
-(9, 'aws', 'S3', 'is_effectively_public', 'S3 Bucket Publicly Accessible', 'El bucket S3 \'redscope-test-public\' es accesible públicamente. Esto expone los objetos almacenados a cualquier usuario de internet, pudiendo provocar fuga de datos sensibles o acceso no autorizado a recursos críticos.', 5, 'Se verifica si el bucket tiene deshabilitado el bloqueo de acceso público (Block Public Access) o posee políticas de bucket o ACLs que otorguen permisos a \'*\' o \'AllUsers\'.', 'Activar las cuatro opciones de S3 Block Public Access en el bucket. Revisar y corregir políticas de bucket y ACLs para eliminar permisos otorgados a entidades públicas o anónimas.', 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html', '2026-06-24 15:40:53', '2026-06-24 15:40:53', NULL, 1, NULL, 1, NULL);
 
 -- --------------------------------------------------------
 
@@ -557,11 +570,11 @@ CREATE TABLE `severidades` (
 --
 
 INSERT INTO `severidades` (`id`, `nombre`, `score`, `color`, `orden`, `estado_id`) VALUES
-(1, 'INFORMATIVO', 0, '#808080', 1, 2),
-(2, 'BAJO', 2, '#00B050', 2, 1),
-(3, 'MEDIO', 5, '#FFA500', 3, 1),
-(4, 'ALTO', 8, '#FF0000', 4, 1),
-(5, 'CRITICO', 10, '#800080', 5, 1);
+(1, 'INFORMATIONAL', 0, '#808080', 1, 1),
+(2, 'LOW', 2, '#00B050', 2, 1),
+(3, 'MEDIUM', 5, '#FFA500', 3, 1),
+(4, 'HIGH', 8, '#FF0000', 4, 1),
+(5, 'CRITICAL', 10, '#800080', 5, 1);
 
 -- --------------------------------------------------------
 
@@ -610,6 +623,7 @@ INSERT INTO `tipos_servicio` (`id`, `nombre`, `creacion`, `actualizacion`, `esta
 CREATE TABLE `tipo_proyecto` (
   `id` int(11) NOT NULL,
   `nombre` varchar(255) NOT NULL,
+  `descripcion` varchar(1000) DEFAULT NULL,
   `estado_id` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -617,11 +631,11 @@ CREATE TABLE `tipo_proyecto` (
 -- Volcado de datos para la tabla `tipo_proyecto`
 --
 
-INSERT INTO `tipo_proyecto` (`id`, `nombre`, `estado_id`) VALUES
-(1, 'INFRAESTRUCTURA', 2),
-(2, 'WEB', 2),
-(3, 'CLOUD', 1),
-(4, 'OSINT', 1);
+INSERT INTO `tipo_proyecto` (`id`, `nombre`, `descripcion`, `estado_id`) VALUES
+(1, 'INFRAESTRUCTURA', 'Evaluación de seguridad en infraestructura de red, servidores y dispositivos.', 2),
+(2, 'WEB', 'Evaluación de seguridad en aplicaciones web, APIs y servicios HTTP.', 2),
+(3, 'CLOUD', 'Evaluación de seguridad en infraestructura cloud AWS, revisión de configuraciones y permisos.', 1),
+(4, 'OSINT', 'Recopilación y análisis de información de fuentes públicas sobre objetivos específicos.', 1);
 
 -- --------------------------------------------------------
 
@@ -688,6 +702,15 @@ INSERT INTO `versiones_deprecadas` (`id`, `tipo_proyecto_id`, `proveedor`, `serv
 --
 
 --
+-- Indices de la tabla `clientes`
+--
+ALTER TABLE `clientes`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_nombre` (`nombre`),
+  ADD UNIQUE KEY `uq_cuit` (`cuit`),
+  ADD KEY `estado_id` (`estado_id`);
+
+--
 -- Indices de la tabla `cloud_ejecuciones`
 --
 ALTER TABLE `cloud_ejecuciones`
@@ -746,7 +769,8 @@ ALTER TABLE `proyectos`
   ADD KEY `fk_proyectos_estados` (`estado_id`),
   ADD KEY `fk_proyectos_servicios` (`tipo_servicio_id`),
   ADD KEY `fk_proyectos_usuarios` (`usuario_creador_id`),
-  ADD KEY `fk_proyectos_sectores` (`sector_id`);
+  ADD KEY `fk_proyectos_sectores` (`sector_id`),
+  ADD KEY `cliente_id` (`cliente_id`);
 
 --
 -- Indices de la tabla `proyecto_cloud_config`
@@ -879,6 +903,12 @@ ALTER TABLE `versiones_deprecadas`
 --
 
 --
+-- AUTO_INCREMENT de la tabla `clientes`
+--
+ALTER TABLE `clientes`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+
+--
 -- AUTO_INCREMENT de la tabla `cloud_ejecuciones`
 --
 ALTER TABLE `cloud_ejecuciones`
@@ -918,7 +948,7 @@ ALTER TABLE `findings_evidence`
 -- AUTO_INCREMENT de la tabla `proyectos`
 --
 ALTER TABLE `proyectos`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=30;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=32;
 
 --
 -- AUTO_INCREMENT de la tabla `proyecto_cloud_config`
@@ -942,7 +972,7 @@ ALTER TABLE `reporte_contenido_secciones`
 -- AUTO_INCREMENT de la tabla `reporte_estructura_cloud`
 --
 ALTER TABLE `reporte_estructura_cloud`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
 
 --
 -- AUTO_INCREMENT de la tabla `reporte_tema`
@@ -966,7 +996,7 @@ ALTER TABLE `sectores`
 -- AUTO_INCREMENT de la tabla `security_rules`
 --
 ALTER TABLE `security_rules`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT de la tabla `servicios_aws`
@@ -1002,7 +1032,7 @@ ALTER TABLE `tipos_servicio`
 -- AUTO_INCREMENT de la tabla `tipo_proyecto`
 --
 ALTER TABLE `tipo_proyecto`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT de la tabla `usuarios`
@@ -1019,6 +1049,12 @@ ALTER TABLE `versiones_deprecadas`
 --
 -- Restricciones para tablas volcadas
 --
+
+--
+-- Filtros para la tabla `clientes`
+--
+ALTER TABLE `clientes`
+  ADD CONSTRAINT `clientes_ibfk_1` FOREIGN KEY (`estado_id`) REFERENCES `estados` (`id`);
 
 --
 -- Filtros para la tabla `cloud_ejecuciones`
@@ -1064,7 +1100,8 @@ ALTER TABLE `proyectos`
   ADD CONSTRAINT `fk_proyectos_estados` FOREIGN KEY (`estado_id`) REFERENCES `estados` (`id`),
   ADD CONSTRAINT `fk_proyectos_sectores` FOREIGN KEY (`sector_id`) REFERENCES `sectores` (`id`),
   ADD CONSTRAINT `fk_proyectos_servicios` FOREIGN KEY (`tipo_servicio_id`) REFERENCES `tipos_servicio` (`id`),
-  ADD CONSTRAINT `fk_proyectos_usuarios` FOREIGN KEY (`usuario_creador_id`) REFERENCES `usuarios` (`id`);
+  ADD CONSTRAINT `fk_proyectos_usuarios` FOREIGN KEY (`usuario_creador_id`) REFERENCES `usuarios` (`id`),
+  ADD CONSTRAINT `proyectos_ibfk_1` FOREIGN KEY (`cliente_id`) REFERENCES `clientes` (`id`);
 
 --
 -- Filtros para la tabla `proyecto_cloud_config`
