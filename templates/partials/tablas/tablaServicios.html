@@ -1,0 +1,21 @@
+<table id="tabla_inicio" class="table-center table-light table table-striped table-hover">
+    <thead>
+        <tr>
+            <th>Servicio</th>
+            <th>Accion</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for proyecto in proyectos %}
+        <tr>
+            <td title="{{ proyecto.descripcion or '' }}">{{ proyecto.tipo }}</td>
+            <td><span class="badge bg-danger" title="Inhabiltiar Servicio" onclick=inhabilitarServicio('{{ proyecto.id
+                    }}') type="button"><i class="bi bi-slash-circle"></i></span></td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="3">No hay datos</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Red Scope{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-start">
+    <span class="badge border border-secondary bg-dark fw-bold text-light m-2">Inicio</span>
+</div>
+
+<button id="alta_servicio" class="btn btn-sm btn-primary px-1 py-0 m-1">Alta Servicio</button>
+<div class="card p-3">
+    {% include 'partials/tablas/tablaServicios.html'%}
+</div>
+{% include 'partials/modals/servicios/mdlAltaServicios.html' %}
+
+<script>
+    const serviciosCloud = {{ tipos_servicio | default([], true) | tojson }};
+</script>
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/servicio.js') }}"></script>
+{% endblock %}
+
+{% endblock %}

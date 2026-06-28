@@ -11,7 +11,7 @@ class Proyecto:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         query = """
-        SELECT tipo_proyecto.id, tipo_proyecto.nombre AS tipo, estados.nombre AS estado 
+        SELECT tipo_proyecto.id, tipo_proyecto.nombre AS tipo, estados.nombre AS estado,tipo_proyecto.descripcion 
         FROM tipo_proyecto 
         INNER JOIN estados 
         ON estados.id=tipo_proyecto.estado_id WHERE tipo_proyecto.estado_id=1
@@ -36,19 +36,18 @@ class Proyecto:
         return tipos_servicio
 
     @staticmethod
-    def insert_proyecto(titulo, cliente, sector_id, usuario_creador_id, tipo_proyecto, tipo_servicio, autenticado, estado_id):
+    def insert_proyecto(titulo, cliente, cliente_id, sector_id, usuario_creador_id, tipo_proyecto, tipo_servicio, autenticado, estado_id):
         conn = get_db_connection()
         cursor = conn.cursor()
         query = """
-            INSERT INTO proyectos (titulo, cliente, sector_id, usuario_creador_id, tipo_proyecto_id, tipo_servicio_id,autenticado, estado_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO proyectos (titulo, cliente, cliente_id, sector_id, usuario_creador_id, tipo_proyecto_id, tipo_servicio_id, autenticado, estado_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        cursor.execute(query, (titulo, cliente, sector_id,
-                       usuario_creador_id, tipo_proyecto, tipo_servicio, autenticado, estado_id))
+        cursor.execute(query, (titulo, cliente, cliente_id, sector_id, usuario_creador_id, tipo_proyecto, tipo_servicio, autenticado, estado_id))
         conn.commit()
         cursor.close()
         conn.close()
-
+    
     @staticmethod
     def get_proyectos(sector_id):
         conn = get_db_connection()
@@ -57,11 +56,10 @@ class Proyecto:
             SELECT 
             p.id,
             p.titulo,
-            p.cliente,
+            COALESCE(c.nombre, p.cliente) AS cliente,
             u.email,
 
             IF(tp.nombre IS NULL, 'N/A', tp.nombre) AS tipo_proyecto,
-
             IF(ts.nombre IS NULL, 'N/A', ts.nombre) AS tipo_servicio,
 
             e.nombre AS estado
@@ -77,11 +75,14 @@ class Proyecto:
             LEFT JOIN tipo_proyecto tp
                 ON p.tipo_proyecto_id = tp.id
 
+            LEFT JOIN clientes c
+                ON p.cliente_id = c.id
+
             INNER JOIN estados e
                 ON p.estado_id = e.id
 
             WHERE p.sector_id = %s AND p.estado_id != 2;
-            """
+        """
         cursor.execute(query, (sector_id,))
         get_proyectos = cursor.fetchall()
         conn.commit()
@@ -917,11 +918,10 @@ class Proyecto:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT sr.origen, COUNT(DISTINCT f.id) as total
+            SELECT f.herramienta AS origen, COUNT(DISTINCT f.id) as total
             FROM findings f
-            LEFT JOIN security_rules sr ON sr.id = f.security_rules_id
             WHERE f.proyecto_id = %s AND f.cloud_ejecucion_id IS NULL AND f.estado_id = 1
-            GROUP BY sr.origen
+            GROUP BY f.herramienta
         """, (proyecto_id,))
         data = cursor.fetchall()
         cursor.close()
@@ -947,12 +947,12 @@ class Proyecto:
                 provider = item.get('Provider', 'aws').lower()
                 service = item.get('ServiceName', '').lower()
 
-                # Insertar security_rule si no existe
                 cursor.execute("""
-                    INSERT INTO security_rules (provider, service, check_id, title, description, severidad_id, remediation, reference, estado_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1)
+                    INSERT INTO security_rules (provider, service, check_id, title, description, severidad_id, remediation, reference, origen, estado_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'prowler', 1)
                     ON DUPLICATE KEY UPDATE 
                         reference = COALESCE(NULLIF(reference, ''), VALUES(reference)),
+                        origen = COALESCE(NULLIF(origen, ''), VALUES(origen)),
                         estado_id = estado_id
                 """, (
                     provider,
@@ -993,8 +993,8 @@ class Proyecto:
                 cursor.execute("""
                     INSERT INTO findings (proyecto_id, usuario_id, security_rules_id, check_id, provider, 
                                         service, resource_id, region, severidad_id, estados_findings_id, 
-                                        inventory_data, estado_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, 1)
+                                        inventory_data, herramienta, estado_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, 'prowler', 1)
                 """, (
                     proyecto_id, usuario_id, security_rule_id, check_id, provider,
                     service, item.get('ResourceId'), item.get('Region'), severidad_id,

@@ -1,0 +1,39 @@
+<div class="modal fade" id="mdlNuevoProyecto" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Nuevo Proyecto</h5>
+            </div>
+            <div class="modal-body">
+                <form id="formNuevoProyecto">
+                    <div class="mb-3">
+                        <label class="form-label">Título</label>
+                        <input type="text" class="form-control form-control-sm" name="titulo" id="np_titulo">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Tipo de Servicio</label>
+                        <select class="form-select form-select-sm" name="tipo_proyecto_id" id="np_tipo_proyecto">
+                            {% for tp in tipo_proyectos %}
+                            <option value="{{ tp.id }}" data-tipo="{{ tp.tipo }}">{{ tp.tipo }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3" id="np_contenedor_servicio" style="display:none;">
+                        <label class="form-label">Proveedor Cloud</label>
+                        <select class="form-select form-select-sm" name="tipo_servicio_id" id="np_tipo_servicio">
+                            {% for ts in tipos_servicio %}
+                            <option value="{{ ts.id }}">{{ ts.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <input type="hidden" name="cliente_id" id="np_cliente_id">
+                    <div class="d-flex justify-content-end">
+                        <button type="button" class="btn btn-sm btn-secondary mx-1 py-0 px-2" data-bs-dismiss="modal">Cerrar</button>
+                        <button type="submit" class="btn btn-sm btn-primary mx-1 py-0 px-2">Guardar</button>
+                    </div>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

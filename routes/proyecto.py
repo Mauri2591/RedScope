@@ -64,7 +64,7 @@ def index():
     tipos_servicio = Proyecto.get_tipos_servicio()
 
     return render_template(
-        'inicio/proyectos.html',
+        'servicio/proyectos.html',
         proyectos=proyectos,
         tipos_servicio=tipos_servicio
     )
@@ -76,24 +76,25 @@ def index():
 @proyecto_bp.route('/proyecto/crear', methods=['POST'])
 @login_required
 def crear_proyecto():
-
     sector_id = session.get('sector_id')
     usuario_creador_id = session.get('user_id')
     estado_id = 1
 
     titulo = request.form.get('titulo')
     cliente = request.form.get('cliente')
-    tipo_proyecto = request.form.get('tipo_proyecto')
-    tipo_servicio = request.form.get('tipo_servicio')
+    cliente_id = request.form.get('cliente_id') or None
+    tipo_proyecto = request.form.get('tipo_proyecto_id')
+    tipo_servicio = request.form.get('tipo_servicio_id')
     autenticado = request.form.get('autenticado')
 
-    if not titulo or not cliente:
-        return jsonify({"success": False, "message": "Campos obligatorios"}), 400
+    if not titulo:
+        return jsonify({"success": False, "message": "Título obligatorio"}), 400
 
     try:
         Proyecto.insert_proyecto(
             titulo=titulo,
             cliente=cliente,
+            cliente_id=cliente_id,
             sector_id=sector_id,
             usuario_creador_id=usuario_creador_id,
             tipo_proyecto=tipo_proyecto,
@@ -101,9 +102,7 @@ def crear_proyecto():
             autenticado=autenticado,
             estado_id=estado_id
         )
-
         return jsonify({"success": True, "message": "Proyecto creado correctamente"})
-
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 

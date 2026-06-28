@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Red Scope - Clientes{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-start">
+    <span class="badge border border-secondary bg-dark fw-bold text-light m-2">Clientes</span>
+</div>
+
+<button id="alta_cliente" class="btn btn-sm btn-primary px-1 py-0 m-1">Alta Cliente</button>
+<div class="card p-3">
+    <table id="tabla_clientes" class="table-center table-light table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>Nombre</th>
+                <th>CUIT</th>
+                <th>Referencia</th>
+                <th>Estado</th>
+                <th>Gestionar</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cliente in clientes %}
+            <tr>
+                <td>{{ cliente.nombre }}</td>
+                <td>{{ cliente.cuit or '-' }}</td>
+                <td>{{ cliente.referencia or '-' }}</td>
+                <td><span class="badge-estado-activo">{{ cliente.estado }}</span></td>
+                <td>
+                    <button onclick="abrirModalProyecto({{ cliente.id }})" class="badge bg-primary text-light py-1 px-2 border-0" title="Nuevo Proyecto">
+                        <i class="bi bi-plus-lg"></i>
+                    </button>
+                    <button onclick="inhabilitarCliente({{ cliente.id }})" class="badge bg-danger text-light py-1 px-2 border-0" title="Inhabilitar">
+                        <i class="bi bi-slash-circle"></i>
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% include 'partials/modals/clientes/mdlAltaCliente.html' %}
+{% include 'partials/modals/clientes/mdlAltaServicioCliente.html' %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/cliente.js') }}"></script>
+{% endblock %}

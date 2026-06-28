@@ -17,6 +17,9 @@
         const tipo_servicio = document.getElementById('tipo_servicio');
         const contenedortipo_servicio = document.getElementById('contenedortipo_servicio');
         const contenedorAutenticado = document.getElementById('contenedorAutenticado');
+        const btnAltaServicio = document.querySelector("#alta_servicio");
+        const formAltaServicio = document.querySelector("#formAltaServicio");
+
 
         if (modal && tipo_servicio && contenedortipo_servicio) {
 
@@ -199,13 +202,38 @@
                     alert("Debe ingresar un password si habilita el cambio.");
                     return false;
                 }
-
-                // Si pasa validaciones
                 alert("Perfil actualizado correctamente.");
-
             });
 
+        if (btnAltaServicio) {
+            btnAltaServicio.addEventListener("click", () => {
+                $("#mdlAltaServicio").modal("show")
+            })
+        }
 
+        if (formAltaServicio) {
+            formAltaServicio.addEventListener("submit", (e) => {
+                e.preventDefault();
+                const data = new FormData(formAltaServicio);
+                fetch('/servicio/alta', {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': getCSRFToken()
+                        },
+                        body: data
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            $("#mdlAltaServicio").modal("hide");
+                            location.reload();
+                        } else {
+                            alert(data.mensaje || 'Error al guardar el servicio.');
+                        }
+                    })
+                    .catch(() => alert('Error al guardar el servicio.'));
+            });
+        }
 
     });
 
@@ -1155,18 +1183,18 @@
             });
     });
 
-function cargarFindingsImportados(proyectoId) {
-    fetch(`/proyecto/${proyectoId}/cloud/import-findings/lista`)
-        .then(r => r.json())
-        .then(data => {
-            $("#tablaImportados tbody").empty();
-            if (data.length === 0) return;
+    function cargarFindingsImportados(proyectoId) {
+        fetch(`/proyecto/${proyectoId}/cloud/import-findings/lista`)
+            .then(r => r.json())
+            .then(data => {
+                $("#tablaImportados tbody").empty();
+                if (data.length === 0) return;
 
-            data.forEach(item => {
-                const herramienta = item.origen || 'desconocido';
-                const badgeClass = item.total > 0 ? 'bg-success' : 'bg-warning text-dark';
+                data.forEach(item => {
+                    const herramienta = item.origen || 'desconocido';
+                    const badgeClass = item.total > 0 ? 'bg-success' : 'bg-warning text-dark';
 
-                $("#tablaImportados tbody").append(`
+                    $("#tablaImportados tbody").append(`
                     <tr>
                         <td>${herramienta.charAt(0).toUpperCase() + herramienta.slice(1)}</td>
                         <td><span class="badge bg-info">IMPORTADO (${item.total})</span></td>
@@ -1180,9 +1208,9 @@ function cargarFindingsImportados(proyectoId) {
                         </td>
                     </tr>
                 `);
+                });
             });
-        });
-}
+    }
 
     function verHallazgosImportados(proyectoId, herramienta) {
         window.location.href = `/proyecto/${proyectoId}/cloud/importados/${herramienta}/hallazgos`;
@@ -1326,10 +1354,10 @@ function cargarFindingsImportados(proyectoId) {
             });
     }
 
-    document.getElementById('inputMitreTecnica').addEventListener('input', function() {
-    if (this.value.trim() === '') {
-        document.getElementById('tbodyMitreFindings').innerHTML = '';
-        document.getElementById('contenedorResultadosMitre').style.display = 'none';
-        document.getElementById('sinResultadosMitre').style.display = 'none';
-    }
-});
+    document.getElementById('inputMitreTecnica').addEventListener('input', function () {
+        if (this.value.trim() === '') {
+            document.getElementById('tbodyMitreFindings').innerHTML = '';
+            document.getElementById('contenedorResultadosMitre').style.display = 'none';
+            document.getElementById('sinResultadosMitre').style.display = 'none';
+        }
+    });
