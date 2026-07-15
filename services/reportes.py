@@ -497,7 +497,6 @@ class ReportService:
         color_acento      = tema.get('acento',           '#00B4D8').lstrip('#')
         color_texto_claro = tema.get('texto_claro',      '#FFFFFF').lstrip('#')
         proveedor         = proyecto.get('tipo_servicio', 'Cloud').upper()
-        cliente           = proyecto.get('cliente', '').upper()
 
         t = doc.add_table(rows=1, cols=1)
         _remove_table_borders(t)
@@ -523,15 +522,6 @@ class ReportService:
         r1.font.bold      = True
         r1.font.color.rgb = _hex_to_rgb(color_texto_claro)
 
-        p2 = c.add_paragraph()
-        p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p2.paragraph_format.space_before = Pt(10)
-        r2 = p2.add_run(cliente)
-        r2.font.name      = 'Arial'
-        r2.font.size      = Pt(20)
-        r2.font.bold      = True
-        r2.font.color.rgb = _hex_to_rgb(color_acento)
-
         # ── Tipo de informe ──
         label_informe = ReportService.TIPOS_INFORME.get(tipo_informe, {}).get('label', '')
         if label_informe:
@@ -540,7 +530,7 @@ class ReportService:
             p25.paragraph_format.space_before = Pt(12)
             r25 = p25.add_run(label_informe)
             r25.font.name      = 'Arial'
-            r25.font.size      = Pt(13)
+            r25.font.size      = Pt(18)
             r25.font.bold      = True
             r25.font.color.rgb = _hex_to_rgb(color_texto_claro)
 
@@ -752,8 +742,8 @@ class ReportService:
         fig, ax = plt.subplots(figsize=(6, max(2.5, len(grupos_ordenados) * 0.8)), dpi=150)
         bars = ax.barh(labels, valores, color=colors, edgecolor=color_primario, linewidth=0.8)
         ax.invert_yaxis()
-        ax.set_xlabel('Nivel de severidad', fontsize=9)
-        titulo_grafico = f"Top {len(grupos_ordenados)} Hallazgos Críticos" if len(grupos_ordenados) < 5 else "Top 5 Hallazgos Críticos"
+        ax.set_xlabel('Cantidad de hallazgos', fontsize=9)
+        titulo_grafico = f"Top {min(len(grupos_ordenados), 5)} Hallazgos de mayor severidad"
         ax.set_title(titulo_grafico, fontsize=11, fontweight='bold', color=color_primario)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
@@ -776,6 +766,7 @@ class ReportService:
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
+        from matplotlib.ticker import MaxNLocator  # ← agregar este import
 
         conteo = {}
         for f in findings:
@@ -797,6 +788,7 @@ class ReportService:
         ax.invert_yaxis()
         ax.set_xlabel('Cantidad de hallazgos', fontsize=9)
         ax.set_title('Hallazgos por Región', fontsize=11, fontweight='bold', color=color_primario)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))  # ← agregar esta línea
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.tick_params(axis='both', labelsize=8)
@@ -1053,58 +1045,6 @@ class ReportService:
             pr.font.size      = Pt(10)
             pr.font.color.rgb = _hex_to_rgb(color_oscuro)
             pc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-        # ── Hallazgos por Región ──────────────────────────────────────
-        regiones_conteo = {}
-        for g in grupos:
-            for rec in g['recursos']:
-                region = ReportService._texto_seguro(rec.get('region', 'GLOBAL')).upper() or 'GLOBAL'
-                regiones_conteo[region] = regiones_conteo.get(region, 0) + 1
-
-        if regiones_conteo:
-            p_reg_titulo = doc.add_paragraph()
-            p_reg_titulo.paragraph_format.space_before = Pt(14)
-            p_reg_titulo.paragraph_format.space_after  = Pt(6)
-            rr = p_reg_titulo.add_run('Hallazgos por Región')
-            rr.font.name = 'Arial'; rr.font.size = Pt(11); rr.font.bold = True
-            rr.font.color.rgb = _hex_to_rgb(color_primario)
-
-            tabla_reg = doc.add_table(rows=1, cols=2)
-            _remove_table_borders(tabla_reg)
-
-            for ci, txt in enumerate(['Región', 'Recursos Afectados']):
-                c = tabla_reg.rows[0].cells[ci]
-                _set_cell_bg(c, color_primario.lstrip('#'))
-                _set_cell_borders(c, 'FFFFFF', '2')
-                _set_cell_margin(c)
-                p = c.paragraphs[0]
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                r = p.add_run(txt)
-                r.font.name = 'Arial'; r.font.size = Pt(10); r.font.bold = True
-                r.font.color.rgb = _hex_to_rgb(color_texto_claro)
-                c.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-            for ri_idx, (region, qty) in enumerate(
-                sorted(regiones_conteo.items(), key=lambda x: x[1], reverse=True)
-            ):
-                bg = color_fila_par.lstrip('#') if ri_idx % 2 == 0 else 'FFFFFF'
-                row = tabla_reg.add_row()
-
-                c0 = row.cells[0]
-                _set_cell_bg(c0, bg); _set_cell_borders(c0, 'DDDDDD', '2'); _set_cell_margin(c0)
-                p0 = c0.paragraphs[0]
-                r0 = p0.add_run(region)
-                r0.font.name = 'Arial'; r0.font.size = Pt(10)
-                r0.font.color.rgb = _hex_to_rgb(color_oscuro)
-                c0.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-                c1 = row.cells[1]
-                _set_cell_bg(c1, bg); _set_cell_borders(c1, 'DDDDDD', '2'); _set_cell_margin(c1)
-                p1 = c1.paragraphs[0]
-                p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                r1 = p1.add_run(str(qty))
-                r1.font.name = 'Arial'; r1.font.size = Pt(10); r1.font.bold = True
-                r1.font.color.rgb = _hex_to_rgb(color_oscuro)
-                c1.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
         doc.add_paragraph()
 
     @staticmethod

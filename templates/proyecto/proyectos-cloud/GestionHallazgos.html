@@ -64,7 +64,8 @@
                             <i class="bi bi-shield-fill-check text-info"
                                 title="Regla generada por IA — sin validar"></i>
                             {% elif f.regla_estado == 'herramienta' %}
-                            <img src="{{ url_for('static', filename='img/tools/' + f.rule_origen + '.png') }}"
+                           {% set tool_name = f.rule_origen.replace('_cli', '').replace('_web', '') %}
+                            <img src="{{ url_for('static', filename='img/tools/' + tool_name + '.png') }}"
                                 width="42" title="Regla importada de {{ f.rule_origen }}"
                                 onerror="this.replaceWith(Object.assign(document.createElement('i'), {className: 'bi bi-shield-fill-check text-warning'}))">
                             {% else %}

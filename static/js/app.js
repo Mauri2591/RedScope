@@ -654,6 +654,37 @@
         alert(CLOUD_EJECUCION_ID)
     }
 
+    // ← AGREGAR AQUÍ:
+    async function cargarFindingsImportados(proyectoId) {
+        try {
+            const response = await fetch(`/proyecto/${proyectoId}/cloud/import-findings/lista`);
+            const data = await response.json();
+
+            const tbody = document.querySelector("#tablaImportados tbody");
+            if (!tbody) return;
+
+            tbody.innerHTML = "";
+
+            data.forEach(item => {
+                tbody.innerHTML += `
+                <tr>
+                    <td>${item.origen}</td>
+                    <td><span class="badge bg-info">${item.total}</span></td>
+                    <td>
+                        <span class="badge bg-success" style="cursor: pointer;" 
+                            title="Ver hallazgos importados"
+                            onclick="verHallazgosImportados(${proyectoId}, '${item.origen}')">
+                            <i class="bi bi-rocket-takeoff-fill"></i>
+                        </span>
+                    </td>
+                </tr>
+            `;
+            });
+        } catch (err) {
+            console.error("[IMPORT ERROR]", err);
+        }
+    }
+
     function mostrarToast() {
         var toastEl = document.getElementById('toastEscaneo');
         var toast = new bootstrap.Toast(toastEl, {
@@ -780,12 +811,23 @@
     function eliminarHallazgo(finding_id) {
         if (!confirm("¿Estás seguro que querés eliminar este hallazgo?")) return;
 
+        // Extraer herramienta de la URL
+        const urlPath = window.location.pathname;
+        console.log("[DEBUG] URL Path:", urlPath);
+        const match = urlPath.match(/importados\/([^/]+)/);
+        console.log("[DEBUG] Regex Match:", match);
+        const herramienta = match ? match[1] : null;
+        console.log("[DEBUG] Herramienta extraída:", herramienta);
+
         fetch(`/proyecto/finding/eliminar/${finding_id}`, {
                 method: 'POST',
                 headers: {
                     "Content-Type": "application/json",
                     "X-CSRFToken": getCSRFToken()
-                }
+                },
+                body: JSON.stringify({
+                    herramienta: herramienta
+                })
             })
             .then(res => res.json())
             .then(res => {
@@ -1144,7 +1186,8 @@
         }
 
         const extensionesValidas = {
-            "prowler": [".json"],
+            "prowler_web": [".json"],
+            "prowler_cli": [".json"],
             "scoutsuite": [".json"]
         };
 
@@ -1182,35 +1225,6 @@
                 }
             });
     });
-
-    function cargarFindingsImportados(proyectoId) {
-        fetch(`/proyecto/${proyectoId}/cloud/import-findings/lista`)
-            .then(r => r.json())
-            .then(data => {
-                $("#tablaImportados tbody").empty();
-                if (data.length === 0) return;
-
-                data.forEach(item => {
-                    const herramienta = item.origen || 'desconocido';
-                    const badgeClass = item.total > 0 ? 'bg-success' : 'bg-warning text-dark';
-
-                    $("#tablaImportados tbody").append(`
-                    <tr>
-                        <td>${herramienta.charAt(0).toUpperCase() + herramienta.slice(1)}</td>
-                        <td><span class="badge bg-info">IMPORTADO (${item.total})</span></td>
-                        <td>
-                            <span class="badge ${badgeClass}" 
-                                  title="Ver hallazgos" 
-                                  onclick="verHallazgosImportados(${proyectoId}, '${herramienta}')"
-                                  style="cursor:pointer;">
-                                <i class="bi bi-rocket-takeoff-fill"></i>
-                            </span>
-                        </td>
-                    </tr>
-                `);
-                });
-            });
-    }
 
     function verHallazgosImportados(proyectoId, herramienta) {
         window.location.href = `/proyecto/${proyectoId}/cloud/importados/${herramienta}/hallazgos`;
@@ -1261,20 +1275,26 @@
         const ids = getSeleccionados();
         if (!ids.length) return;
         if (!confirm(`¿Eliminar ${ids.length} hallazgo(s)?`)) return;
+
+        // Extraer herramienta de la URL si estamos en importados
+        const urlPath = window.location.pathname;
+        const match = urlPath.match(/importados\/([^/]+)/);
+        const herramienta = match ? match[1] : null;
+
         fetch("/proyecto/findings/eliminar-masivo", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "X-CSRFToken": getCSRFToken()
+                "X-CSRFToken": $('meta[name="csrf-token"]').attr("content")
             },
             body: JSON.stringify({
-                finding_ids: ids
+                finding_ids: ids,
+                herramienta: herramienta
             })
         }).then(r => r.json()).then(data => {
             if (data.success) location.reload();
         });
     }
-
     let mitreTecnicas = {};
 
     function abrirFiltroMitre() {

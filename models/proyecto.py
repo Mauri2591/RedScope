@@ -504,72 +504,95 @@ class Proyecto:
         
     @staticmethod
     def insert_finding(data, usuario_id):
-
         conn = get_db_connection()
         cursor = conn.cursor()
 
         check_id = data['check_id'].strip()
         resource_id = data['resource_id'].strip()
+        cloud_ejecucion_id = data.get('cloud_ejecucion_id')
+        proyecto_id = data['proyecto_id']
 
+        # ========================
+        # BUSCAR SI YA EXISTE
+        # ========================
         cursor.execute("""
-            INSERT INTO findings(
+            SELECT id, herramienta FROM findings
+            WHERE proyecto_id = %s 
+            AND check_id = %s 
+            AND resource_id = %s 
+            AND estado_id = 1
+            LIMIT 1
+        """, (proyecto_id, check_id, resource_id))
+        
+        existe = cursor.fetchone()
+
+        if existe:
+            # ========================
+            # UPDATE (preservar herramienta original)
+            # ========================
+            finding_id = existe[0]
+            
+            cursor.execute("""
+                UPDATE findings SET
+                    usuario_id = %s,
+                    security_rules_id = %s,
+                    severidad_id = %s,
+                    estados_findings_id = %s,
+                    finding_comment = %s,
+                    inventory_data = %s,
+                    region = %s,
+                    actualizacion = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (
+                usuario_id,
+                data.get('security_rules_id'),
+                data['severidad_id'],
+                data['estados_findings_id'],
+                data.get('finding_comment'),
+                data.get('inventory_data'),
+                data.get('region', ''),
+                finding_id
+            ))
+        else:
+            # ========================
+            # INSERT (nuevo finding)
+            # ========================
+            cursor.execute("""
+                INSERT INTO findings(
+                    proyecto_id,
+                    usuario_id,
+                    cloud_ejecucion_id,
+                    security_rules_id,
+                    check_id,
+                    provider,
+                    service,
+                    resource_id,
+                    region,
+                    severidad_id,
+                    estados_findings_id,
+                    inventory_data,
+                    finding_comment,
+                    herramienta,
+                    estado_id
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
+            """, (
                 proyecto_id,
                 usuario_id,
-                cloud_ejecucion_id,
-                security_rules_id,
+                data.get('cloud_ejecucion_id'),
+                data.get('security_rules_id'),
                 check_id,
-                provider,
-                service,
+                data['provider'],
+                data['service'],
                 resource_id,
-                region,
-                severidad_id,
-                estados_findings_id,
-                inventory_data,
-                finding_comment,
-                estado_id
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1)
-
-            ON DUPLICATE KEY UPDATE
-                usuario_id = VALUES(usuario_id),
-                security_rules_id = VALUES(security_rules_id),
-                severidad_id = VALUES(severidad_id),
-                estados_findings_id = VALUES(estados_findings_id),
-                finding_comment = VALUES(finding_comment),
-                inventory_data = VALUES(inventory_data),
-                region = VALUES(region),
-                actualizacion = CURRENT_TIMESTAMP
-        """, (
-            data['proyecto_id'],
-            usuario_id,
-            data['cloud_ejecucion_id'],
-            data['security_rules_id'],
-            check_id,
-            data['provider'],
-            data['service'],
-            resource_id,
-            data.get('region', ''),   # ← nuevo
-            data['severidad_id'],
-            data['estados_findings_id'],
-            data.get('inventory_data'),
-            data.get('finding_comment')
-        ))
-
-        # IMPORTANTE: obtener ID correcto SIEMPRE
-        finding_id = cursor.lastrowid
-
-        if finding_id == 0:
-            cursor.execute("""
-                SELECT id FROM findings
-                WHERE cloud_ejecucion_id = %s
-                AND resource_id = %s
-                AND check_id = %s
-                AND estado_id = 1
-            """, (
-                data['cloud_ejecucion_id'],
-                resource_id,
-                check_id
+                data.get('region', ''),
+                data['severidad_id'],
+                data['estados_findings_id'],
+                data.get('inventory_data'),
+                data.get('finding_comment'),
+                data.get('herramienta')  # ← Preservar herramienta
             ))
-            finding_id = cursor.fetchone()[0]
+            
+            finding_id = cursor.lastrowid
 
         conn.commit()
         cursor.close()
@@ -684,14 +707,15 @@ class Proyecto:
         return enriched
 
     @staticmethod
-    def delete_finding(finding_id):
+    def delete_finding(finding_id, herramienta=None):
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE findings 
-            SET estado_id = 2 
-            WHERE id = %s
-        """, (finding_id,))
+        
+        if herramienta:
+            cursor.execute("UPDATE findings SET estado_id=2 WHERE id=%s AND herramienta=%s", (finding_id, herramienta))
+        else:
+            cursor.execute("UPDATE findings SET estado_id=2 WHERE id=%s", (finding_id,))
+        
         conn.commit()
         cursor.close()
         conn.close()
@@ -909,8 +933,10 @@ class Proyecto:
     #-------------------------------- Importar archivos de findings de herramientas ------------#
     @staticmethod
     def import_findings(proyecto_id, herramienta, data, usuario_id):
-        if herramienta == 'prowler':
-            return Proyecto._import_prowler(proyecto_id, data, usuario_id)
+        if herramienta == 'prowler_cli':
+            return Proyecto._import_prowler_cli(proyecto_id, data, usuario_id)
+        elif herramienta == 'prowler_web':
+            return Proyecto._import_prowler_web(proyecto_id, data, usuario_id)
         return 0
 
     @staticmethod
@@ -928,89 +954,279 @@ class Proyecto:
         conn.close()
         return data
 
+    # ============================================================================
+# REEMPLAZAR ESTOS MÉTODOS EN models/proyecto.py
+# ============================================================================
+
     @staticmethod
-    def _import_prowler(proyecto_id, data, usuario_id):
+    def _normalize_prowler_data(data):
+        """
+        Normaliza la entrada de Prowler a una lista de items.
+        Prowler puede retornar:
+        - Array directo: [{ CheckID: ..., Status: ... }, ...]
+        - Objeto con clave 'findings': { findings: [...] }
+        - Otros formatos
+        """
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            # Intenta extraer array de keys comunes
+            for key in ['findings', 'Findings', 'checks', 'Checks', 'data', 'Data']:
+                if key in data and isinstance(data[key], list):
+                    return data[key]
+            # Si es un dict con CheckID, envolver en array
+            if 'CheckID' in data:
+                return [data]
+        return []
+
+    @staticmethod
+    def _import_prowler_cli(proyecto_id, data, usuario_id):
+        """Importa findings desde Prowler CLI (formato JSON plano)"""
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         importados = 0
+        
+        # Normalizar entrada
+        items = Proyecto._normalize_prowler_data(data)
+        if not items:
+            cursor.close()
+            conn.close()
+            return 0
+        
         severidades = Proyecto.get_severidades()
         severidad_map = {s['nombre'].lower(): s['id'] for s in severidades}
         
         try:
-            for item in data:
-                print(f"[IMPORT] Status={item.get('Status')} CheckID={item.get('CheckID')}")
-                if item.get('Status') != 'FAIL':
+            for idx, item in enumerate(items):
+                check_id = item.get('CheckID', '').strip()
+                status = item.get('Status', '').upper()
+                
+                # Debug
+                print(f"[PROWLER_CLI] idx={idx} CheckID={check_id} Status={status}")
+                
+                # Solo importar FAIL
+                if status != 'FAIL':
                     continue
-
-                severidad_id = severidad_map.get(item.get('Severity', '').lower(), 3)
-                check_id = item.get('CheckID')
+                
+                if not check_id:
+                    print(f"[PROWLER_CLI] ⚠️  Saltando item sin CheckID en índice {idx}")
+                    continue
+                
                 provider = item.get('Provider', 'aws').lower()
                 service = item.get('ServiceName', '').lower()
-
+                severity_name = item.get('Severity', 'medium').lower()
+                resource_id = item.get('ResourceId', '')
+                region = item.get('Region', '')
+                
+                severidad_id = severidad_map.get(severity_name, 3)  # Default MEDIUM si no encuentra
+                
+                # ========================
+                # Guardar o actualizar security_rule
+                # ========================
                 cursor.execute("""
-                    INSERT INTO security_rules (provider, service, check_id, title, description, severidad_id, remediation, reference, origen, estado_id)
+                    INSERT INTO security_rules 
+                    (provider, service, check_id, title, description, severidad_id, 
+                    remediation, reference, origen, estado_id)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'prowler', 1)
                     ON DUPLICATE KEY UPDATE 
-                        reference = COALESCE(NULLIF(reference, ''), VALUES(reference)),
-                        origen = COALESCE(NULLIF(origen, ''), VALUES(origen)),
-                        estado_id = estado_id
+                        reference = COALESCE(NULLIF(VALUES(reference), ''), reference),
+                        origen = COALESCE(NULLIF(VALUES(origen), ''), origen),
+                        estado_id = 1
                 """, (
                     provider,
                     service,
                     check_id,
-                    item.get('CheckTitle'),
-                    item.get('Risk'),
+                    item.get('CheckTitle', check_id)[:200],
+                    item.get('Risk', '')[:500],
                     severidad_id,
-                    item.get('Remediation', {}).get('Recommendation', {}).get('Text'),
-                    item.get('RelatedUrl') or item.get('Remediation', {}).get('Recommendation', {}).get('Url') or None,
+                    item.get('Remediation', {}).get('Recommendation', {}).get('Text', '')[:500] if isinstance(item.get('Remediation'), dict) else '',
+                    item.get('RelatedUrl', item.get('Remediation', {}).get('Recommendation', {}).get('Url') if isinstance(item.get('Remediation'), dict) else None)
                 ))
-
-                # Obtener security_rule_id
-                cursor.execute("SELECT id FROM security_rules WHERE check_id = %s", (check_id,))
-                rule = cursor.fetchone()
-                security_rule_id = rule['id'] if rule else None
-
-               # Verificar si ya existe
+                
+                # Obtener ID de la rule
+                cursor.execute("SELECT id FROM security_rules WHERE check_id = %s LIMIT 1", (check_id,))
+                rule_row = cursor.fetchone()
+                security_rule_id = rule_row['id'] if rule_row else None
+                
+                # ========================
+                # Verificar si el finding ya existe
+                # ========================
                 cursor.execute("""
                     SELECT id FROM findings 
-                    WHERE proyecto_id = %s AND check_id = %s AND resource_id = %s 
-                    AND cloud_ejecucion_id IS NULL AND estado_id = 1
-                """, (proyecto_id, check_id, item.get('ResourceId')))
+                    WHERE proyecto_id = %s 
+                    AND check_id = %s 
+                    AND resource_id = %s 
+                    AND herramienta = 'prowler_cli'
+                    AND cloud_ejecucion_id IS NULL 
+                    AND estado_id = 1
+                    LIMIT 1
+                """, (proyecto_id, check_id, resource_id))
                 
                 existe = cursor.fetchone()
-                print(f"[IMPORT CHECK] check_id={check_id} resource={item.get('ResourceId')} existe={existe}")
-
                 if existe:
+                    print(f"[PROWLER_CLI] ⏭️  Ya existe: check_id={check_id} resource={resource_id}")
                     continue
-
+                
+                # ========================
                 # Insertar finding
-                inventory_data = json.dumps({
-                    "status_extended": item.get('StatusExtended'),
-                    "finding_unique_id": item.get('FindingUniqueId'),
-                    "resource_arn": item.get('ResourceArn'),
+                # ========================
+                inventory_json = json.dumps({
+                    "status_extended": item.get('StatusExtended', ''),
+                    "finding_unique_id": item.get('FindingUniqueId', ''),
+                    "resource_arn": item.get('ResourceArn', ''),
                     "compliance": item.get('Compliance', {})
                 }, ensure_ascii=False)
+                
                 cursor.execute("""
-                    INSERT INTO findings (proyecto_id, usuario_id, security_rules_id, check_id, provider, 
-                                        service, resource_id, region, severidad_id, estados_findings_id, 
-                                        inventory_data, herramienta, estado_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, 'prowler', 1)
+                    INSERT INTO findings 
+                    (proyecto_id, usuario_id, security_rules_id, check_id, 
+                    provider, service, resource_id, region, severidad_id, 
+                    estados_findings_id, inventory_data, herramienta, estado_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, 'prowler_cli', 1)
                 """, (
-                    proyecto_id, usuario_id, security_rule_id, check_id, provider,
-                    service, item.get('ResourceId'), item.get('Region'), severidad_id,
-                    inventory_data
+                    proyecto_id, usuario_id, security_rule_id, check_id,
+                    provider, service, resource_id, region, severidad_id,
+                    inventory_json
                 ))
-
+                
                 importados += 1
-
+                print(f"[PROWLER_CLI] ✅ Importado: {check_id} - {resource_id}")
+            
             conn.commit()
+        
         except Exception as e:
             conn.rollback()
-            print(f"[IMPORT PROWLER ERROR] {e}")
+            print(f"[PROWLER_CLI ERROR] {str(e)}")
+            import traceback
+            traceback.print_exc()
+        
         finally:
             cursor.close()
             conn.close()
+        
+        print(f"[PROWLER_CLI] Total importados: {importados}")
+        return importados
 
+    @staticmethod
+    def _import_prowler_web(proyecto_id, data, usuario_id):
+        """Importa findings desde Prowler Web (JSON-OCSF)"""
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        importados = 0
+        
+        items = Proyecto._normalize_prowler_data(data)
+        if not items:
+            cursor.close()
+            conn.close()
+            return 0
+        
+        severidades = Proyecto.get_severidades()
+        severidad_map = {s['nombre'].lower(): s['id'] for s in severidades}
+        
+        try:
+            for idx, item in enumerate(items):
+                # OCSF structure
+                status_code = item.get('status_code', '').upper()
+                check_id = item.get('metadata', {}).get('event_code', '').strip()
+                severity_name = item.get('severity', 'medium').lower()
+                
+                print(f"[PROWLER_WEB] idx={idx} CheckID={check_id} Status={status_code}")
+                
+                if status_code != 'FAIL':
+                    continue
+                
+                if not check_id:
+                    print(f"[PROWLER_WEB] ⚠️  Sin CheckID en idx {idx}")
+                    continue
+                
+                # Extraer datos
+                provider = item.get('cloud', {}).get('provider', 'aws').lower()
+                region = item.get('cloud', {}).get('region', '')
+                account_id = item.get('cloud', {}).get('account', {}).get('uid', '')
+                
+                # Recurso: primera del array
+                resources = item.get('resources', [])
+                resource_id = resources[0].get('uid', '') if resources else ''
+                service = resources[0].get('group', {}).get('name', '') if resources else ''
+                
+                severidad_id = severidad_map.get(severity_name, 3)
+                
+                # Guardar security_rule
+                cursor.execute("""
+                    INSERT INTO security_rules 
+                    (provider, service, check_id, title, description, severidad_id, 
+                    remediation, reference, origen, estado_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'prowler_web', 1)
+                    ON DUPLICATE KEY UPDATE 
+                        reference = COALESCE(NULLIF(VALUES(reference), ''), reference),
+                        origen = COALESCE(NULLIF(VALUES(origen), ''), origen),
+                        estado_id = 1
+                """, (
+                    provider,
+                    service,
+                    check_id,
+                    item.get('finding_info', {}).get('title', check_id)[:200],
+                    item.get('finding_info', {}).get('desc', '')[:500],
+                    severidad_id,
+                    item.get('remediation', {}).get('desc', '')[:500],
+                    item.get('remediation', {}).get('references', [None])[0]
+                ))
+                
+                cursor.execute("SELECT id FROM security_rules WHERE check_id = %s LIMIT 1", (check_id,))
+                rule_row = cursor.fetchone()
+                security_rule_id = rule_row['id'] if rule_row else None
+                
+                # Verificar duplicado
+                cursor.execute("""
+                SELECT id FROM findings 
+                WHERE proyecto_id = %s 
+                AND check_id = %s 
+                AND resource_id = %s 
+                AND herramienta = 'prowler_web'
+                AND cloud_ejecucion_id IS NULL 
+                AND estado_id = 1
+                LIMIT 1
+            """, (proyecto_id, check_id, resource_id))
+                
+                if cursor.fetchone():
+                    print(f"[PROWLER_WEB] ⏭️  Ya existe: {check_id} - {resource_id}")
+                    continue
+                
+                # Insertar finding
+                inventory_json = json.dumps({
+                    "status_code": status_code,
+                    "account_id": account_id,
+                    "compliance": item.get('unmapped', {}).get('compliance', {})
+                }, ensure_ascii=False)
+                
+                cursor.execute("""
+                    INSERT INTO findings 
+                    (proyecto_id, usuario_id, security_rules_id, check_id, 
+                    provider, service, resource_id, region, severidad_id, 
+                    estados_findings_id, inventory_data, herramienta, estado_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, 'prowler_web', 1)
+                """, (
+                    proyecto_id, usuario_id, security_rule_id, check_id,
+                    provider, service, resource_id, region, severidad_id,
+                    inventory_json
+                ))
+                
+                importados += 1
+                print(f"[PROWLER_WEB] ✅ Importado: {check_id}")
+            
+            conn.commit()
+        
+        except Exception as e:
+            conn.rollback()
+            print(f"[PROWLER_WEB ERROR] {str(e)}")
+            import traceback
+            traceback.print_exc()
+        
+        finally:
+            cursor.close()
+            conn.close()
+        
+        print(f"[PROWLER_WEB] Total: {importados}")
         return importados
     
     @staticmethod
@@ -1021,14 +1237,15 @@ class Proyecto:
             SELECT f.id as finding_id, f.check_id, f.resource_id, f.region,
                 f.severidad_id, f.estados_findings_id, f.finding_comment,
                 f.verificado, f.inventory_data, f.security_rules_id,
-                f.provider, f.service, f.cloud_ejecucion_id,
+                f.provider, f.service, f.cloud_ejecucion_id, f.herramienta,
                 sr.origen AS rule_origen
             FROM findings f
             LEFT JOIN security_rules sr ON f.security_rules_id = sr.id
             WHERE f.proyecto_id = %s 
             AND f.cloud_ejecucion_id IS NULL
             AND f.estado_id = 1
-        """, (proyecto_id,))
+            AND f.herramienta = %s
+        """, (proyecto_id, herramienta))
         data = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -1046,12 +1263,17 @@ class Proyecto:
         conn.close()
 
     @staticmethod
-    def eliminar_findings_masivo(ids):
+    def eliminar_findings_masivo(ids, herramienta=None):
         if not ids: return
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         format_strings = ','.join(['%s'] * len(ids))
-        cursor.execute(f"UPDATE findings SET estado_id=2 WHERE id IN ({format_strings})", ids)
+        
+        if herramienta:
+            cursor.execute(f"UPDATE findings SET estado_id=2 WHERE id IN ({format_strings}) AND herramienta = %s", ids + [herramienta])
+        else:
+            cursor.execute(f"UPDATE findings SET estado_id=2 WHERE id IN ({format_strings})", ids)
+        
         conn.commit()
         cursor.close()
         conn.close()

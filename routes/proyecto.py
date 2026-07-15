@@ -570,8 +570,10 @@ def gestionar_findings(check_id):
 @proyecto_bp.route('/proyecto/finding/eliminar/<int:finding_id>', methods=['POST'])
 @login_required
 def eliminar_finding(finding_id):
-    Proyecto.delete_finding(finding_id)
-    return jsonify({"success": True})    
+    data = request.get_json() or {}
+    herramienta = data.get('herramienta')
+    Proyecto.delete_finding(finding_id, herramienta)
+    return jsonify({"success": True})  
 
 @proyecto_bp.route('/proyecto/security-rule', methods=['POST'])
 @login_required
@@ -809,13 +811,14 @@ def get_imported_findings(proyecto_id):
 #---------------------------------------------------------------------------#
 #-------------------------------- Importar archivos de findings de herramientas ------------#
 IMPORT_CONFIG = {
-    'prowler': {
-        'extensiones': ['.json'],
-        'parser': 'parse_prowler'
+    'prowler_cli': {
+        'extensiones': ['.json']
+    },
+    'prowler_web': {
+        'extensiones': ['.json']
     },
     'scoutsuite': {
-        'extensiones': ['.json'],
-        'parser': 'parse_scoutsuite'
+        'extensiones': ['.json']
     }
 }
 
@@ -845,6 +848,46 @@ def import_findings(proyecto_id):
 
     return jsonify({"success": True, "imported": resultado})
 
+@staticmethod
+def get_findings_importados(proyecto_id, herramienta):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT f.id as finding_id, f.check_id, f.resource_id, f.region,
+            f.severidad_id, f.estados_findings_id, f.finding_comment,
+            f.verificado, f.inventory_data, f.security_rules_id,
+            f.provider, f.service, f.cloud_ejecucion_id, f.herramienta,
+            sr.origen AS rule_origen
+        FROM findings f
+        LEFT JOIN security_rules sr ON f.security_rules_id = sr.id
+        WHERE f.proyecto_id = %s 
+        AND f.cloud_ejecucion_id IS NULL
+        AND f.estado_id = 1
+        AND f.herramienta = %s
+    """, (proyecto_id, herramienta))
+    data = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return data
+    
+@proyecto_bp.route('/proyecto/findings/verificar-masivo', methods=['POST'])
+@login_required
+def verificar_findings_masivo():
+    data = request.get_json()
+    ids = data.get('finding_ids', [])
+    Proyecto.verificar_findings_masivo(ids)
+    return jsonify({"success": True})
+
+@proyecto_bp.route('/proyecto/findings/eliminar-masivo', methods=['POST'])
+@login_required
+def eliminar_findings_masivo():
+    data = request.get_json()
+    ids = data.get('finding_ids', [])
+    herramienta = data.get('herramienta')
+    
+    Proyecto.eliminar_findings_masivo(ids, herramienta)
+    return jsonify({"success": True})
+
 @proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud/importados/<string:herramienta>/hallazgos')
 @login_required
 def gestionar_hallazgos_importados(proyecto_id, herramienta):
@@ -872,25 +915,10 @@ def gestionar_hallazgos_importados(proyecto_id, herramienta):
         'proyecto/proyectos-cloud/GestionHallazgos.html',
         proyecto=proyecto,
         ejecucion=None,
-        findings=findings
+        findings=findings,
+        herramienta=herramienta
     )
     
-@proyecto_bp.route('/proyecto/findings/verificar-masivo', methods=['POST'])
-@login_required
-def verificar_findings_masivo():
-    data = request.get_json()
-    ids = data.get('finding_ids', [])
-    Proyecto.verificar_findings_masivo(ids)
-    return jsonify({"success": True})
-
-@proyecto_bp.route('/proyecto/findings/eliminar-masivo', methods=['POST'])
-@login_required
-def eliminar_findings_masivo():
-    data = request.get_json()
-    ids = data.get('finding_ids', [])
-    Proyecto.eliminar_findings_masivo(ids)
-    return jsonify({"success": True})
-
 @proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud/mitre-tecnicas', methods=['GET'])
 @login_required
 def get_mitre_tecnicas(proyecto_id):

@@ -28,29 +28,36 @@ $(document).ready(function () {
             e.preventDefault();
             let data = new FormData(formAltaCliente);
             fetch('/cliente/alta', {
-                method: 'POST',
-                headers: { 'X-CSRFToken': csrfToken },
-                body: data
-            })
-            .then(res => {
-                if (res.ok) {
-                    alert('Cliente creado correctamente');
-                    $("#mdlAltaCliente").modal("hide");
-                    location.reload();
-                } else {
-                    alert('Error al crear el Cliente');
-                }
-            })
-            .catch(() => alert('Error al guardar el cliente.'));
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: data
+                })
+                .then(res => {
+                    if (res.ok) {
+                        alert('Cliente creado correctamente');
+                        $("#mdlAltaCliente").modal("hide");
+                        location.reload();
+                    } else {
+                        alert('Error al crear el Cliente');
+                    }
+                })
+                .catch(() => alert('Error al guardar el cliente.'));
         });
     }
 
     $('#np_tipo_proyecto').on('change', function () {
         const tipo = $(this).find('option:selected').data('tipo');
+        const $contenedorServicio = $('#np_contenedor_servicio');
+        const $selectServicio = $('#np_tipo_servicio');
+
         if (tipo === 'CLOUD') {
-            $('#np_contenedor_servicio').show();
+            $contenedorServicio.show();
+            $selectServicio.prop('disabled', false);
         } else {
-            $('#np_contenedor_servicio').hide();
+            $contenedorServicio.hide();
+            $selectServicio.prop('disabled', true);
         }
     });
 
@@ -58,19 +65,21 @@ $(document).ready(function () {
         e.preventDefault();
         const data = new FormData(this);
         fetch('/proyecto/crear', {
-            method: 'POST',
-            headers: { 'X-CSRFToken': csrfToken },
-            body: data
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
-                $('#mdlNuevoProyecto').modal('hide');
-                alert('Proyecto creado correctamente.');
-            } else {
-                alert(data.message || 'Error al crear el proyecto.');
-            }
-        });
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrfToken
+                },
+                body: data
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    $('#mdlNuevoProyecto').modal('hide');
+                    alert('Proyecto creado correctamente.');
+                } else {
+                    alert(data.message || 'Error al crear el proyecto.');
+                }
+            });
     });
 
 });
@@ -85,12 +94,14 @@ function abrirModalProyecto(clienteId) {
 function inhabilitarCliente(id) {
     if (!confirm('¿Desea inhabilitar este cliente?')) return;
     fetch(`/cliente/${id}/inhabilitar`, {
-        method: 'POST',
-        headers: { 'X-CSRFToken': csrfToken }
-    })
-    .then(res => {
-        if (res.ok) location.reload();
-        else alert('Error al inhabilitar el cliente.');
-    })
-    .catch(() => alert('Error al inhabilitar el cliente.'));
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrfToken
+            }
+        })
+        .then(res => {
+            if (res.ok) location.reload();
+            else alert('Error al inhabilitar el cliente.');
+        })
+        .catch(() => alert('Error al inhabilitar el cliente.'));
 }
