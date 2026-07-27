@@ -2,7 +2,6 @@
     <thead>
         <tr>
             <th>Titulo</th>
-            <th>Cliente</th>
             <th>Creador</th>
             <th>Servicio</th>
             <th>Tipo</th>
@@ -14,7 +13,6 @@
         {% for proyecto in proyectos %}
         <tr>
             <td>{{ proyecto.titulo }}</td>
-            <td>{{ proyecto.cliente }}</td>
             <td>{{ proyecto.email }}</td>
             <td><img src="{{ url_for('static', filename='img/servicios/' + proyecto.tipo_proyecto|lower + '.png') }}" width="40" title="{{ proyecto.tipo_proyecto }}"></td>            
             <td>{{ proyecto.tipo_servicio }}</td>

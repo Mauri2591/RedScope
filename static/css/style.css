@@ -284,6 +284,7 @@ th {
     /* rompe líneas largas */
 }
 
+/* CLOUD - AWS */
 .s3 {font-size: .7rem; font-weight: bold; background-color: #208d20; color: var(--color-blanco-primario); padding:0 }
 .ec2 {font-size: .7rem; font-weight: bold; background-color: rgb(212, 138, 0); color: var(--color-blanco-primario); padding:0}
 .iam {font-size: .7rem; font-weight: bold; background-color: #e23636; color: var(--color-blanco-primario); padding:0}
@@ -295,6 +296,17 @@ th {
 .cloudtrail { font-size: .7rem; font-weight: bold; background-color: #D35400; color: var(--color-blanco-primario); padding:0}
 .kms { font-size: .7rem; font-weight: bold; background-color: #B7950B; color: var(--color-blanco-primario); padding:0}
 .secrets-manager { font-size: .7rem; font-weight: bold; background-color: #1E8449; color: var(--color-blanco-primario); padding:0; }
+
+/* OSINT */
+.discovery-subdominio { font-size: .7rem; font-weight: bold; background-color: #2980b9; color: var(--color-blanco-primario); padding: 0; }
+.enumeración-de-servicios { font-size: .7rem; font-weight: bold; background-color: #16a085; color: var(--color-blanco-primario); padding: 0; }
+.mapeo-de-ips { font-size: .7rem; font-weight: bold; background-color: #c0392b; color: var(--color-blanco-primario); padding: 0; }
+.recon-cloud { font-size: .7rem; font-weight: bold; background-color: #d35400; color: var(--color-blanco-primario); padding: 0; }
+.escaneo-de-repositorios { font-size: .7rem; font-weight: bold; background-color: #8e44ad; color: var(--color-blanco-primario); padding: 0; }
+.análisis-de-dns { font-size: .7rem; font-weight: bold; background-color: #27ae60; color: var(--color-blanco-primario); padding: 0; }
+.búsqueda-de-endpoints { font-size: .7rem; font-weight: bold; background-color: #2c3e50; color: var(--color-blanco-primario); padding: 0; }
+.google-dorking { font-size: .7rem; font-weight: bold; background-color: #f39c12; color: var(--color-blanco-primario); padding: 0; }
+
 
 .icono-spin {
     display: inline-block;

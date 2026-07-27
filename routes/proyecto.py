@@ -124,7 +124,7 @@ def proyecto_detalle(proyecto_id):
         'proyecto/detalle.html',
         proyecto=proyecto
     )
-
+    
 
 # ------------------------------------------------------------------
 # GUARDAR CONFIG CLOUD
@@ -960,3 +960,139 @@ def get_findings_by_mitre(proyecto_id, tecnica):
         except Exception:
             continue
     return jsonify(resultado)
+
+
+# ------------------------------------------------------------------
+# OSINT
+# ------------------------------------------------------------------
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/osint')
+@login_required
+def proyecto_osint_workspace(proyecto_id):
+    sector_id = session.get('sector_id')
+    proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
+
+    if not proyecto:
+        abort(404)
+
+    if proyecto['tipo_proyecto'] != 'OSINT':
+        abort(403)
+
+    servicios_osint = Proyecto.get_servicios_osint()
+    
+    return render_template(
+        'proyecto/proyectos-osint/index.html',
+        proyecto=proyecto,
+        servicios_osint=servicios_osint
+    )
+
+    
+@proyecto_bp.route('/osint/config-tipos')
+@login_required
+def get_osint_config_tipos():
+    tipos = Proyecto.get_osint_config_tipos()
+    return jsonify(tipos)
+
+
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/osint-config', methods=['POST'])
+@login_required
+def guardar_osint_config(proyecto_id):
+    sector_id = session.get('sector_id')
+    proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
+
+    if not proyecto or proyecto['tipo_proyecto'] != 'OSINT':
+        return jsonify({"success": False, "message": "Proyecto inválido"}), 400
+
+    config_data = request.form.to_dict()
+    config_data.pop('proyecto_id', None)
+
+    try:
+        Proyecto.guardar_osint_config(proyecto_id, config_data)
+        return jsonify({"success": True, "message": "Configuración guardada correctamente"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+    
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/osint-config', methods=['GET'])
+@login_required
+def obtener_osint_config(proyecto_id):
+    config = Proyecto.get_osint_config(proyecto_id)
+    return jsonify(config)
+
+@proyecto_bp.route('/osint/status/<int:ejecucion_id>')
+@login_required
+def osint_status(ejecucion_id):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT estado, resultado, error FROM osint_ejecuciones WHERE id=%s", (ejecucion_id,))
+    data = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    return jsonify({
+        "estado": data['estado'] if data else 'UNKNOWN',
+        "resultado": data['resultado'] if data else '',
+        "error": data['error'] if data else ''
+    })
+
+@proyecto_bp.route('/osint/ejecuciones/<int:proyecto_id>')
+@login_required
+def osint_ejecuciones(proyecto_id):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT oe.id, so.nombre, oe.estado, oe.fecha_creacion
+        FROM osint_ejecuciones oe
+        LEFT JOIN servicios_osint so ON so.id = oe.servicio_osint_id
+        WHERE oe.proyecto_id = %s
+        ORDER BY oe.fecha_creacion DESC
+    """, (proyecto_id,))
+    data = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    return jsonify(data)
+
+@proyecto_bp.route('/osint/run', methods=['POST'])
+@login_required
+def run_osint():
+    data = request.get_json()
+    proyecto_id = data.get('proyecto_id')
+    servicio_osint_id = data.get('servicio_osint_id')
+    usuario_id = session.get('user_id')
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        INSERT INTO osint_ejecuciones
+        (proyecto_id, servicio_osint_id, usuario_id, estado, estado_id)
+        VALUES (%s, %s, %s, 'QUEUED', 1)
+    """, (proyecto_id, servicio_osint_id, usuario_id))
+    
+    ejecucion_id = cursor.lastrowid
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    # Mapeo: ID -> función handler
+    from tasks.osint import handlers
+    
+    handlers_map = {
+        1: handlers.discovery_subdominios,
+        2: handlers.enumeracion_servicios,
+        3: handlers.mapeo_ips,
+        4: handlers.recon_cloud,
+        5: handlers.escaneo_repositorios,
+        6: handlers.analisis_dns,
+        7: handlers.busqueda_endpoints,
+        8: handlers.google_dorking
+    }
+    
+    handler_fn = handlers_map.get(servicio_osint_id)
+    if not handler_fn:
+        return jsonify({"success": False, "message": "Servicio no encontrado"}), 400
+    
+    q = Queue(connection=Config.redis_conn)
+    q.enqueue(handler_fn, ejecucion_id, proyecto_id)
+
+    return jsonify({"success": True, "ejecucion_id": ejecucion_id})

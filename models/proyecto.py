@@ -56,9 +56,7 @@ class Proyecto:
             SELECT 
             p.id,
             p.titulo,
-            COALESCE(c.nombre, p.cliente) AS cliente,
             u.email,
-
             IF(tp.nombre IS NULL, 'N/A', tp.nombre) AS tipo_proyecto,
             IF(ts.nombre IS NULL, 'N/A', ts.nombre) AS tipo_servicio,
 
@@ -75,8 +73,6 @@ class Proyecto:
             LEFT JOIN tipo_proyecto tp
                 ON p.tipo_proyecto_id = tp.id
 
-            LEFT JOIN clientes c
-                ON p.cliente_id = c.id
 
             INNER JOIN estados e
                 ON p.estado_id = e.id
@@ -95,37 +91,32 @@ class Proyecto:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         query = """
-           SELECT 
-            p.id,
-            p.titulo,
-            p.cliente,
-            u.email,
-            pcc.aws_account_id AS cuenta_id,
-            IF(ts.nombre IS NULL, 'N/A', ts.nombre) AS tipo_servicio,
-            ts.id AS tipo_servicio_id,
-            tp.nombre AS tipo_proyecto,
-            e.nombre AS estado_proyecto,
-
-            IF (sc.estado_id = 1, 'CLOUD_CONFIGURADO','CLOUD_NO_CONFIGURADO') AS configuracion
-
-        FROM proyectos p
-
-        INNER JOIN usuarios u
-            ON p.usuario_creador_id = u.id
-
-        LEFT JOIN tipos_servicio ts
-            ON p.tipo_servicio_id = ts.id
-
-        INNER JOIN estados e
-            ON p.estado_id = e.id
-
-        LEFT JOIN proyecto_cloud_config sc
-            ON sc.proyecto_id = p.id
-            INNER JOIN tipo_proyecto tp ON tp.id=p.tipo_proyecto_id
-        LEFT JOIN proyecto_cloud_config AS pcc on pcc.proyecto_id=p.id
-        WHERE p.id = %s
-        AND p.sector_id = %s
-        AND p.estado_id != 2;
+            SELECT 
+                p.id,
+                p.titulo,
+                u.email,
+                IF(ts.nombre IS NULL, 'N/A', ts.nombre) AS tipo_servicio,
+                ts.id AS tipo_servicio_id,
+                tp.nombre AS tipo_proyecto,
+                e.nombre AS estado_proyecto,
+                CASE 
+                    WHEN tp.nombre = 'CLOUD' AND sc.estado_id = 1 THEN 'CLOUD_CONFIGURADO'
+                    WHEN tp.nombre = 'CLOUD' THEN 'CLOUD_NO_CONFIGURADO'
+                    WHEN tp.nombre = 'OSINT' AND poc.estado_id = 1 THEN 'OSINT_CONFIGURADO'
+                    WHEN tp.nombre = 'OSINT' THEN 'OSINT_NO_CONFIGURADO'
+                    ELSE 'NO_CONFIGURADO'
+                END AS configuracion
+            FROM proyectos p
+            INNER JOIN usuarios u ON p.usuario_creador_id = u.id
+            LEFT JOIN tipos_servicio ts ON p.tipo_servicio_id = ts.id
+            INNER JOIN estados e ON p.estado_id = e.id
+            INNER JOIN tipo_proyecto tp ON tp.id = p.tipo_proyecto_id
+            LEFT JOIN proyecto_cloud_config sc ON sc.proyecto_id = p.id
+            LEFT JOIN proyecto_osint_config poc ON poc.proyecto_id = p.id
+            WHERE p.id = %s
+            AND p.sector_id = %s
+            AND p.estado_id != 2
+            LIMIT 1;
         """
         cursor.execute(query, (proyecto_id, sector_id))
         proyecto = cursor.fetchone()
@@ -310,8 +301,7 @@ class Proyecto:
     ce.error,
     ce.fecha_creacion AS creacion,
     ce.resultado,
-    p.titulo,
-    p.cliente
+    p.titulo
     FROM cloud_ejecuciones ce
     INNER JOIN servicios_aws_acciones saa
         ON ce.accion_id = saa.id
@@ -1294,3 +1284,70 @@ class Proyecto:
         cursor.close()
         conn.close()
         return data
+    
+    
+    #-----------------   OSINT ---------------------
+    @staticmethod
+    def get_osint_config_tipos():
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM osint_config_tipos WHERE activo = 1")
+        datos = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return datos
+
+    @staticmethod
+    def guardar_osint_config(proyecto_id, config_data):
+        """config_data es dict: {config_tipo_id: valor, ...}"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Limpiar config anterior
+        cursor.execute("DELETE FROM proyecto_osint_config WHERE proyecto_id = %s", (proyecto_id,))
+        
+        # Insertar nueva config
+        for config_tipo_id, valor in config_data.items():
+            if valor.strip():
+                cursor.execute("""
+                    INSERT INTO proyecto_osint_config (proyecto_id, config_tipo_id, valor, estado_id)
+                    VALUES (%s, %s, %s, 1)
+                """, (proyecto_id, config_tipo_id, valor))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+    @staticmethod
+    def get_osint_config(proyecto_id):
+        """Retorna dict con config OSINT del proyecto"""
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT ct.nombre, poc.valor
+            FROM proyecto_osint_config poc
+            INNER JOIN osint_config_tipos ct ON ct.id = poc.config_tipo_id
+            WHERE poc.proyecto_id = %s AND poc.estado_id = 1
+        """, (proyecto_id,))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        return {row['nombre']: row['valor'] for row in rows}
+    
+    @staticmethod
+    def get_servicios_osint():
+        """Retorna servicios OSINT disponibles"""
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT id, nombre, descripcion 
+            FROM servicios_osint 
+            WHERE tipos_servicio_id = 3 AND estado_id = 1
+        """)
+        servicios = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return servicios
+
+   

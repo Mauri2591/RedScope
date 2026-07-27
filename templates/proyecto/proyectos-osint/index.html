@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% block title %}Red Scope - OSINT{% endblock %}
+
+{% block content %}
+<div id="hallazgosWorkspace" data-proyecto-id="{{ proyecto.id }}"></div>
+
+<div class="toast-container position-fixed end-0" style="z-index: 1100;margin-right: 2rem;">
+    <div id="toastEscaneo" class="toast align-items-center text-bg-dark border-0" role="alert">
+        <div class="d-flex">
+            <div class="toast-body">
+                ¡Escaneo iniciado!
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex justify-content-start">
+    <span class="badge border border-secondary bg-dark fw-bold text-light m-2">
+        Workspace OSINT <span class="badge badge-logo-osint">{{ proyecto.tipo_servicio }}</span>
+    </span>
+</div>
+
+<div class="contenedor-terminal-escaneos card p-3">
+    <div class="container overflow-hidden">
+        <div class="row gx-5">
+            <!-- PANEL IZQUIERDO -->
+            <div class="col-4">
+                <div class="terminal-herramientas">
+                    <div>
+                        <button class="btn btn-sm px-1 py-0 mb-1 btn-outline-secondary"
+                            onclick="ejecutar_todos_osint()">Ejecutar todos</button>
+                    </div>
+                    {% for servicio_osint in servicios_osint %}
+                        <button value="{{ servicio_osint.id }}" type="button" 
+                            title="{{ servicio_osint.descripcion }}"
+                            class="btn btn-sm px-3 m-1 btn-servicio-osint {{ servicio_osint.nombre|lower|replace(' ', '-') }}">
+                            {{ servicio_osint.nombre }}
+                        </button>
+                    {% endfor %}
+                </div>
+
+                <div class="mt-3" style="max-height: 25rem; overflow-y: auto;">
+                    <ul class="nav nav-tabs" id="tabsOSINT" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active py-0 px-2 small" data-bs-toggle="tab"
+                                data-bs-target="#pnlEscaneos" type="button">Escaneos</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link py-0 px-2 small" data-bs-toggle="tab"
+                                data-bs-target="#pnlImportados" type="button">Importados</button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="pnlEscaneos">
+                            <table class="table table-sm table-bordered text-center align-middle" id="tablaEscaneos">
+                                <thead class="table-dark" style="position: sticky; top: 0; z-index: 1;">
+                                    <tr>
+                                        <th>Herramienta</th>
+                                        <th>Estado</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+
+                        <div class="tab-pane fade" id="pnlImportados">
+                            <table class="table table-sm table-bordered text-center align-middle" id="tablaImportados">
+                                <thead class="table-dark" style="position: sticky; top: 0; z-index: 1;">
+                                    <tr>
+                                        <th>Origen</th>
+                                        <th>Total</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PANEL DERECHO -->
+            <div class="col-8">
+                <div class="d-flex justify-content-end">
+                    <div class="d-flex gap-1 rounded p-1 contenedor-iconos-formulario">
+                        <span class="badge btn-export btn-docx" title="Descargar Informe Ejecutivo"
+                            onclick="descargarDoc('{{ proyecto.id }}', 'ejecutivo')">
+                            <i class="bi bi-file-earmark-text"></i>
+                        </span>
+                        <span class="badge btn-export btn-docx" title="Descargar Informe Técnico"
+                            onclick="descargarDoc('{{ proyecto.id }}', 'tecnico')">
+                            <i class="bi bi-file-earmark-word"></i>
+                        </span>
+                        <span class="badge btn-export btn-xlsx" title="Descargar XLSX"
+                            onclick="descargarXlsx('{{ proyecto.id }}')">
+                            <i class="bi bi-file-earmark-excel"></i>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-start">
+                    <span class="span-cliente-titulo badge mb-1">
+                        {{ proyecto.cliente }} - {{ proyecto.titulo }}
+                    </span>
+                </div>
+
+                <div class="borde-terminal-salida p-3 border bg-light">
+                    <pre class="terminal-salida-herramienta" id="terminalOSINT"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const proyectoId = {{ proyecto.id }};
+
+document.addEventListener('DOMContentLoaded', () => {
+    fetch(`/osint/ejecuciones/${proyectoId}`)
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.querySelector('#tablaEscaneos tbody');
+            data.forEach(ej => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${ej.nombre}</td>
+                    <td><span class="badge ${getBadgeClass(ej.estado)}">${getBadgeText(ej.estado)}</span></td>
+                    <td><i class="bi bi-arrow-right" style="cursor:pointer;"></i></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        });
+});
+</script>
+{% endblock %}

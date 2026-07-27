@@ -2,6 +2,30 @@
         return document.querySelector('meta[name="csrf-token"]').getAttribute('content')
     }
 
+    // ===============================
+    // FUNCIONES GENÉRICAS
+    // ===============================
+    function getBadgeClass(estado) {
+        switch (estado) {
+            case "COMPLETED":
+                return "bg-success";
+            case "FAILED":
+                return "bg-danger";
+            case "INSUFFICIENT_PERMISSIONS":
+                return "bg-warning text-dark";
+            case "RUNNING":
+                return "bg-primary";
+            case "QUEUED":
+                return "bg-secondary";
+            default:
+                return "bg-dark";
+        }
+    }
+
+    function getBadgeText(estado) {
+        return estado === "INSUFFICIENT_PERMISSIONS" ? "SIN PERMISOS" : estado;
+    }
+
     let evidencias = [];
     let evidenciasEliminadas = []
     $(document).ready(function () {
@@ -19,6 +43,7 @@
         const contenedorAutenticado = document.getElementById('contenedorAutenticado');
         const btnAltaServicio = document.querySelector("#alta_servicio");
         const formAltaServicio = document.querySelector("#formAltaServicio");
+        const chkTodos = document.getElementById("chkTodos");
 
 
         if (modal && tipo_servicio && contenedortipo_servicio) {
@@ -343,6 +368,25 @@
             case 'CLOUD':
                 $('#cloud_proyecto_id').val(proyecto_id);
                 $("#mdlGestionarConfiguracionCloud").modal('show')
+                break;
+
+            case 'OSINT':
+                // Verificar que el elemento existe antes de asignar
+                const inputOsint = document.getElementById('osint_proyecto_id');
+                if (inputOsint) {
+                    inputOsint.value = proyecto_id;
+                } else {
+                    console.error("Elemento osint_proyecto_id no encontrado");
+                    return;
+                }
+
+                // Abrir el modal
+                const modal = document.getElementById('mdlGestionarConfiguracionOsint');
+                if (modal) {
+                    new bootstrap.Modal(modal).show();
+                } else {
+                    console.error("Modal mdlGestionarConfiguracionOsint no encontrado");
+                }
                 break;
 
             case 'WEB':
@@ -1230,14 +1274,18 @@
         window.location.href = `/proyecto/${proyectoId}/cloud/importados/${herramienta}/hallazgos`;
     }
 
-    $(document).ready(function () {
-        pollEstadoReglas();
-    });
 
-    document.getElementById("chkTodos").addEventListener("change", function () {
-        document.querySelectorAll(".chk-finding").forEach(c => c.checked = this.checked);
-        toggleAccionesMasivas();
-    });
+    // ===============================
+    // CHECKBOXES MASIVOS
+    // ===============================
+    const chkTodos = document.getElementById("chkTodos");
+    if (chkTodos) {
+        chkTodos.addEventListener("change", function () {
+            document.querySelectorAll(".chk-finding").forEach(c => c.checked = this.checked);
+            const accionesMasivas = document.getElementById("accionesMasivas");
+            if (accionesMasivas) toggleAccionesMasivas();
+        });
+    }
 
     document.addEventListener("change", function (e) {
         if (e.target.classList.contains("chk-finding")) {
@@ -1247,7 +1295,10 @@
 
     function toggleAccionesMasivas() {
         const haySeleccionados = document.querySelectorAll(".chk-finding:checked").length > 0;
-        document.getElementById("accionesMasivas").style.display = haySeleccionados ? "flex" : "none";
+        const accionesMasivas = document.getElementById("accionesMasivas");
+        if (accionesMasivas) {
+            accionesMasivas.style.display = haySeleccionados ? "flex" : "none";
+        }
     }
 
     function getSeleccionados() {
@@ -1276,7 +1327,6 @@
         if (!ids.length) return;
         if (!confirm(`¿Eliminar ${ids.length} hallazgo(s)?`)) return;
 
-        // Extraer herramienta de la URL si estamos en importados
         const urlPath = window.location.pathname;
         const match = urlPath.match(/importados\/([^/]+)/);
         const herramienta = match ? match[1] : null;
@@ -1295,6 +1345,10 @@
             if (data.success) location.reload();
         });
     }
+
+    // ===============================
+    // MITRE TÉCNICAS
+    // ===============================
     let mitreTecnicas = {};
 
     function abrirFiltroMitre() {
@@ -1307,28 +1361,31 @@
             });
     }
 
-    document.getElementById('inputMitreTecnica').addEventListener('input', function () {
-        const val = this.value.trim().toUpperCase();
-        const sugerencias = document.getElementById('sugerenciasMitre');
-        if (val.length < 2) {
-            sugerencias.style.display = 'none';
-            return;
-        }
+    const inputMitre = document.getElementById('inputMitreTecnica');
+    if (inputMitre) {
+        inputMitre.addEventListener('input', function () {
+            const val = this.value.trim().toUpperCase();
+            const sugerencias = document.getElementById('sugerenciasMitre');
+            if (!sugerencias) return;
 
-        const matches = Object.keys(mitreTecnicas).filter(t => t.includes(val));
-        if (matches.length === 0) {
-            sugerencias.style.display = 'none';
-            return;
-        }
+            if (val.length < 2) {
+                sugerencias.style.display = 'none';
+                document.getElementById('tbodyMitreFindings').innerHTML = '';
+                document.getElementById('contenedorResultadosMitre').style.display = 'none';
+                document.getElementById('sinResultadosMitre').style.display = 'none';
+                return;
+            }
 
-        sugerencias.innerHTML = matches.map(t =>
-            `<a href="#" class="list-group-item list-group-item-action small py-1" 
+            const matches = Object.keys(mitreTecnicas).filter(t => t.includes(val));
+            sugerencias.innerHTML = matches.map(t =>
+                `<a href="#" class="list-group-item list-group-item-action small py-1"
             onclick="seleccionarTecnica('${t}'); return false;">
             ${t} (${mitreTecnicas[t]} hallazgo/s)
         </a>`
-        ).join('');
-        sugerencias.style.display = 'block';
-    });
+            ).join('');
+            sugerencias.style.display = matches.length > 0 ? 'block' : 'none';
+        });
+    }
 
     function seleccionarTecnica(id) {
         document.getElementById('inputMitreTecnica').value = id;
@@ -1364,7 +1421,7 @@
                         <td>${f.service}</td>
                         <td>${f.severidad}</td>
                         <td>
-                            <button onclick="verificarHallazgo(${f.finding_id})" 
+                            <button onclick="verificarHallazgo(${f.finding_id})"
                                     class="btn btn-sm btn-secondary py-0 px-1">
                                 <i class="bi bi-pencil-square"></i>
                             </button>
@@ -1374,10 +1431,196 @@
             });
     }
 
-    document.getElementById('inputMitreTecnica').addEventListener('input', function () {
-        if (this.value.trim() === '') {
-            document.getElementById('tbodyMitreFindings').innerHTML = '';
-            document.getElementById('contenedorResultadosMitre').style.display = 'none';
-            document.getElementById('sinResultadosMitre').style.display = 'none';
+
+    
+    // ===============================
+    // OSINT CONFIGURATION
+    // ===============================
+    const mdlOsint = document.getElementById('mdlGestionarConfiguracionOsint');
+    if (mdlOsint) {
+        mdlOsint.addEventListener('show.bs.modal', async function () {
+            console.log("✅ EVENTO DISPARADO: show.bs.modal");
+            const container = document.getElementById('osintConfigContainer');
+
+            try {
+                console.log("Fetching /osint/config-tipos");
+                const response = await fetch('/osint/config-tipos', {
+                    credentials: 'include'
+                });
+                console.log("Response status:", response.status);
+
+                const tipos = await response.json();
+                console.log("Tipos recibidos:", tipos);
+
+                container.innerHTML = tipos.map(tipo => {
+                    return `<div class="mb-3">
+                        <label for="config_${tipo.id}" class="form-label"><strong>${tipo.nombre}</strong><br><small class="text-muted">${tipo.descripcion}</small></label>
+                        <textarea class="form-control" id="config_${tipo.id}" name="${tipo.id}" rows="2" placeholder="${tipo.placeholder}"></textarea>
+                        </div>`;
+                }).join('');
+            } catch (err) {
+                console.error("Error cargando config tipos:", err);
+                container.innerHTML = '<div class="alert alert-danger">Error: ' + err.message + '</div>';
+            }
+        });
+    } else {
+        console.error("Modal OSINT NO ENCONTRADO");
+    }
+
+    const formOsintConfig = document.getElementById('formGestionarConfiguracionOSINT');
+    if (formOsintConfig) {
+        formOsintConfig.addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            // ← LIMPIEZA AQUÍ, ANTES DE ENVIAR
+            const allTextareas = this.querySelectorAll('textarea');
+            allTextareas.forEach(ta => {
+                let lines = ta.value.split('\n')
+                    .map(line => line.trim())
+                    .filter(line => line.length > 0);
+                ta.value = lines.join('\n');
+            });
+
+            const proyectoId = document.getElementById('osint_proyecto_id').value;
+            const formData = new FormData(this);
+
+            fetch(`/proyecto/${proyectoId}/osint-config`, {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": getCSRFToken()
+                    },
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success) {
+                        alert(res.message);
+                        bootstrap.Modal.getInstance(document.getElementById('mdlGestionarConfiguracionOsint')).hide();
+                        location.reload();
+                    } else {
+                        alert(res.message);
+                    }
+                })
+                .catch(err => alert("Error al guardar: " + err));
+        });
+    }
+
+
+    // ===============================
+    // OSINT - EJECUTAR SERVICIOS
+    // ===============================
+    function ejecutar_osint(servicioId, nombreServicio) {
+        const proyectoId = document.getElementById('hallazgosWorkspace').dataset.proyectoId;
+
+        fetch('/osint/run', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                body: JSON.stringify({
+                    proyecto_id: proyectoId,
+                    servicio_osint_id: servicioId
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    const ejecucionId = data.ejecucion_id;
+                    document.getElementById('terminalOSINT').textContent +=
+                        `\n[${new Date().toLocaleTimeString()}] Iniciando: ${nombreServicio}\n`;
+
+                    iniciarPollingOSINT(ejecucionId);
+                    mostrarToast();
+                }
+            });
+    }
+
+    function iniciarPollingOSINT(ejecucionId) {
+        const interval = setInterval(() => {
+            fetch(`/osint/status/${ejecucionId}`)
+                .then(r => r.json())
+                .then(status => {
+                    if (status.resultado) {
+                        document.getElementById('terminalOSINT').textContent +=
+                            status.resultado + '\n';
+                    }
+                    if (status.estado === 'COMPLETED' || status.estado === 'FAILED') {
+                        clearInterval(interval);
+                    }
+                });
+        }, 1000);
+    }
+
+    function ejecutar_todos_osint() {
+        if (!confirm("¿Desea ejecutar todos los Servicios OSINT?")) return;
+        document.querySelectorAll('.btn-servicio-osint').forEach(btn => btn.click());
+    }
+
+    // ===============================
+// OSINT - EJECUTAR SERVICIOS
+// ===============================
+$(document).on('click', '.btn-servicio-osint', function (e) {
+    e.preventDefault();
+    
+    const servicioId = $(this).val();
+    const servicioNombre = $(this).text().trim();
+    
+    if (!confirm(`¿Ejecutar "${servicioNombre}"?`)) return;
+    
+    ejecutar_osint(servicioId, servicioNombre);
+});
+
+function ejecutar_osint(servicioId, nombreServicio) {
+    const hallazgosEl = document.getElementById('hallazgosWorkspace');
+    if (!hallazgosEl) return;
+    
+    const proyectoId = hallazgosEl.dataset.proyectoId;
+
+    fetch('/osint/run', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCSRFToken()
+        },
+        body: JSON.stringify({
+            proyecto_id: proyectoId,
+            servicio_osint_id: servicioId
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            const ejecucionId = data.ejecucion_id;
+            const terminal = document.getElementById('terminalOSINT');
+            if (terminal) {
+                terminal.textContent += `\n[${new Date().toLocaleTimeString()}] Iniciando: ${nombreServicio}\n`;
+                iniciarPollingOSINT(ejecucionId);
+                mostrarToast();
+            }
+        } else {
+            alert("Error: " + data.message);
         }
     });
+}
+
+function iniciarPollingOSINT(ejecucionId) {
+    const interval = setInterval(() => {
+        fetch(`/osint/status/${ejecucionId}`)
+            .then(r => r.json())
+            .then(status => {
+                const terminal = document.getElementById('terminalOSINT');
+                if (status.resultado && terminal) {
+                    terminal.textContent += status.resultado + '\n';
+                }
+                if (status.estado === 'COMPLETED' || status.estado === 'FAILED') {
+                    clearInterval(interval);
+                }
+            });
+    }, 1000);
+}
+
+function ejecutar_todos_osint() {
+    if (!confirm("¿Desea ejecutar todos los Servicios OSINT?")) return;
+    document.querySelectorAll('.btn-servicio-osint').forEach(btn => btn.click());
+}
