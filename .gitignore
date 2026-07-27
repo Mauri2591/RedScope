@@ -1,6 +1,5 @@
 venv
 .env
 data
-requirements.txt
 uploads/
 tasking_stg.sql
