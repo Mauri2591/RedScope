@@ -1615,7 +1615,7 @@ function actualizarTablaOSINT(ejecucionId) {
     fetch(`/osint/status/${ejecucionId}`)
         .then(r => r.json())
         .then(status => {
-            const tbody = document.querySelector('table tbody');
+            const tbody = document.querySelector('#tablaEscaneos tbody');
             if (!tbody) return;
 
             const rows = tbody.querySelectorAll('tr');
@@ -1649,7 +1649,7 @@ async function cargarEjecucionesOSINT() {
     if (!hallazgosEl) return;
 
     const proyectoId = hallazgosEl.dataset.proyectoId;
-    const tbody = document.querySelector('table tbody');
+    const tbody = document.querySelector('#tablaEscaneos tbody');
     if (!tbody) return;
 
     try {
