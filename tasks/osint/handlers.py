@@ -99,7 +99,7 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
             raise Exception("No se encontraron dominios válidos")
 
         # Traer puertos comunes de la BD
-        puertos_dict = Proyecto.top_100_common_ports()
+        puertos_dict = OsintEjecucion.top_100_common_ports()
         if not puertos_dict:
             puertos_dict = {'80': 'http', '443': 'https', '22': 'ssh', '3306': 'mysql'}
 

@@ -188,3 +188,27 @@ class OsintEjecucion:
         finally:
             cursor.close()
             conn.close()
+
+    @staticmethod
+    def top_100_common_ports():
+        """Obtiene puertos comunes de la BD para escaneo"""
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT puertos_json
+                FROM puertos_comunes
+                WHERE nombre = 'TOP_100_COMMON_TCP'
+                AND estado_id = 1
+                LIMIT 1
+            """)
+            row = cursor.fetchone()
+            if not row:
+                return {}
+            return json.loads(row["puertos_json"])
+        except Exception as e:
+            print(f"Error al obtener puertos comunes: {e}")
+            return {}
+        finally:
+            cursor.close()
+            conn.close()
