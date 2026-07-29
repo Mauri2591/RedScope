@@ -15,6 +15,7 @@ from db import get_db_connection
 from config import Config
 from models.proyecto import Proyecto
 from models.cloud_ejecucion import CloudEjecucion
+from models.osint_ejecucion import OsintEjecucion
 from services.reportes import ReportService
 from tasks.cloud.aws import discovery_roles_job
 
@@ -1055,28 +1056,20 @@ def osint_ejecuciones(proyecto_id):
 @proyecto_bp.route('/osint/run', methods=['POST'])
 @login_required
 def run_osint():
+    from tasks.osint import handlers
+
     data = request.get_json()
     proyecto_id = data.get('proyecto_id')
     servicio_osint_id = data.get('servicio_osint_id')
     usuario_id = session.get('user_id')
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        INSERT INTO osint_ejecuciones
-        (proyecto_id, servicio_osint_id, usuario_id, estado, estado_id)
-        VALUES (%s, %s, %s, 'QUEUED', 1)
-    """, (proyecto_id, servicio_osint_id, usuario_id))
-    
-    ejecucion_id = cursor.lastrowid
-    conn.commit()
-    cursor.close()
-    conn.close()
+    # Validar proyecto
+    sector_id = session.get('sector_id')
+    proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
+    if not proyecto or proyecto['tipo_proyecto'] != 'OSINT':
+        return jsonify({"success": False, "message": "Proyecto OSINT no válido"}), 400
 
     # Mapeo: ID -> función handler
-    from tasks.osint import handlers
-    
     handlers_map = {
         1: handlers.discovery_subdominios,
         2: handlers.enumeracion_servicios,
@@ -1087,11 +1080,17 @@ def run_osint():
         7: handlers.busqueda_endpoints,
         8: handlers.google_dorking
     }
-    
+
     handler_fn = handlers_map.get(servicio_osint_id)
     if not handler_fn:
-        return jsonify({"success": False, "message": "Servicio no encontrado"}), 400
-    
+        return jsonify({"success": False, "message": "Servicio OSINT no encontrado"}), 400
+
+    # Crear ejecución usando el modelo
+    ejecucion_id = OsintEjecucion.crear(proyecto_id, servicio_osint_id, usuario_id)
+    if not ejecucion_id:
+        return jsonify({"success": False, "message": "Error al crear ejecución"}), 500
+
+    # Encolar job
     q = Queue(connection=Config.redis_conn)
     q.enqueue(handler_fn, ejecucion_id, proyecto_id)
 

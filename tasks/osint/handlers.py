@@ -1,6 +1,7 @@
 import json
 from config import Config
 from models.proyecto import Proyecto
+from models.osint_ejecucion import OsintEjecucion
 from db import get_db_connection
 from datetime import datetime
 import subprocess
@@ -11,50 +12,14 @@ import requests
 # HELPERS GLOBALES OSINT
 # ══════════════════════════════════════════════════════════════════
 
-def _mark_running(ejecucion_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE osint_ejecuciones 
-        SET estado = 'RUNNING', fecha_inicio = NOW()
-        WHERE id = %s
-    """, (ejecucion_id,))
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-def _mark_completed(ejecucion_id, resultado):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE osint_ejecuciones 
-        SET estado = 'COMPLETED', resultado = %s, fecha_fin = NOW()
-        WHERE id = %s
-    """, (json.dumps(resultado, indent=2, default=str), ejecucion_id))
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-def _mark_failed(ejecucion_id, error):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE osint_ejecuciones 
-        SET estado = 'FAILED', error = %s, fecha_fin = NOW()
-        WHERE id = %s
-    """, (str(error), ejecucion_id))
-    conn.commit()
-    cursor.close()
-    conn.close()
-
 def _run_osint_job(ejecucion_id, fn):
     """Wrapper para todos los jobs OSINT."""
     try:
-        _mark_running(ejecucion_id)
+        OsintEjecucion.mark_running(ejecucion_id)
         resultado = fn()
-        _mark_completed(ejecucion_id, resultado)
+        OsintEjecucion.mark_completed(ejecucion_id, resultado)
     except Exception as e:
-        _mark_failed(ejecucion_id, str(e))
+        OsintEjecucion.mark_failed(ejecucion_id, str(e))
         print(f"[OSINT ERROR] {str(e)}")
 
 # ══════════════════════════════════════════════════════════════════
