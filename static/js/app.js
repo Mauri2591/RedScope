@@ -1600,8 +1600,7 @@ function iniciarPollingOSINT(ejecucionId) {
                 terminal.scrollTop = terminal.scrollHeight;
 
                 // Actualizar tabla
-                actualizarTablaOSINT(ejecucionId);
-
+cargarEjecucionesOSINT();
                 if (status.estado === 'COMPLETED' || status.estado === 'FAILED') {
                     clearInterval(interval);
                     const terminalBox = document.querySelector('.borde-terminal-salida');
@@ -1609,34 +1608,6 @@ function iniciarPollingOSINT(ejecucionId) {
                 }
             });
     }, 500);
-}
-
-function actualizarTablaOSINT(ejecucionId) {
-    fetch(`/osint/status/${ejecucionId}`)
-        .then(r => r.json())
-        .then(status => {
-            const tbody = document.querySelector('#tablaEscaneos tbody');
-            if (!tbody) return;
-
-            const rows = tbody.querySelectorAll('tr');
-            rows.forEach(row => {
-                const tdEstado = row.querySelector('td:nth-child(2)');
-                if (tdEstado) {
-                    let badgeClass = 'bg-secondary';
-                    let badgeText = status.estado;
-
-                    if (status.estado === 'COMPLETED') {
-                        badgeClass = 'bg-success';
-                    } else if (status.estado === 'FAILED') {
-                        badgeClass = 'bg-danger';
-                    } else if (status.estado === 'RUNNING') {
-                        badgeClass = 'bg-primary';
-                    }
-
-                    tdEstado.innerHTML = `<span class="badge ${badgeClass}">${badgeText}</span>`;
-                }
-            });
-        });
 }
 
 function ejecutar_todos_osint() {
