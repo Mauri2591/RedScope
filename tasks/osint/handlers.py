@@ -30,22 +30,29 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
     """Descubrimiento de subdominios con subfinder"""
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
-        dominio = config.get('DOMINIO', '').strip()
+        print(f"[OSINT] Config: {config}")
+        dominio = config.get('DOMINIO', '').strip() if config else ''
+        print(f"[OSINT] Dominio: {dominio}")
 
         if not dominio:
             raise Exception("Dominio no configurado")
 
         subdominios = set()
         dominios = [d.strip() for d in dominio.split(',')]
+        print(f"[OSINT] Dominios a procesar: {dominios}")
 
         for dom in dominios:
             try:
+                print(f"[subfinder] Ejecutando para {dom}...")
                 result = subprocess.run(
                     ['subfinder', '-d', dom, '-silent'],
                     capture_output=True,
                     text=True,
                     timeout=60
                 )
+                print(f"[subfinder] stdout: {result.stdout}")
+                print(f"[subfinder] stderr: {result.stderr}")
+                print(f"[subfinder] returncode: {result.returncode}")
                 if result.stdout:
                     subdominios.update(result.stdout.strip().split('\n'))
             except subprocess.TimeoutExpired:
