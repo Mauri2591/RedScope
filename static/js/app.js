@@ -1549,19 +1549,31 @@ function ejecutar_osint(servicioId, nombreServicio) {
 }
 
 function iniciarPollingOSINT(ejecucionId) {
+    let ultimoResultado = '';
     const interval = setInterval(() => {
         fetch(`/osint/status/${ejecucionId}`)
             .then(r => r.json())
             .then(status => {
                 const terminal = document.getElementById('terminalOSINT');
-                if (status.resultado && terminal) {
-                    terminal.textContent += status.resultado + '\n';
+                if (!terminal) return;
+
+                if (status.resultado && status.resultado !== ultimoResultado) {
+                    try {
+                        const resultado = JSON.parse(status.resultado);
+                        const output = JSON.stringify(resultado, null, 2);
+                        terminal.textContent = output;
+                        ultimoResultado = status.resultado;
+                    } catch {
+                        terminal.textContent = status.resultado;
+                        ultimoResultado = status.resultado;
+                    }
                 }
+
                 if (status.estado === 'COMPLETED' || status.estado === 'FAILED') {
                     clearInterval(interval);
                 }
             });
-    }, 1000);
+    }, 500);
 }
 
 function ejecutar_todos_osint() {

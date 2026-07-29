@@ -60,6 +60,28 @@ class OsintEjecucion:
             conn.close()
 
     @staticmethod
+    def update_resultado(ejecucion_id, resultado_json):
+        """Actualiza resultado parcial durante la ejecución"""
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+
+            resultado_str = resultado_json if isinstance(resultado_json, str) else json.dumps(resultado_json, indent=2, default=str)
+
+            cursor.execute("""
+                UPDATE osint_ejecuciones
+                SET resultado=%s
+                WHERE id=%s
+            """, (resultado_str, ejecucion_id))
+
+            conn.commit()
+        except Exception as e:
+            print(f"Error al actualizar resultado: {e}")
+        finally:
+            cursor.close()
+            conn.close()
+
+    @staticmethod
     def mark_completed(ejecucion_id, resultado_json):
         """Marca ejecución como completada con resultado"""
         try:
