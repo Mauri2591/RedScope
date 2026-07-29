@@ -1100,8 +1100,17 @@ def run_osint():
     if not ejecucion_id:
         return jsonify({"success": False, "message": "Error al crear ejecución"}), 500
 
-    # Encolar job en cola OSINT con path completo
+    # Encolar job en cola OSINT (igual que AWS)
     q = Queue('osint', connection=Config.redis_conn)
-    q.enqueue(f'tasks.osint.handlers.{handler_name}', ejecucion_id, proyecto_id)
+
+    try:
+        module = importlib.import_module('tasks.osint.handlers')
+        func = getattr(module, handler_name)
+        q.enqueue(func, ejecucion_id, proyecto_id)
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Error cargando handler: {str(e)}"
+        }), 500
 
     return jsonify({"success": True, "ejecucion_id": ejecucion_id})
