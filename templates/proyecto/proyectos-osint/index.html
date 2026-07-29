@@ -119,22 +119,5 @@
 {% block extra_js %}
 <script>
 const proyectoId = {{ proyecto.id }};
-
-document.addEventListener('DOMContentLoaded', () => {
-    fetch(`/osint/ejecuciones/${proyectoId}`)
-        .then(r => r.json())
-        .then(data => {
-            const tbody = document.querySelector('#tablaEscaneos tbody');
-            data.forEach(ej => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${ej.nombre}</td>
-                    <td><span class="badge ${getBadgeClass(ej.estado)}">${getBadgeText(ej.estado)}</span></td>
-                    <td><i class="bi bi-arrow-right" style="cursor:pointer;"></i></td>
-                `;
-                tbody.appendChild(tr);
-            });
-        });
-});
 </script>
 {% endblock %}
