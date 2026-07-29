@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, session, redirect, url_for
 from functools import wraps
 from routes.utils import abort
+from models.grafico import Grafico
 
 inicio_bp = Blueprint('inicio', __name__)
 
@@ -21,7 +22,9 @@ def login_required(f):
 @login_required
 def index():
     estado = session.get('estado')
+    servicios = Grafico.get_servicios_con_totales()
     if estado == 'ACTIVO':
-        return render_template('inicio/index.html')
+        return render_template('inicio/index.html',servicios=servicios)
     else:
         abort(403)
+        

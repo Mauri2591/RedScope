@@ -2,9 +2,8 @@
         return document.querySelector('meta[name="csrf-token"]').getAttribute('content')
     }
 
-    // ===============================
     // FUNCIONES GENÉRICAS
-    // ===============================
+
     function getBadgeClass(estado) {
         switch (estado) {
             case "COMPLETED":
@@ -83,9 +82,8 @@
         ejecutarAccionCloud();
         initPasteEvidence();
         initGuardarFinding();
-        // ===============================
+
         // SWITCH AUTH CLOUD
-        // ===============================
 
         const authSwitch = document.getElementById("authSwitch");
         const roleSection = document.getElementById("roleSection");
@@ -94,7 +92,6 @@
 
         if (authSwitch && roleSection && keysSection) {
 
-            // Valor por defecto
             authMethodInput.value = "keys";
             roleSection.style.display = "none";
             keysSection.style.display = "block";
@@ -262,7 +259,9 @@
 
     });
 
+
     document.addEventListener("DOMContentLoaded", function () {
+        
 
         const authSwitch = document.getElementById("authSwitch");
         const roleSection = document.getElementById("roleSection");

@@ -6,6 +6,19 @@
     <span class="badge border border-secondary bg-dark fw-bold text-light m-2">Inicio</span>
 </div>
 <div class="card p-3">
-    {# acá van los gráficos #}
+    {% if servicios %}
+        <section class="d-flex justify-content-around">
+            {% for servicio in servicios %}
+                <div style="width:50%;" class="text-center fw-bold card mx-1 bg-light">
+                    {{ servicio.servicio }} - {{ servicio.tipo }}
+                    <div class="mt-2 mb-2"><span class="badge bg-primary" style="font-size:1.7rem; padding:0 .4rem"><span class="badge">Proyectos:</span>{{ servicio.total }}</span></div>
+                    <div>
+                        <canvas id="{{ servicio.tipo }}">
+                        </canvas>
+                    </div>
+                </div>
+            {% endfor %}
+        </section>
+    {% endif %}
 </div>
 {% endblock %}

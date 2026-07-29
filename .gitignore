@@ -3,3 +3,4 @@ venv
 data
 uploads/
 tasking_stg.sql
+start_workers.bat
