@@ -1525,6 +1525,7 @@ function ejecutar_osint(servicioId, nombreServicio) {
     if (!hallazgosEl) return;
 
     const proyectoId = hallazgosEl.dataset.proyectoId;
+    const terminal = document.getElementById('terminalOSINT');
 
     fetch('/osint/run', {
         method: 'POST',
@@ -1541,7 +1542,16 @@ function ejecutar_osint(servicioId, nombreServicio) {
     .then(data => {
         if (data.success) {
             mostrarToast();
-            setTimeout(() => location.reload(), 1000);
+
+            if (terminal) {
+                terminal.textContent = `[${new Date().toLocaleTimeString()}] Iniciando: ${nombreServicio}\n`;
+                terminal.textContent += 'Ejecutando...\n';
+            }
+
+            const terminalBox = document.querySelector('.borde-terminal-salida');
+            if (terminalBox) terminalBox.classList.add('borde-terminal-running');
+
+            iniciarPollingOSINT(data.ejecucion_id);
         } else {
             alert("Error: " + data.message);
         }
@@ -1550,11 +1560,12 @@ function ejecutar_osint(servicioId, nombreServicio) {
 
 function iniciarPollingOSINT(ejecucionId) {
     let ultimoResultado = '';
+    const terminal = document.getElementById('terminalOSINT');
+
     const interval = setInterval(() => {
         fetch(`/osint/status/${ejecucionId}`)
             .then(r => r.json())
             .then(status => {
-                const terminal = document.getElementById('terminalOSINT');
                 if (!terminal) return;
 
                 if (status.resultado && status.resultado !== ultimoResultado) {
@@ -1571,6 +1582,8 @@ function iniciarPollingOSINT(ejecucionId) {
 
                 if (status.estado === 'COMPLETED' || status.estado === 'FAILED') {
                     clearInterval(interval);
+                    const terminalBox = document.querySelector('.borde-terminal-salida');
+                    if (terminalBox) terminalBox.classList.remove('borde-terminal-running');
                 }
             });
     }, 500);
