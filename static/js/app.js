@@ -1689,9 +1689,65 @@ async function cargarEjecucionesOSINT() {
     }
 }
 
-// Cargar ejecuciones al cargar la página
 if (document.getElementById('hallazgosWorkspace')) {
     cargarEjecucionesOSINT();
-    // Recargar cada 2 segundos
+    cargarResultadosOSINT();
     setInterval(cargarEjecucionesOSINT, 2000);
+    setInterval(cargarResultadosOSINT, 2000);
+}
+
+function cargarResultadosOSINT() {
+    const hallazgosEl = document.getElementById('hallazgosWorkspace');
+    if (!hallazgosEl) {
+        console.log('[OSINT] hallazgosWorkspace NO encontrado');
+        return;
+    }
+
+    const proyectoId = hallazgosEl.dataset.proyectoId;
+    const terminal = document.getElementById('terminalOSINT');
+    
+    console.log('[OSINT] Cargando resultados. proyectoId:', proyectoId);
+    console.log('[OSINT] Terminal element:', terminal);
+
+    if (!terminal) {
+        console.log('[OSINT] terminalOSINT NO encontrado');
+        return;
+    }
+
+    fetch(`/osint/ejecuciones/${proyectoId}`)
+        .then(r => r.json())
+        .then(ejecuciones => {
+            console.log('[OSINT] Ejecuciones obtenidas:', ejecuciones);
+            let output = '';
+
+            ejecuciones.forEach((exec, idx) => {
+                output += `${'═'.repeat(50)}\n`;
+                output += `[${idx + 1}] ${exec.nombre} - ${exec.estado}\n`;
+                output += `Fecha: ${exec.fecha_creacion}\n`;
+                output += `${'─'.repeat(50)}\n`;
+
+                if (exec.resultado) {
+                    try {
+                        const resultado = JSON.parse(exec.resultado);
+                        output += JSON.stringify(resultado, null, 2);
+                    } catch {
+                        output += exec.resultado;
+                    }
+                } else if (exec.error) {
+                    output += `❌ ERROR: ${exec.error}`;
+                } else {
+                    output += 'Sin resultados';
+                }
+
+                output += '\n\n';
+            });
+
+            terminal.textContent = output || 'No hay ejecuciones';
+            terminal.scrollTop = terminal.scrollHeight;
+            console.log('[OSINT] Terminal actualizada');
+        })
+        .catch(err => {
+            console.error('[OSINT] Error:', err);
+            terminal.textContent = 'Error: ' + err.message;
+        });
 }
