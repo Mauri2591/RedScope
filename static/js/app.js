@@ -1689,12 +1689,12 @@ async function cargarEjecucionesOSINT() {
     }
 }
 
-if (document.getElementById('hallazgosWorkspace')) {
-    cargarEjecucionesOSINT();
-    cargarResultadosOSINT();
-    setInterval(cargarEjecucionesOSINT, 2000);
-    setInterval(cargarResultadosOSINT, 2000);
-}
+document.addEventListener('DOMContentLoaded', function() {
+    if (document.getElementById('hallazgosWorkspace')) {
+        cargarEjecucionesOSINT();
+        cargarResultadosOSINT();
+    }
+});
 
 function cargarResultadosOSINT() {
     const hallazgosEl = document.getElementById('hallazgosWorkspace');
