@@ -1656,7 +1656,8 @@ async function cargarEjecucionesOSINT() {
         const response = await fetch(`/osint/ejecuciones/${proyectoId}`);
         const ejecuciones = await response.json();
 
-        tbody.innerHTML = '';
+        let html = '';
+        let hayRunning = false;
 
         ejecuciones.forEach(exec => {
             let badgeClass = 'bg-secondary';
@@ -1668,9 +1669,10 @@ async function cargarEjecucionesOSINT() {
                 badgeClass = 'bg-danger';
             } else if (exec.estado === 'RUNNING') {
                 badgeClass = 'bg-primary';
+                hayRunning = true;
             }
 
-            tbody.innerHTML += `
+            html += `
                 <tr>
                     <td>${exec.nombre}</td>
                     <td>
@@ -1686,6 +1688,18 @@ async function cargarEjecucionesOSINT() {
                 </tr>
             `;
         });
+
+        tbody.innerHTML = html;
+
+        // Si hay RUNNING, recargar cada 2 segundos
+        if (hayRunning && !window.pollingOSINT) {
+            window.pollingOSINT = setInterval(() => {
+                cargarEjecucionesOSINT();
+            }, 2000);
+        } else if (!hayRunning && window.pollingOSINT) {
+            clearInterval(window.pollingOSINT);
+            window.pollingOSINT = null;
+        }
     } catch (err) {
         console.error('[OSINT] Error cargando ejecuciones:', err);
     }
