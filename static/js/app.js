@@ -1744,7 +1744,7 @@ function cargarResultadosOSINT() {
                 output += '\n\n';
             });
 
-            terminal.textContent = output || 'No hay ejecuciones';
+            terminal.textContent = output || '';
             terminal.scrollTop = terminal.scrollHeight;
             console.log('[OSINT] Terminal actualizada');
         })
