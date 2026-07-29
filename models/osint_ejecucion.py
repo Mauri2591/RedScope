@@ -6,20 +6,31 @@ class OsintEjecucion:
 
     @staticmethod
     def crear(proyecto_id, servicio_osint_id, usuario_id):
-        """Crea nueva ejecución OSINT y retorna el ID"""
+        """Crea o actualiza ejecución OSINT (evita duplicados)"""
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
 
             cursor.execute("""
                 INSERT INTO osint_ejecuciones
-                (proyecto_id, servicio_osint_id, usuario_id, estado, estado_id, fecha_inicio)
-                VALUES (%s, %s, %s, 'QUEUED', 1, NOW())
-            """, (proyecto_id, servicio_osint_id, usuario_id))
+                (proyecto_id, servicio_osint_id, usuario_id, estado, estado_id, fecha_creacion, fecha_inicio)
+                VALUES (%s, %s, %s, 'QUEUED', 1, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE
+                    usuario_id=%s,
+                    estado='QUEUED',
+                    resultado=NULL,
+                    error=NULL,
+                    fecha_creacion=NOW(),
+                    fecha_inicio=NOW(),
+                    fecha_fin=NULL
+            """, (proyecto_id, servicio_osint_id, usuario_id, usuario_id))
 
-            ejecucion_id = cursor.lastrowid
+            cursor.execute("SELECT id FROM osint_ejecuciones WHERE proyecto_id=%s AND servicio_osint_id=%s",
+                          (proyecto_id, servicio_osint_id))
+            result = cursor.fetchone()
+            ejecucion_id = result[0] if result else None
+
             conn.commit()
-
             return ejecucion_id
         except Exception as e:
             print(f"Error al crear ejecución OSINT: {e}")

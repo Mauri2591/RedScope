@@ -1505,56 +1505,6 @@
     }
 
 
-    // ===============================
-    // OSINT - EJECUTAR SERVICIOS
-    // ===============================
-    function ejecutar_osint(servicioId, nombreServicio) {
-        const proyectoId = document.getElementById('hallazgosWorkspace').dataset.proyectoId;
-
-        fetch('/osint/run', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCSRFToken()
-                },
-                body: JSON.stringify({
-                    proyecto_id: proyectoId,
-                    servicio_osint_id: servicioId
-                })
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    const ejecucionId = data.ejecucion_id;
-                    document.getElementById('terminalOSINT').textContent +=
-                        `\n[${new Date().toLocaleTimeString()}] Iniciando: ${nombreServicio}\n`;
-
-                    iniciarPollingOSINT(ejecucionId);
-                    mostrarToast();
-                }
-            });
-    }
-
-    function iniciarPollingOSINT(ejecucionId) {
-        const interval = setInterval(() => {
-            fetch(`/osint/status/${ejecucionId}`)
-                .then(r => r.json())
-                .then(status => {
-                    if (status.resultado) {
-                        document.getElementById('terminalOSINT').textContent +=
-                            status.resultado + '\n';
-                    }
-                    if (status.estado === 'COMPLETED' || status.estado === 'FAILED') {
-                        clearInterval(interval);
-                    }
-                });
-        }, 1000);
-    }
-
-    function ejecutar_todos_osint() {
-        if (!confirm("¿Desea ejecutar todos los Servicios OSINT?")) return;
-        document.querySelectorAll('.btn-servicio-osint').forEach(btn => btn.click());
-    }
 
     // ===============================
 // OSINT - EJECUTAR SERVICIOS
@@ -1573,7 +1523,7 @@ $(document).on('click', '.btn-servicio-osint', function (e) {
 function ejecutar_osint(servicioId, nombreServicio) {
     const hallazgosEl = document.getElementById('hallazgosWorkspace');
     if (!hallazgosEl) return;
-    
+
     const proyectoId = hallazgosEl.dataset.proyectoId;
 
     fetch('/osint/run', {
@@ -1590,13 +1540,8 @@ function ejecutar_osint(servicioId, nombreServicio) {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            const ejecucionId = data.ejecucion_id;
-            const terminal = document.getElementById('terminalOSINT');
-            if (terminal) {
-                terminal.textContent += `\n[${new Date().toLocaleTimeString()}] Iniciando: ${nombreServicio}\n`;
-                iniciarPollingOSINT(ejecucionId);
-                mostrarToast();
-            }
+            mostrarToast();
+            setTimeout(() => location.reload(), 1000);
         } else {
             alert("Error: " + data.message);
         }
