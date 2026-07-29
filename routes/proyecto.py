@@ -1056,8 +1056,6 @@ def osint_ejecuciones(proyecto_id):
 @proyecto_bp.route('/osint/run', methods=['POST'])
 @login_required
 def run_osint():
-    from tasks.osint import handlers
-
     data = request.get_json()
     proyecto_id = data.get('proyecto_id')
     servicio_osint_id = data.get('servicio_osint_id')
