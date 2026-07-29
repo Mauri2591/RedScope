@@ -1041,7 +1041,7 @@ def osint_ejecuciones(proyecto_id):
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
-        SELECT oe.id, so.nombre, oe.estado, oe.fecha_creacion
+        SELECT oe.id, so.nombre, oe.estado, oe.fecha_creacion, oe.resultado, oe.error
         FROM osint_ejecuciones oe
         LEFT JOIN servicios_osint so ON so.id = oe.servicio_osint_id
         WHERE oe.proyecto_id = %s
@@ -1050,7 +1050,7 @@ def osint_ejecuciones(proyecto_id):
     data = cursor.fetchall()
     cursor.close()
     conn.close()
-    
+
     return jsonify(data)
 
 @proyecto_bp.route('/osint/run', methods=['POST'])

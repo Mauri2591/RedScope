@@ -1643,3 +1643,55 @@ function ejecutar_todos_osint() {
     if (!confirm("¿Desea ejecutar todos los Servicios OSINT?")) return;
     document.querySelectorAll('.btn-servicio-osint').forEach(btn => btn.click());
 }
+
+async function cargarEjecucionesOSINT() {
+    const hallazgosEl = document.getElementById('hallazgosWorkspace');
+    if (!hallazgosEl) return;
+
+    const proyectoId = hallazgosEl.dataset.proyectoId;
+    const tbody = document.querySelector('table tbody');
+    if (!tbody) return;
+
+    try {
+        const response = await fetch(`/osint/ejecuciones/${proyectoId}`);
+        const ejecuciones = await response.json();
+
+        tbody.innerHTML = '';
+
+        ejecuciones.forEach(exec => {
+            let badgeClass = 'bg-secondary';
+            let badgeText = exec.estado;
+
+            if (exec.estado === 'COMPLETED') {
+                badgeClass = 'bg-success';
+            } else if (exec.estado === 'FAILED') {
+                badgeClass = 'bg-danger';
+            } else if (exec.estado === 'RUNNING') {
+                badgeClass = 'bg-primary';
+            }
+
+            tbody.innerHTML += `
+                <tr>
+                    <td>${exec.nombre}</td>
+                    <td>
+                        <span class="badge ${badgeClass}">
+                            ${badgeText}
+                        </span>
+                    </td>
+                    <td>
+                        <small class="text-muted">${exec.fecha_creacion}</small>
+                    </td>
+                </tr>
+            `;
+        });
+    } catch (err) {
+        console.error('[OSINT] Error cargando ejecuciones:', err);
+    }
+}
+
+// Cargar ejecuciones al cargar la página
+if (document.getElementById('hallazgosWorkspace')) {
+    cargarEjecucionesOSINT();
+    // Recargar cada 2 segundos
+    setInterval(cargarEjecucionesOSINT, 2000);
+}
