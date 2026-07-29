@@ -149,28 +149,25 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
     _run_osint_job(ejecucion_id, job)
 
 def mapeo_ips(ejecucion_id, proyecto_id):
-    """Mapeo y resolución de IPs"""
+    """Mapeo y resolución de IPs - combina IPS configuradas + dominios resueltos"""
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
 
-        # Primero intentar con IPS configuradas
-        ips_str = config.get('IPS', '').strip() if config else ''
-
         ips_analizadas = []
-        ips_a_analizar = []
+        ips_a_analizar = set()  # Usar set para evitar duplicados
 
-        # Si hay IPs configuradas, usarlas
+        # Agregar IPS configuradas
+        ips_str = config.get('IPS', '').strip() if config else ''
         if ips_str:
-            ips_a_analizar = _parse_multiline_config(ips_str)
-        else:
-            # Si no, intentar resolver desde dominios
-            dominio = config.get('DOMINIO', '').strip() if config else ''
-            if not dominio:
-                raise Exception("IPs o Dominio no configurados")
+            ips_a_analizar.update(_parse_multiline_config(ips_str))
 
+        # TAMBIÉN resolver dominios a IPS
+        dominio = config.get('DOMINIO', '').strip() if config else ''
+        if dominio:
             dominios = _parse_multiline_config(dominio)
             for dom in dominios:
                 try:
+                    print(f"[mapeo_ips] Resolviendo dominio {dom}...")
                     result = subprocess.run(
                         ['nslookup', dom],
                         capture_output=True,
@@ -181,12 +178,15 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                         if 'Address:' in line and not line.startswith(';'):
                             ip = line.split('Address:')[1].strip()
                             if ip and not ip.startswith('#') and ':' not in ip:
-                                ips_a_analizar.append(ip)
-                except:
-                    pass
+                                ips_a_analizar.add(ip)
+                except Exception as e:
+                    print(f"[mapeo_ips] Error resolviendo {dom}: {e}")
 
-        # Analizar las IPs
-        for ip in ips_a_analizar:
+        if not ips_a_analizar:
+            raise Exception("No hay IPs ni dominios configurados para analizar")
+
+        # Analizar las IPs (reverse DNS lookup)
+        for ip in sorted(ips_a_analizar):
             try:
                 result_reverse = subprocess.run(
                     ['nslookup', ip],
@@ -205,7 +205,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                     'hostname': hostname
                 })
             except Exception as e:
-                print(f"[mapeo_ips] Error para {ip}: {e}")
+                print(f"[mapeo_ips] Error resolviendo reverso {ip}: {e}")
                 ips_analizadas.append({
                     'ip': ip,
                     'hostname': 'error'
