@@ -1679,7 +1679,9 @@ async function cargarEjecucionesOSINT() {
                         </span>
                     </td>
                     <td>
-                        <small class="text-muted">${exec.fecha_creacion}</small>
+                        <span class="badge bg-light text-secondary" title="Ver detalle" type="button" onclick="verDetalleOSINT(${exec.id})">
+                            <i class="bi bi-rocket-takeoff-fill"></i>
+                        </span>
                     </td>
                 </tr>
             `;
