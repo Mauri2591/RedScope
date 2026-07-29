@@ -1101,8 +1101,8 @@ def run_osint():
     if not ejecucion_id:
         return jsonify({"success": False, "message": "Error al crear ejecución"}), 500
 
-    # Encolar job
-    q = Queue(connection=Config.redis_conn)
+    # Encolar job en cola OSINT
+    q = Queue('osint', connection=Config.redis_conn)
     q.enqueue(handler_fn, ejecucion_id, proyecto_id)
 
     return jsonify({"success": True, "ejecucion_id": ejecucion_id})
