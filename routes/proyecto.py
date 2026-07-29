@@ -18,6 +18,7 @@ from models.cloud_ejecucion import CloudEjecucion
 from models.osint_ejecucion import OsintEjecucion
 from services.reportes import ReportService
 from tasks.cloud.aws import discovery_roles_job
+import mysql.connector
 
 from functools import wraps
 from datetime import datetime
