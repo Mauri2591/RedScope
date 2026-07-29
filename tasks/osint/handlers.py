@@ -27,24 +27,41 @@ def _run_osint_job(ejecucion_id, fn):
 # ══════════════════════════════════════════════════════════════════
 
 def discovery_subdominios(ejecucion_id, proyecto_id):
-    """Descubrimiento de subdominios"""
+    """Descubrimiento de subdominios con subfinder"""
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
-        dominio = config.get('DOMINIO', '')
-        
+        dominio = config.get('DOMINIO', '').strip()
+
         if not dominio:
             raise Exception("Dominio no configurado")
-        
-        # TODO: Integrar herramientas (subfinder, assetfinder, etc.)
-        subdominios = []
-        
+
+        subdominios = set()
+        dominios = [d.strip() for d in dominio.split(',')]
+
+        for dom in dominios:
+            try:
+                result = subprocess.run(
+                    ['subfinder', '-d', dom, '-silent'],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                if result.stdout:
+                    subdominios.update(result.stdout.strip().split('\n'))
+            except subprocess.TimeoutExpired:
+                print(f"[subfinder] Timeout para {dom}")
+            except Exception as e:
+                print(f"[subfinder] Error en {dom}: {e}")
+
+        subdominios = sorted(list(filter(None, subdominios)))
+
         return {
             "tipo": "discovery_subdominios",
             "dominio": dominio,
             "total": len(subdominios),
             "subdominios": subdominios
         }
-    
+
     _run_osint_job(ejecucion_id, job)
 
 def enumeracion_servicios(ejecucion_id, proyecto_id):
