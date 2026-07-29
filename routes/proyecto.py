@@ -1102,9 +1102,7 @@ def run_osint():
     q = Queue('osint', connection=Config.redis_conn)
 
     try:
-        module = importlib.import_module('tasks.osint.handlers')
-        func = getattr(module, handler_name)
-        q.enqueue(func, ejecucion_id, proyecto_id)
+        q.enqueue(f'tasks.osint.{handler_name}', ejecucion_id, proyecto_id)
     except Exception as e:
         return jsonify({
             "success": False,
