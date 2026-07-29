@@ -1568,17 +1568,39 @@ function iniciarPollingOSINT(ejecucionId) {
             .then(status => {
                 if (!terminal) return;
 
-                if (status.resultado && status.resultado !== ultimoResultado) {
+                let output = '';
+
+                // Estado general
+                output += `Estado: ${status.estado}\n`;
+                output += `Fecha Inicio: ${status.fecha_inicio || 'N/A'}\n`;
+                if (status.fecha_fin) output += `Fecha Fin: ${status.fecha_fin}\n`;
+                output += '═'.repeat(50) + '\n\n';
+
+                // Mostrar resultado
+                if (status.resultado) {
                     try {
                         const resultado = JSON.parse(status.resultado);
-                        const output = JSON.stringify(resultado, null, 2);
-                        terminal.textContent = output;
+                        output += JSON.stringify(resultado, null, 2);
                         ultimoResultado = status.resultado;
                     } catch {
-                        terminal.textContent = status.resultado;
+                        output += status.resultado;
                         ultimoResultado = status.resultado;
                     }
+                } else {
+                    output += 'Cargando...';
                 }
+
+                // Mostrar error si existe
+                if (status.error) {
+                    output += '\n\n❌ ERROR:\n';
+                    output += status.error;
+                }
+
+                terminal.textContent = output;
+                terminal.scrollTop = terminal.scrollHeight;
+
+                // Actualizar tabla
+                actualizarTablaOSINT(ejecucionId);
 
                 if (status.estado === 'COMPLETED' || status.estado === 'FAILED') {
                     clearInterval(interval);
@@ -1587,6 +1609,34 @@ function iniciarPollingOSINT(ejecucionId) {
                 }
             });
     }, 500);
+}
+
+function actualizarTablaOSINT(ejecucionId) {
+    fetch(`/osint/status/${ejecucionId}`)
+        .then(r => r.json())
+        .then(status => {
+            const tbody = document.querySelector('table tbody');
+            if (!tbody) return;
+
+            const rows = tbody.querySelectorAll('tr');
+            rows.forEach(row => {
+                const tdEstado = row.querySelector('td:nth-child(2)');
+                if (tdEstado) {
+                    let badgeClass = 'bg-secondary';
+                    let badgeText = status.estado;
+
+                    if (status.estado === 'COMPLETED') {
+                        badgeClass = 'bg-success';
+                    } else if (status.estado === 'FAILED') {
+                        badgeClass = 'bg-danger';
+                    } else if (status.estado === 'RUNNING') {
+                        badgeClass = 'bg-primary';
+                    }
+
+                    tdEstado.innerHTML = `<span class="badge ${badgeClass}">${badgeText}</span>`;
+                }
+            });
+        });
 }
 
 function ejecutar_todos_osint() {
