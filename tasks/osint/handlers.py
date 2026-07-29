@@ -84,7 +84,7 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
     _run_osint_job(ejecucion_id, job)
 
 def enumeracion_servicios(ejecucion_id, proyecto_id):
-    """Enumeración de servicios con nmap"""
+    """Enumeración de servicios con nmap - usa puertos de BD"""
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
         dominio = config.get('DOMINIO', '').strip()
@@ -97,6 +97,15 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
 
         if not dominios:
             raise Exception("No se encontraron dominios válidos")
+
+        # Traer puertos comunes de la BD
+        puertos_dict = Proyecto.top_100_common_ports()
+        if not puertos_dict:
+            puertos_dict = {'80': 'http', '443': 'https', '22': 'ssh', '3306': 'mysql'}
+
+        # Extraer solo números de puertos y hacer string para nmap
+        puertos_str = ','.join(puertos_dict.keys())
+        print(f"[nmap] Escaneando {len(puertos_dict)} puertos comunes")
 
         for dom in dominios:
             try:
@@ -116,11 +125,11 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
                         if ip and not ip.startswith('#'):
                             ips.append(ip)
 
-                # Escanear puertos comunes
+                # Escanear puertos desde BD
                 for ip in ips:
                     print(f"[nmap] Escaneando {dom} ({ip})...")
                     result = subprocess.run(
-                        ['nmap', '-p', '80,443,22,21,25,53,3306,5432,8080,8443', '--open', ip],
+                        ['nmap', '-p', puertos_str, '--open', ip],
                         capture_output=True,
                         text=True,
                         timeout=30
@@ -128,11 +137,12 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
 
                     for line in result.stdout.split('\n'):
                         if 'open' in line:
+                            puerto_num = line.split('/')[0].strip()
                             servicios.append({
                                 'dominio': dom,
                                 'ip': ip,
-                                'puerto': line.split('/')[0].strip(),
-                                'servicio': line.split('tcp')[0].strip() if 'tcp' in line else 'unknown'
+                                'puerto': puerto_num,
+                                'servicio': puertos_dict.get(puerto_num, 'unknown')
                             })
             except subprocess.TimeoutExpired:
                 print(f"[nmap] Timeout para {dom}")
