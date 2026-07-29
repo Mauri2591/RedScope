@@ -1,3 +1,4 @@
+from . import handlers
 from .handlers import (
     discovery_subdominios,
     enumeracion_servicios,
@@ -10,6 +11,7 @@ from .handlers import (
 )
 
 __all__ = [
+    'handlers',
     'discovery_subdominios',
     'enumeracion_servicios',
     'mapeo_ips',

@@ -12,6 +12,13 @@ import requests
 # HELPERS GLOBALES OSINT
 # ══════════════════════════════════════════════════════════════════
 
+def _parse_multiline_config(value):
+    """Limpia y parsea valores multilinea de configuración"""
+    if not value:
+        return []
+    # Reemplazar \r\n por \n y split
+    return [item.strip() for item in value.replace('\r\n', '\n').split('\n') if item.strip()]
+
 def _run_osint_job(ejecucion_id, fn):
     """Wrapper para todos los jobs OSINT."""
     try:
@@ -36,7 +43,10 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
             raise Exception("Dominio no configurado")
 
         subdominios = set()
-        dominios = [d.strip() for d in dominio.split(',')]
+        dominios = _parse_multiline_config(dominio)
+
+        if not dominios:
+            raise Exception("No se encontraron dominios válidos en la configuración")
 
         for dom in dominios:
             try:
@@ -83,7 +93,10 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
             raise Exception("Dominio no configurado")
 
         servicios = []
-        dominios = [d.strip() for d in dominio.split(',')]
+        dominios = _parse_multiline_config(dominio)
+
+        if not dominios:
+            raise Exception("No se encontraron dominios válidos")
 
         for dom in dominios:
             try:
@@ -139,58 +152,67 @@ def mapeo_ips(ejecucion_id, proyecto_id):
     """Mapeo y resolución de IPs"""
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
-        dominio = config.get('DOMINIO', '').strip()
 
-        if not dominio:
-            raise Exception("Dominio no configurado")
+        # Primero intentar con IPS configuradas
+        ips_str = config.get('IPS', '').strip() if config else ''
 
         ips_analizadas = []
-        dominios = [d.strip() for d in dominio.split(',')]
+        ips_a_analizar = []
 
-        for dom in dominios:
+        # Si hay IPs configuradas, usarlas
+        if ips_str:
+            ips_a_analizar = _parse_multiline_config(ips_str)
+        else:
+            # Si no, intentar resolver desde dominios
+            dominio = config.get('DOMINIO', '').strip() if config else ''
+            if not dominio:
+                raise Exception("IPs o Dominio no configurados")
+
+            dominios = _parse_multiline_config(dominio)
+            for dom in dominios:
+                try:
+                    result = subprocess.run(
+                        ['nslookup', dom],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    for line in result.stdout.split('\n'):
+                        if 'Address:' in line and not line.startswith(';'):
+                            ip = line.split('Address:')[1].strip()
+                            if ip and not ip.startswith('#') and ':' not in ip:
+                                ips_a_analizar.append(ip)
+                except:
+                    pass
+
+        # Analizar las IPs
+        for ip in ips_a_analizar:
             try:
-                result = subprocess.run(
-                    ['nslookup', dom],
+                result_reverse = subprocess.run(
+                    ['nslookup', ip],
                     capture_output=True,
                     text=True,
-                    timeout=10
+                    timeout=5
                 )
+                hostname = 'unknown'
+                for rev_line in result_reverse.stdout.split('\n'):
+                    if 'name =' in rev_line:
+                        hostname = rev_line.split('name =')[1].strip().rstrip('.')
+                        break
 
-                for line in result.stdout.split('\n'):
-                    if 'Address:' in line and not line.startswith(';'):
-                        ip = line.split('Address:')[1].strip()
-                        if ip and not ip.startswith('#') and ':' not in ip:  # Filtrar IPv6
-                            # Intenta reverse DNS
-                            try:
-                                result_reverse = subprocess.run(
-                                    ['nslookup', ip],
-                                    capture_output=True,
-                                    text=True,
-                                    timeout=5
-                                )
-                                hostname = 'unknown'
-                                for rev_line in result_reverse.stdout.split('\n'):
-                                    if 'name =' in rev_line:
-                                        hostname = rev_line.split('name =')[1].strip().rstrip('.')
-                                        break
-
-                                ips_analizadas.append({
-                                    'dominio': dom,
-                                    'ip': ip,
-                                    'hostname': hostname
-                                })
-                            except:
-                                ips_analizadas.append({
-                                    'dominio': dom,
-                                    'ip': ip,
-                                    'hostname': 'unknown'
-                                })
+                ips_analizadas.append({
+                    'ip': ip,
+                    'hostname': hostname
+                })
             except Exception as e:
-                print(f"[mapeo_ips] Error para {dom}: {e}")
+                print(f"[mapeo_ips] Error para {ip}: {e}")
+                ips_analizadas.append({
+                    'ip': ip,
+                    'hostname': 'error'
+                })
 
         return {
             "tipo": "mapeo_ips",
-            "dominio": dominio,
             "total": len(ips_analizadas),
             "ips_analizadas": ips_analizadas
         }
@@ -207,7 +229,10 @@ def recon_cloud(ejecucion_id, proyecto_id):
             raise Exception("Dominio no configurado")
 
         recursos = []
-        dominios = [d.strip() for d in dominio.split(',')]
+        dominios = _parse_multiline_config(dominio)
+
+        if not dominios:
+            raise Exception("No se encontraron dominios válidos")
 
         for dom in dominios:
             try:
@@ -257,7 +282,7 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
             raise Exception("Dominio no configurado")
 
         hallazgos = []
-        dominios = [d.strip() for d in dominio.split(',')]
+        dominios = _parse_multiline_config(dominio)
 
         # Búsquedas simples en GitHub (requiere token)
         # Por ahora solo placeholder
@@ -286,7 +311,10 @@ def analisis_dns(ejecucion_id, proyecto_id):
             raise Exception("Dominio no configurado")
 
         registros = {}
-        dominios = [d.strip() for d in dominio.split(',')]
+        dominios = _parse_multiline_config(dominio)
+
+        if not dominios:
+            raise Exception("No se encontraron dominios válidos")
 
         for dom in dominios:
             registros[dom] = {}
@@ -323,7 +351,10 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
             raise Exception("Dominio no configurado")
 
         endpoints = set()
-        dominios = [d.strip() for d in dominio.split(',')]
+        dominios = _parse_multiline_config(dominio)
+
+        if not dominios:
+            raise Exception("No se encontraron dominios válidos")
 
         for dom in dominios:
             try:
@@ -363,24 +394,27 @@ def google_dorking(ejecucion_id, proyecto_id):
             raise Exception("Dominio no configurado")
 
         resultados = []
-        dominios = [d.strip() for d in dominio.split(',')]
+        dominios = _parse_multiline_config(dominio)
+
+        if not dominios:
+            raise Exception("No se encontraron dominios válidos")
 
         # Dorks comunes
-        dorks = [
-            f'site:{dominio} inurl:admin',
-            f'site:{dominio} filetype:pdf',
-            f'site:{dominio} inurl:login',
-            f'site:{dominio} "password"',
-            f'site:{dominio} inurl:backup'
-        ]
-
-        # Nota: Se requiere API de Google Custom Search o usar curl/wget
-        # Por ahora solo placeholder
         for dom in dominios:
-            resultados.append({
-                'dork': f'site:{dom} inurl:admin',
-                'nota': 'Requiere API de Google Custom Search'
-            })
+            dorks = [
+                f'site:{dom} inurl:admin',
+                f'site:{dom} filetype:pdf',
+                f'site:{dom} inurl:login',
+                f'site:{dom} "password"',
+                f'site:{dom} inurl:backup'
+            ]
+
+            for dork in dorks:
+                resultados.append({
+                    'dork': dork,
+                    'dominio': dom,
+                    'nota': 'Requiere API de Google Custom Search'
+                })
 
         return {
             "tipo": "google_dorking",
