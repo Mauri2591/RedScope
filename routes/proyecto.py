@@ -1079,21 +1079,20 @@ def run_osint():
     except (ValueError, TypeError):
         return jsonify({"success": False, "message": "servicio_osint_id inválido"}), 400
 
-    # Mapeo: ID -> función handler
+    # Mapeo: ID -> nombre de función handler
     handlers_map = {
-        1: handlers.discovery_subdominios,
-        2: handlers.enumeracion_servicios,
-        3: handlers.mapeo_ips,
-        4: handlers.recon_cloud,
-        5: handlers.escaneo_repositorios,
-        6: handlers.analisis_dns,
-        7: handlers.busqueda_endpoints,
-        8: handlers.google_dorking
+        1: 'discovery_subdominios',
+        2: 'enumeracion_servicios',
+        3: 'mapeo_ips',
+        4: 'recon_cloud',
+        5: 'escaneo_repositorios',
+        6: 'analisis_dns',
+        7: 'busqueda_endpoints',
+        8: 'google_dorking'
     }
 
-    handler_fn = handlers_map.get(servicio_osint_id)
-    print(f"[OSINT/RUN] handler_fn={handler_fn}, servicio_id={servicio_osint_id}")
-    if not handler_fn:
+    handler_name = handlers_map.get(servicio_osint_id)
+    if not handler_name:
         return jsonify({"success": False, "message": f"Servicio {servicio_osint_id} no encontrado"}), 400
 
     # Crear ejecución usando el modelo
@@ -1101,8 +1100,8 @@ def run_osint():
     if not ejecucion_id:
         return jsonify({"success": False, "message": "Error al crear ejecución"}), 500
 
-    # Encolar job en cola OSINT
+    # Encolar job en cola OSINT con path completo
     q = Queue('osint', connection=Config.redis_conn)
-    q.enqueue(handler_fn, ejecucion_id, proyecto_id)
+    q.enqueue(f'tasks.osint.handlers.{handler_name}', ejecucion_id, proyecto_id)
 
     return jsonify({"success": True, "ejecucion_id": ejecucion_id})
