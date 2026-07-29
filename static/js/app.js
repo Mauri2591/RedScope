@@ -1592,7 +1592,7 @@ function iniciarPollingOSINT(ejecucionId) {
 
                 // Mostrar error si existe
                 if (status.error) {
-                    output += '\n\n❌ ERROR:\n';
+                    output += '\n\n ERROR:\n';
                     output += status.error;
                 }
 
@@ -1721,7 +1721,7 @@ function cargarResultadosOSINT() {
                         output += exec.resultado;
                     }
                 } else if (exec.error) {
-                    output += `❌ ERROR: ${exec.error}`;
+                    output += `ERROR: ${exec.error}`;
                 } else {
                     output += 'Sin resultados';
                 }
