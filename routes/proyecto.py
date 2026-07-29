@@ -1063,11 +1063,21 @@ def run_osint():
     servicio_osint_id = data.get('servicio_osint_id')
     usuario_id = session.get('user_id')
 
+    # DEBUG
+    print(f"[OSINT/RUN] proyecto_id={proyecto_id}, servicio_osint_id={servicio_osint_id} (type={type(servicio_osint_id)}), usuario_id={usuario_id}")
+
     # Validar proyecto
     sector_id = session.get('sector_id')
     proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
     if not proyecto or proyecto['tipo_proyecto'] != 'OSINT':
+        print(f"[OSINT/RUN] Proyecto inválido: {proyecto}")
         return jsonify({"success": False, "message": "Proyecto OSINT no válido"}), 400
+
+    # Convertir a int si es string
+    try:
+        servicio_osint_id = int(servicio_osint_id)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "message": "servicio_osint_id inválido"}), 400
 
     # Mapeo: ID -> función handler
     handlers_map = {
@@ -1082,8 +1092,9 @@ def run_osint():
     }
 
     handler_fn = handlers_map.get(servicio_osint_id)
+    print(f"[OSINT/RUN] handler_fn={handler_fn}, servicio_id={servicio_osint_id}")
     if not handler_fn:
-        return jsonify({"success": False, "message": "Servicio OSINT no encontrado"}), 400
+        return jsonify({"success": False, "message": f"Servicio {servicio_osint_id} no encontrado"}), 400
 
     # Crear ejecución usando el modelo
     ejecucion_id = OsintEjecucion.crear(proyecto_id, servicio_osint_id, usuario_id)
