@@ -391,3 +391,19 @@ def google_dorking(ejecucion_id, proyecto_id):
         }
 
     _run_osint_job(ejecucion_id, job)
+    
+def dispatcher(handler_name, ejecucion_id, proyecto_id):
+    """Dispatcher que ejecuta el handler correcto basado en el nombre"""
+    handlers_dict = {
+        'discovery_subdominios': discovery_subdominios,
+        'enumeracion_servicios': enumeracion_servicios,
+        'mapeo_ips': mapeo_ips,
+        'recon_cloud': recon_cloud,
+        'escaneo_repositorios': escaneo_repositorios,
+        'analisis_dns': analisis_dns,
+        'busqueda_endpoints': busqueda_endpoints,
+        'google_dorking': google_dorking
+    }
+    handler = handlers_dict.get(handler_name)
+    if handler:
+        handler(ejecucion_id, proyecto_id)
