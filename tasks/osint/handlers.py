@@ -255,7 +255,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
             bucket_names.extend(_find_buckets_from_ct(dom))
             
             # 4. Escanear con s3scanner si está disponible
-            bucket_names.extend(_scan_with_s3scanner(dom))
+            bucket_names.extend(_scan_with_wordlist(dom))
             
             # Eliminar duplicados y escanear
             bucket_names = list(set(filter(None, bucket_names)))
@@ -392,33 +392,42 @@ def _find_buckets_from_ct(dominio):
     return buckets
 
 
-def _scan_with_s3scanner(dominio):
-    """Usa s3scanner para escaneo más inteligente"""
+def _scan_with_wordlist(dominio):
+    """Fuzzing agresivo de buckets con wordlist"""
     buckets = []
-    try:
-        print(f"[s3scanner] Escaneando con s3scanner...")
-        
-        # s3scanner mantiene listas de buckets comunes
-        result = subprocess.run(
-            ['s3scanner', 'scan', '-l', '/dev/stdin'],
-            input=dominio,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
-        if result.stdout:
-            for line in result.stdout.split('\n'):
-                if 'BucketExists' in line or 'Exists' in line.lower():
-                    # Extraer nombre del bucket
-                    parts = line.split()
-                    if parts:
-                        buckets.append(parts[0])
     
-    except FileNotFoundError:
-        print("[s3scanner] s3scanner no instalado")
-    except Exception as e:
-        print(f"[s3scanner] Error: {e}")
+    suffixes = [
+        '', '-backup', '-backup-data', '-backups', '-bucket', '-aws', '-s3',
+        '-data', '-files', '-assets', '-media', '-logs', '-public', '-private',
+        '-test', '-dev', '-prod', '-staging', '-temp', '-archive',
+        '-documents', '-images', '-storage', '-uploads', '-downloads',
+        '-code', '-repo', '-git', '-source', '-build', '-dist',
+    ]
+    
+    prefixes = ['', 'aws-', 's3-', 'bucket-', 'data-']
+    
+    domain_base = dominio.split('.')[0]
+    
+    candidates = []
+    for prefix in prefixes:
+        for suffix in suffixes:
+            candidates.append(f"{prefix}{domain_base}{suffix}")
+    
+    print(f"[fuzzing] Probando {len(candidates)} candidatos...")
+    
+    for bucket in candidates:
+        try:
+            result = subprocess.run(
+                ['aws', 's3api', 'head-bucket', '--bucket', bucket],
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            if result.returncode == 0:
+                buckets.append(bucket)
+                print(f"✓ Encontrado: {bucket}")
+        except:
+            pass
     
     return buckets
 
