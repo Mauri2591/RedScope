@@ -27,11 +27,9 @@ def index():
     if estado == 'ACTIVO':
         clientes = Cliente.get_all()
         tipo_proyectos = Proyecto.get_tipo_proyectos()
-        tipos_servicio = Proyecto.get_tipos_servicio()
         return render_template('cliente/index.html', 
             clientes=clientes,
-            tipo_proyectos=tipo_proyectos,
-            tipos_servicio=tipos_servicio)
+            tipo_proyectos=tipo_proyectos)
     else:
         abort(403)
         

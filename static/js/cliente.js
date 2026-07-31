@@ -47,19 +47,35 @@ $(document).ready(function () {
         });
     }
 
-    $('#np_tipo_proyecto').on('change', function () {
-        const tipo = $(this).find('option:selected').data('tipo');
-        const $contenedorServicio = $('#np_contenedor_servicio');
-        const $selectServicio = $('#np_tipo_servicio');
+   $('#np_tipo_proyecto').on('change', function () {
+    const idTipoProyecto = $(this).val();
+    const tipo = $(this).find('option:selected').data('tipo');
+    const $contenedorServicio = $('#np_contenedor_servicio');
+    const $selectServicio = $('#np_tipo_servicio');
 
-        if (tipo === 'CLOUD') {
-            $contenedorServicio.show();
-            $selectServicio.prop('disabled', false);
-        } else {
-            $contenedorServicio.hide();
-            $selectServicio.prop('disabled', true);
-        }
-    });
+    if (tipo === 'CLOUD' || tipo === 'OSINT') {  // ✅ Agregar OSINT aquí
+        $contenedorServicio.show();
+        $selectServicio.prop('disabled', false);
+        
+        $.ajax({
+            url: `/api/tipos-servicio/${idTipoProyecto}`,
+            type: 'GET',
+            success: function(data) {
+                $selectServicio.empty();
+                data.forEach(function(servicio) {
+                    $selectServicio.append(`<option value="${servicio.id}">${servicio.nombre}</option>`);
+                });
+            },
+            error: function() {
+                alert('Error cargando servicios');
+            }
+        });
+    } else {
+        $contenedorServicio.hide();
+        $selectServicio.prop('disabled', true);
+        $selectServicio.empty();
+    }
+});
 
     $('#formNuevoProyecto').on('submit', function (e) {
         e.preventDefault();

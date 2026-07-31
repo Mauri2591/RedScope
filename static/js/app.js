@@ -685,13 +685,19 @@
         window.location.href = `/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}/hallazgos`;
     }
 
-    function descargarDoc(id, tipo) {
-        window.location.href = `/proyecto/${id}/export/docx/${tipo}`;
+
+    function descargarDocAws(id, tipo) {
+        window.location.href = `/proyecto/${id}/export/docx/aws/${tipo}`;
     }
 
-    function descargarXlsx(id) {
-        window.location.href = `/proyecto/${id}/export/xlsx`;
+    function descargarXlsxAws(id) {
+        window.location.href = `/proyecto/${id}/export/xlsx/aws`;
     }
+
+    function descargarDocOsint(id, tipo) {
+        window.location.href = `/proyecto/${id}/export/docx/osint/${tipo}`;
+    }
+    
 
     function gestionarCheck(CLOUD_EJECUCION_ID) {
         alert(CLOUD_EJECUCION_ID)
@@ -1738,3 +1744,8 @@ function cargarResultadosOSINT() {
             terminal.textContent = 'Error: ' + err.message;
         });
 }
+
+    function editarProyecto(params) {
+        alert(params)
+    }
+

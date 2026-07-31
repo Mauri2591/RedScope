@@ -35,7 +35,7 @@
             <!-- CONFIGURACIÓN -->
             <td>
                 {% if proyecto.configuracion == proyecto.tipo_proyecto + '_CONFIGURADO' %}
-                <span class="badge-estado-success">
+                <span class="badge-estado-success" type="button" onclick="editarProyecto({{proyecto.id}})">
                     <i class="bi bi-check-circle-fill"></i>
                     OK
                 </span>

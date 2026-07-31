@@ -23,27 +23,27 @@ class Proyecto:
         return proyecto
 
     @staticmethod
-    def get_tipos_servicio():
+    def get_tipos_servicio(id_tipo_proyecto):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         query = """
-        SELECT id, nombre FROM tipos_servicio WHERE estado_id=1
+        SELECT id, nombre FROM tipos_servicio WHERE id_tipo_proyecto=%s AND estado_id=1
         """
-        cursor.execute(query,)
+        cursor.execute(query,(id_tipo_proyecto,))
         tipos_servicio = cursor.fetchall()
         cursor.close()
         conn.close()
         return tipos_servicio
 
     @staticmethod
-    def insert_proyecto(titulo, cliente, cliente_id, sector_id, usuario_creador_id, tipo_proyecto, tipo_servicio, autenticado, estado_id):
+    def insert_proyecto(titulo, cliente_id, sector_id, usuario_creador_id, tipo_proyecto, tipo_servicio, autenticado, estado_id):
         conn = get_db_connection()
         cursor = conn.cursor()
         query = """
-            INSERT INTO proyectos (titulo, cliente, cliente_id, sector_id, usuario_creador_id, tipo_proyecto_id, tipo_servicio_id, autenticado, estado_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO proyectos (titulo, cliente_id, sector_id, usuario_creador_id, tipo_proyecto_id, tipo_servicio_id, autenticado, estado_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """
-        cursor.execute(query, (titulo, cliente, cliente_id, sector_id, usuario_creador_id, tipo_proyecto, tipo_servicio, autenticado, estado_id))
+        cursor.execute(query, (titulo, cliente_id, sector_id, usuario_creador_id, tipo_proyecto, tipo_servicio, autenticado, estado_id))
         conn.commit()
         cursor.close()
         conn.close()
@@ -94,6 +94,7 @@ class Proyecto:
             SELECT 
                 p.id,
                 p.titulo,
+                clientes.nombre AS cliente,
                 u.email,
                 IF(ts.nombre IS NULL, 'N/A', ts.nombre) AS tipo_servicio,
                 ts.id AS tipo_servicio_id,
@@ -113,6 +114,7 @@ class Proyecto:
             INNER JOIN tipo_proyecto tp ON tp.id = p.tipo_proyecto_id
             LEFT JOIN proyecto_cloud_config sc ON sc.proyecto_id = p.id
             LEFT JOIN proyecto_osint_config poc ON poc.proyecto_id = p.id
+            LEFT JOIN clientes ON clientes.id=p.cliente_id
             WHERE p.id = %s
             AND p.sector_id = %s
             AND p.estado_id != 2

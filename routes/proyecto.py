@@ -16,7 +16,8 @@ from config import Config
 from models.proyecto import Proyecto
 from models.cloud_ejecucion import CloudEjecucion
 from models.osint_ejecucion import OsintEjecucion
-from services.reportes import ReportService
+from services.reportes_aws import ReportService
+from services.reportes_osint import ReportService as ReportServiceOSINT
 from tasks.cloud.aws import discovery_roles_job
 import mysql.connector
 
@@ -58,20 +59,22 @@ def login_required(f):
 # ------------------------------------------------------------------
 # LISTADO PROYECTOS
 # ------------------------------------------------------------------
+@proyecto_bp.route('/api/tipos-servicio/<int:id_tipo_proyecto>', methods=['GET'])
+@login_required
+def get_tipos_servicio_ajax(id_tipo_proyecto):
+    tipos_servicio = Proyecto.get_tipos_servicio(id_tipo_proyecto)
+    return jsonify(tipos_servicio)
+
 @proyecto_bp.route('/proyectos')
 @login_required
 def index():
     sector_id = session.get('sector_id')
-    proyectos = Proyecto.get_proyectos(sector_id)
-    tipos_servicio = Proyecto.get_tipos_servicio()
-
+    proyectos = Proyecto.get_proyectos(sector_id)    
     return render_template(
         'servicio/proyectos.html',
-        proyectos=proyectos,
-        tipos_servicio=tipos_servicio
+        proyectos=proyectos
     )
-
-
+    
 # ------------------------------------------------------------------
 # CREAR PROYECTO
 # ------------------------------------------------------------------
@@ -83,7 +86,6 @@ def crear_proyecto():
     estado_id = 1
 
     titulo = request.form.get('titulo')
-    cliente = request.form.get('cliente')
     cliente_id = request.form.get('cliente_id') or None
     tipo_proyecto = request.form.get('tipo_proyecto_id')
     tipo_servicio = request.form.get('tipo_servicio_id')
@@ -95,7 +97,6 @@ def crear_proyecto():
     try:
         Proyecto.insert_proyecto(
             titulo=titulo,
-            cliente=cliente,
             cliente_id=cliente_id,
             sector_id=sector_id,
             usuario_creador_id=usuario_creador_id,
@@ -155,7 +156,31 @@ def guardar_cloud_config(proyecto_id):
     secret_key  = request.form.get('secret_key')
     arn_role    = request.form.get('arn_role')
     external_id = request.form.get('external_id')
+    auth_method = request.form.get('auth_method')
+    access_key  = request.form.get('access_key')
+    secret_key  = request.form.get('secret_key')
+    arn_role    = request.form.get('arn_role')
+    external_id = request.form.get('external_id')
     region      = request.form.get('region')
+
+    # DEBUG DETALLADO
+    print(f"\n{'='*60}")
+    print(f"DEBUG CLOUD CONFIG - CREDENCIALES RECIBIDAS")
+    print(f"{'='*60}")
+    print(f"Auth method: {auth_method}")
+    print(f"Region: '{region}'")
+    print(f"\nACCESS KEY:")
+    print(f"  - Valor: {access_key}")
+    print(f"  - Length: {len(access_key) if access_key else 0}")
+    print(f"  - Repr: {repr(access_key)}")
+    print(f"\nSECRET KEY:")
+    print(f"  - Length: {len(secret_key) if secret_key else 0}")
+    print(f"  - Valor completo: {secret_key}")
+    print(f"  - Repr: {repr(secret_key)}")
+    print(f"  - Hex (primeros 40 chars): {secret_key[:40].encode().hex() if secret_key else 'N/A'}")
+    print(f"\nARN ROLE: {arn_role}")
+    print(f"EXTERNAL ID: {external_id}")
+    print(f"{'='*60}\n")
 
     if not auth_method or not region:
         return jsonify({
@@ -190,7 +215,8 @@ def guardar_cloud_config(proyecto_id):
             sts = boto3.client(
                 'sts',
                 aws_access_key_id=access_key.strip(),
-                aws_secret_access_key=secret_key.strip()
+                aws_secret_access_key=secret_key.strip(),
+                region_name=region
             )
 
             assume_params = {
@@ -233,6 +259,7 @@ def guardar_cloud_config(proyecto_id):
                 }), 400
 
             access_key = access_key.strip()
+            secret_key = secret_key.strip()
 
             sts = boto3.client(
                 'sts',
@@ -264,9 +291,14 @@ def guardar_cloud_config(proyecto_id):
         }), 400
 
     except ClientError as e:
+        error_msg = str(e)
+        print(f"AWS ClientError: {error_msg}")
+        print(f"Auth method: {auth_method}")
+        print(f"Access Key (primeras 4 chars): {access_key[:4] if access_key else 'N/A'}")
+        print(f"Region: {region}")
         return jsonify({
             "success": False,
-            "message": f"Error AWS: {str(e)}"
+            "message": f"Error AWS: {error_msg}"
         }), 400
 
     except Exception as e:
@@ -685,7 +717,7 @@ def serve_evidencias(filename):
 
 # *****************************  Reportes  ***************************
 #-------------------------------- xlsx ------------------------------#
-@proyecto_bp.route('/proyecto/<int:proyecto_id>/export/xlsx')
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/export/xlsx/aws')
 @login_required
 def exportar_xlsx(proyecto_id):
     sector_id = session.get('sector_id')
@@ -695,10 +727,13 @@ def exportar_xlsx(proyecto_id):
         abort(404)
 
     data = Proyecto.get_data_reporte(proyecto_id)
-    severidades = Proyecto.get_severidades()  
+    severidades = Proyecto.get_severidades()
+    proyecto  = Proyecto.get_by_id(proyecto_id, sector_id)
+    if not proyecto:
+        abort(404)
 
     output = ReportService.generar_xlsx(data, severidades)
-    filename = ReportService.generar_nombre_archivo(data, proyecto_id)
+    filename = ReportService.generar_nombre_archivo(data, proyecto_id, proyecto=proyecto)
 
     return Response(
         output.getvalue(),
@@ -723,7 +758,7 @@ def exportar_csv(proyecto_id):
     data = Proyecto.get_data_reporte(proyecto_id)
 
     output = ReportService.generar_csv_vulma(data)
-    filename = ReportService.generar_nombre_archivo(data, proyecto_id).replace(".xlsx", ".csv")
+    filename = ReportService.generar_nombre_archivo(data, proyecto_id, proyecto=proyecto).replace(".xlsx", ".csv")
 
     return Response(
         output.getvalue(),
@@ -736,9 +771,9 @@ def exportar_csv(proyecto_id):
 #---------------------------------------------------------------------------#
 #-------------------------------- Docx ------------------------------#
 
-@proyecto_bp.route('/proyecto/<int:proyecto_id>/export/docx/<tipo_informe>')
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/export/docx/aws/<tipo_informe>')
 @login_required
-def exportar_docx(proyecto_id, tipo_informe):
+def exportar_docx_aws(proyecto_id, tipo_informe):
 
     if tipo_informe not in ('tecnico', 'ejecutivo'):
         abort(404)
@@ -763,7 +798,7 @@ def exportar_docx(proyecto_id, tipo_informe):
         base_dir=Config.BASE_DIR,
         tipo_informe=tipo_informe
     )
-    filename = ReportService.generar_nombre_archivo(data, proyecto_id, extension="docx", tipo_informe=tipo_informe)
+    filename = ReportService.generar_nombre_archivo(data, proyecto_id, extension="docx", tipo_informe=tipo_informe, proyecto=proyecto)
 
     return Response(
         output.getvalue(),
@@ -773,6 +808,41 @@ def exportar_docx(proyecto_id, tipo_informe):
             "Cache-Control": "no-cache"
         }
     )
+    
+    
+@proyecto_bp.route('/proyecto/<int:proyecto_id>/export/docx/osint/<tipo_informe>')
+@login_required
+def exportar_docx_osint(proyecto_id, tipo_informe):
+    if tipo_informe not in ('tecnico', 'ejecutivo'):
+        abort(404)
+    sector_id = session.get('sector_id')
+    proyecto  = Proyecto.get_by_id(proyecto_id, sector_id)
+    if not proyecto:
+        abort(404)
+    
+    tipo_servicio = proyecto.get('tipo_servicio', 'osint').lower()
+    data               = Proyecto.get_data_reporte(proyecto_id)
+    tema               = Proyecto.get_reporte_tema()
+    estructura         = Proyecto.get_reporte_estructura(proveedor=tipo_servicio)
+    severidades        = Proyecto.get_severidades()
+    contenido_secciones = Proyecto.get_contenido_secciones(tipo_servicio)
+
+    output = ReportServiceOSINT.generar_docx(
+        data, proyecto, tema, estructura, severidades,
+        contenido_secciones,
+        base_dir=Config.BASE_DIR,
+        tipo_informe=tipo_informe
+    )
+    filename = ReportServiceOSINT.generar_nombre_archivo(data, proyecto_id, extension="docx", tipo_informe=tipo_informe, proyecto=proyecto)
+    return Response(
+        output.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Cache-Control": "no-cache"
+        }
+    )
+
 
 @proyecto_bp.route('/cloud/acciones/all/<int:proyecto_id>')
 @login_required

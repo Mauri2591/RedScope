@@ -296,16 +296,13 @@ class ReportService:
         return re.sub(r'[^a-zA-Z0-9_-]', '_', str(texto))
 
     @staticmethod
-    def generar_nombre_archivo(data, proyecto_id, extension="xlsx", tipo_informe=None):
-        if data:
-            titulo      = ReportService._limpiar(data[0].get('proyecto_titulo'))
-            proveedores = {row.get('proveedor', 'sin_proveedor') for row in data}
-            proveedor   = ReportService._limpiar("_".join(proveedores))
-        else:
-            titulo    = f"proyecto_{proyecto_id}"
-            proveedor = "sin_proveedor"
+    def generar_nombre_archivo(data, proyecto_id, extension="xlsx", tipo_informe=None, proyecto=None):
+        cliente = ReportService._limpiar(proyecto.get('cliente', 'sin_cliente')) if proyecto else 'sin_cliente'
+        tipo_proyecto = ReportService._limpiar(proyecto.get('tipo_proyecto', 'sin_tipo')) if proyecto else 'sin_tipo'
+        tipo_servicio = ReportService._limpiar(proyecto.get('tipo_servicio', 'sin_servicio')) if proyecto else 'sin_servicio'
+
         sufijo_tipo = f"_{tipo_informe}" if tipo_informe else ""
-        return f"{titulo}_{proveedor}{sufijo_tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{extension}"
+        return f"{cliente}_{tipo_proyecto}_{tipo_servicio}{sufijo_tipo}.{extension}"
 
     # ─────────────────────────────────────────────────────────────
     # XLSX
@@ -496,7 +493,8 @@ class ReportService:
         color_secundario  = tema.get('fondo_secundario', '#2D2A6E').lstrip('#')
         color_acento      = tema.get('acento',           '#00B4D8').lstrip('#')
         color_texto_claro = tema.get('texto_claro',      '#FFFFFF').lstrip('#')
-        proveedor         = proyecto.get('tipo_servicio', 'Cloud').upper()
+        tipo_proyecto     = proyecto.get('tipo_proyecto', 'Cloud').upper()
+        tipo_servicio     = proyecto.get('tipo_servicio', 'N/A').upper()
 
         t = doc.add_table(rows=1, cols=1)
         _remove_table_borders(t)
@@ -516,7 +514,7 @@ class ReportService:
         p1 = c.add_paragraph()
         p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
         p1.paragraph_format.space_before = Pt(18)
-        r1 = p1.add_run(f'Pentest Cloud — {proveedor}')
+        r1 = p1.add_run(f'Pentest {tipo_proyecto} — {tipo_servicio}')
         r1.font.name      = 'Arial'
         r1.font.size      = Pt(28)
         r1.font.bold      = True
@@ -546,7 +544,7 @@ class ReportService:
         campos = [
             ('Cliente',   proyecto.get('cliente',   '')),
             ('Proyecto',  proyecto.get('titulo',    '')),
-            ('Proveedor', proveedor),
+            ('Proveedor', tipo_servicio),
             ('Cuenta',    proyecto.get('cuenta_id', 'N/A')),
             ('Fecha',     datetime.now().strftime('%d de %B de %Y')),
         ]
