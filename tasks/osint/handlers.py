@@ -470,13 +470,18 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
 def _search_github(dominio):
     """Busca en GitHub repositorios públicos del dominio"""
     hallazgos = []
+    GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '')
+    
+    if not GITHUB_TOKEN:
+        print("[github] Token no configurado en .env")
+        return hallazgos
+    
     try:
         print(f"[github] Buscando repositorios de {dominio}...")
 
-        # Búsquedas específicas
         searches = [
-            f'org:{dominio.split(".")[0]}',  # org:telecom
-            f'"{dominio}"',  # "telecom.com.ar"
+            f'org:{dominio.split(".")[0]}',
+            f'"{dominio}"',
             f'{dominio.split(".")[0]} secret',
             f'{dominio.split(".")[0]} key',
             f'{dominio.split(".")[0]} password',
@@ -484,35 +489,31 @@ def _search_github(dominio):
 
         for search_query in searches:
             try:
-                # GitHub API pública (limitada pero funciona sin token)
                 result = subprocess.run(
-                    ['curl', '-s', f'https://api.github.com/search/code?q={search_query}+language:python&per_page=5'],
+                    ['curl', '-s', '-H', f'Authorization: token {GITHUB_TOKEN}',
+                     f'https://api.github.com/search/code?q={search_query}&per_page=5'],
                     capture_output=True,
                     text=True,
                     timeout=10
                 )
 
                 if result.stdout:
-                    try:
-                        data = json.loads(result.stdout)
-                        items = data.get('items', [])
+                    data = json.loads(result.stdout)
+                    items = data.get('items', [])
 
-                        for item in items:
-                            hallazgos.append({
-                                'tipo': 'github_repo',
-                                'nombre': item.get('name', ''),
-                                'url': item.get('html_url', ''),
-                                'path': item.get('path', ''),
-                                'repo': item.get('repository', {}).get('full_name', ''),
-                                'query': search_query
-                            })
-                    except json.JSONDecodeError:
-                        pass
-            except Exception as e:
-                print(f"[github] Error en búsqueda '{search_query}': {e}")
+                    for item in items:
+                        hallazgos.append({
+                            'tipo': 'github_repo',
+                            'nombre': item.get('name', ''),
+                            'url': item.get('html_url', ''),
+                            'repo': item.get('repository', {}).get('full_name', ''),
+                            'query': search_query
+                        })
+            except:
+                pass
 
     except Exception as e:
-        print(f"[github] Error general: {e}")
+        print(f"[github] Error: {e}")
 
     return hallazgos
 
