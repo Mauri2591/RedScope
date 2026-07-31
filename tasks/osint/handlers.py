@@ -230,7 +230,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
     _run_osint_job(ejecucion_id, job)
 
 def recon_cloud(ejecucion_id, proyecto_id):
-    """Reconocimiento de buckets S3 y servicios cloud"""
+    """Reconocimiento de buckets S3 y servicios cloud mejorado"""
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
         dominio = config.get('DOMINIO', '').strip()
@@ -245,33 +245,23 @@ def recon_cloud(ejecucion_id, proyecto_id):
             raise Exception("No se encontraron dominios válidos")
 
         for dom in dominios:
-            try:
-                # Buscar buckets S3 comunes
-                bucket_names = [
-                    dom.replace('.', '-'),
-                    f"{dom.split('.')[0]}-bucket",
-                    f"bucket-{dom.replace('.', '-')}",
-                    f"{dom.replace('.', '')}"
-                ]
+            # 1. Buckets derivados del dominio (actual)
+            bucket_names = _generate_bucket_candidates(dom)
+            
+            # 2. Buscar en Wayback (referencias históricas)
+            bucket_names.extend(_find_buckets_wayback(dom))
+            
+            # 3. Buscar en CT logs (subdominios)
+            bucket_names.extend(_find_buckets_from_ct(dom))
+            
+            # 4. Escanear con s3scanner si está disponible
+            bucket_names.extend(_scan_with_s3scanner(dom))
+            
+            # Eliminar duplicados y escanear
+            bucket_names = list(set(filter(None, bucket_names)))
 
-                for bucket in bucket_names:
-                    try:
-                        result = subprocess.run(
-                            ['aws', 's3', 'ls', f"s3://{bucket}"],
-                            capture_output=True,
-                            text=True,
-                            timeout=5
-                        )
-                        if result.returncode == 0:
-                            recursos.append({
-                                'tipo': 's3_bucket',
-                                'nombre': bucket,
-                                'dominio': dom
-                            })
-                    except:
-                        pass
-            except Exception as e:
-                print(f"[recon_cloud] Error para {dom}: {e}")
+            for bucket in bucket_names:
+                recursos.extend(_verify_bucket(bucket, dom))
 
         return {
             "tipo": "recon_cloud",
@@ -281,6 +271,196 @@ def recon_cloud(ejecucion_id, proyecto_id):
         }
 
     _run_osint_job(ejecucion_id, job)
+
+
+def _generate_bucket_candidates(dominio):
+    """Genera variaciones de nombres de buckets"""
+    domain_base = dominio.split('.')[0]
+    domain_clean = dominio.replace('.', '-').replace('_', '-')
+    domain_nodots = dominio.replace('.', '')
+    company = domain_base
+    
+    candidates = [
+        # Original + variaciones
+        dominio,
+        domain_clean,
+        domain_nodots,
+        f"{company}-bucket",
+        f"bucket-{company}",
+        f"{company}-aws",
+        f"{company}-s3",
+        f"s3-{company}",
+        
+        # Comunes
+        f"{company}-data",
+        f"{company}-assets",
+        f"{company}-backup",
+        f"{company}-files",
+        f"{company}-media",
+        f"{company}-logs",
+        f"{company}-public",
+        
+        # Con extensión
+        f"{company}-com-ar",
+        f"{company}-{dominio.split('.')[-2]}",
+    ]
+    
+    return candidates
+
+
+def _find_buckets_wayback(dominio):
+    """Busca referencias a buckets en Wayback Machine"""
+    buckets = []
+    try:
+        print(f"[wayback] Buscando buckets en histórico de {dominio}...")
+        
+        # Descargar URLs del wayback para este dominio
+        result = subprocess.run(
+            ['waybackurls', dominio],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.stdout:
+            urls = result.stdout.strip().split('\n')
+            
+            # Buscar patrones de S3
+            for url in urls:
+                # Patrones comunes en URLs
+                if 's3' in url.lower():
+                    # s3://bucket-name
+                    if 's3://' in url:
+                        bucket = url.split('s3://')[1].split('/')[0]
+                        if bucket and '.' not in bucket:  # Buckets S3 no tienen .
+                            buckets.append(bucket)
+                    # amazonaws URLs
+                    elif 'amazonaws' in url:
+                        # bucket.s3.amazonaws.com
+                        parts = url.split('/')
+                        for part in parts:
+                            if 's3' in part and 'amazonaws' in part:
+                                bucket = part.split('.')[0]
+                                if bucket:
+                                    buckets.append(bucket)
+    
+    except FileNotFoundError:
+        print("[wayback] waybackurls no instalado - skipping")
+    except Exception as e:
+        print(f"[wayback] Error: {e}")
+    
+    return buckets
+
+
+def _find_buckets_from_ct(dominio):
+    """Busca buckets en subdominios vía CT logs"""
+    buckets = []
+    try:
+        print(f"[ct-logs] Buscando subdominios de {dominio}...")
+        
+        # Usar curl para consultar crt.sh
+        result = subprocess.run(
+            ['curl', '-s', f'https://crt.sh/?q=%.{dominio}&output=json'],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        
+        if result.stdout:
+            try:
+                certs = json.loads(result.stdout)
+                subdomains = set()
+                
+                for cert in certs:
+                    name_value = cert.get('name_value', '')
+                    for name in name_value.split('\n'):
+                        name = name.strip()
+                        if name and not name.startswith('*.'):
+                            subdomains.add(name)
+                
+                # Convertir subdominios en candidatos de bucket
+                for sub in subdomains:
+                    buckets.append(sub.replace('.', '-'))
+                    buckets.append(sub.replace('.', ''))
+                    
+            except json.JSONDecodeError:
+                pass
+    
+    except Exception as e:
+        print(f"[ct-logs] Error: {e}")
+    
+    return buckets
+
+
+def _scan_with_s3scanner(dominio):
+    """Usa s3scanner para escaneo más inteligente"""
+    buckets = []
+    try:
+        print(f"[s3scanner] Escaneando con s3scanner...")
+        
+        # s3scanner mantiene listas de buckets comunes
+        result = subprocess.run(
+            ['s3scanner', 'scan', '-l', '/dev/stdin'],
+            input=dominio,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.stdout:
+            for line in result.stdout.split('\n'):
+                if 'BucketExists' in line or 'Exists' in line.lower():
+                    # Extraer nombre del bucket
+                    parts = line.split()
+                    if parts:
+                        buckets.append(parts[0])
+    
+    except FileNotFoundError:
+        print("[s3scanner] s3scanner no instalado")
+    except Exception as e:
+        print(f"[s3scanner] Error: {e}")
+    
+    return buckets
+
+
+def _verify_bucket(bucket_name, dominio):
+    """Verifica si un bucket existe y obtiene info"""
+    resultado = []
+    
+    try:
+        # Verificar si el bucket existe y es accesible
+        result = subprocess.run(
+            ['aws', 's3', 'ls', f"s3://{bucket_name}", '--max-items', '1'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        if result.returncode == 0:
+            # Bucket es accesible
+            resultado.append({
+                'tipo': 's3_bucket',
+                'nombre': bucket_name,
+                'dominio': dominio,
+                'acceso': 'público_o_auth',
+                'estado': 'existe'
+            })
+        elif 'NoSuchBucket' not in result.stderr:
+            # Existe pero no tiene permisos de lectura
+            resultado.append({
+                'tipo': 's3_bucket',
+                'nombre': bucket_name,
+                'dominio': dominio,
+                'acceso': 'privado',
+                'estado': 'existe'
+            })
+    
+    except subprocess.TimeoutExpired:
+        pass
+    except Exception as e:
+        pass
+    
+    return resultado
 
 def escaneo_repositorios(ejecucion_id, proyecto_id):
     """Búsqueda de secretos en repositorios públicos"""
