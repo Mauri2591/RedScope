@@ -7,6 +7,7 @@ from datetime import datetime
 import subprocess
 import socket
 import requests
+import os
 
 # ══════════════════════════════════════════════════════════════════
 # HELPERS GLOBALES OSINT
