@@ -16,7 +16,6 @@ def _parse_multiline_config(value):
     """Limpia y parsea valores multilinea de configuración"""
     if not value:
         return []
-    # Reemplazar \r\n por \n y split
     return [item.strip() for item in value.replace('\r\n', '\n').split('\n') if item.strip()]
 
 def _run_osint_job(ejecucion_id, fn):
@@ -98,18 +97,15 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
         if not dominios:
             raise Exception("No se encontraron dominios válidos")
 
-        # Traer puertos comunes de la BD
         puertos_dict = OsintEjecucion.top_100_common_ports()
         if not puertos_dict:
             puertos_dict = {'80': 'http', '443': 'https', '22': 'ssh', '3306': 'mysql'}
 
-        # Extraer solo números de puertos y hacer string para nmap
         puertos_str = ','.join(puertos_dict.keys())
         print(f"[nmap] Escaneando {len(puertos_dict)} puertos comunes")
 
         for dom in dominios:
             try:
-                # Resolver IP primero
                 result_ip = subprocess.run(
                     ['nslookup', dom],
                     capture_output=True,
@@ -117,7 +113,6 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
                     timeout=15
                 )
 
-                # Extraer IP
                 ips = []
                 for line in result_ip.stdout.split('\n'):
                     if 'Address:' in line and not line.startswith(';'):
@@ -125,7 +120,6 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
                         if ip and not ip.startswith('#'):
                             ips.append(ip)
 
-                # Escanear puertos desde BD
                 for ip in ips:
                     print(f"[nmap] Escaneando {dom} ({ip})...")
                     result = subprocess.run(
@@ -164,14 +158,12 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         config = Proyecto.get_osint_config(proyecto_id)
 
         ips_analizadas = []
-        ips_a_analizar = set()  # Usar set para evitar duplicados
+        ips_a_analizar = set()
 
-        # Agregar IPS configuradas
         ips_str = config.get('IPS', '').strip() if config else ''
         if ips_str:
             ips_a_analizar.update(_parse_multiline_config(ips_str))
 
-        # TAMBIÉN resolver dominios a IPS
         dominio = config.get('DOMINIO', '').strip() if config else ''
         if dominio:
             dominios = _parse_multiline_config(dominio)
@@ -195,7 +187,6 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         if not ips_a_analizar:
             raise Exception("No hay IPs ni dominios configurados para analizar")
 
-        # Analizar las IPs (reverse DNS lookup)
         for ip in sorted(ips_a_analizar):
             try:
                 result_reverse = subprocess.run(
@@ -245,19 +236,11 @@ def recon_cloud(ejecucion_id, proyecto_id):
             raise Exception("No se encontraron dominios válidos")
 
         for dom in dominios:
-            # 1. Buckets derivados del dominio (actual)
             bucket_names = _generate_bucket_candidates(dom)
-            
-            # 2. Buscar en Wayback (referencias históricas)
             bucket_names.extend(_find_buckets_wayback(dom))
-            
-            # 3. Buscar en CT logs (subdominios)
             bucket_names.extend(_find_buckets_from_ct(dom))
-            
-            # 4. Escanear con s3scanner si está disponible
             bucket_names.extend(_scan_with_wordlist(dom))
-            
-            # Eliminar duplicados y escanear
+
             bucket_names = list(set(filter(None, bucket_names)))
 
             for bucket in bucket_names:
@@ -279,9 +262,8 @@ def _generate_bucket_candidates(dominio):
     domain_clean = dominio.replace('.', '-').replace('_', '-')
     domain_nodots = dominio.replace('.', '')
     company = domain_base
-    
+
     candidates = [
-        # Original + variaciones
         dominio,
         domain_clean,
         domain_nodots,
@@ -290,8 +272,6 @@ def _generate_bucket_candidates(dominio):
         f"{company}-aws",
         f"{company}-s3",
         f"s3-{company}",
-        
-        # Comunes
         f"{company}-data",
         f"{company}-assets",
         f"{company}-backup",
@@ -299,12 +279,10 @@ def _generate_bucket_candidates(dominio):
         f"{company}-media",
         f"{company}-logs",
         f"{company}-public",
-        
-        # Con extensión
         f"{company}-com-ar",
         f"{company}-{dominio.split('.')[-2]}",
     ]
-    
+
     return candidates
 
 
@@ -313,42 +291,36 @@ def _find_buckets_wayback(dominio):
     buckets = []
     try:
         print(f"[wayback] Buscando buckets en histórico de {dominio}...")
-        
-        # Descargar URLs del wayback para este dominio
+
         result = subprocess.run(
             ['waybackurls', dominio],
             capture_output=True,
             text=True,
             timeout=30
         )
-        
+
         if result.stdout:
             urls = result.stdout.strip().split('\n')
-            
-            # Buscar patrones de S3
+
             for url in urls:
-                # Patrones comunes en URLs
                 if 's3' in url.lower():
-                    # s3://bucket-name
                     if 's3://' in url:
                         bucket = url.split('s3://')[1].split('/')[0]
-                        if bucket and '.' not in bucket:  # Buckets S3 no tienen .
+                        if bucket and '.' not in bucket:
                             buckets.append(bucket)
-                    # amazonaws URLs
                     elif 'amazonaws' in url:
-                        # bucket.s3.amazonaws.com
                         parts = url.split('/')
                         for part in parts:
                             if 's3' in part and 'amazonaws' in part:
                                 bucket = part.split('.')[0]
                                 if bucket:
                                     buckets.append(bucket)
-    
+
     except FileNotFoundError:
-        print("[wayback] waybackurls no instalado - skipping")
+        print("[wayback] waybackurls no instalado")
     except Exception as e:
         print(f"[wayback] Error: {e}")
-    
+
     return buckets
 
 
@@ -357,45 +329,43 @@ def _find_buckets_from_ct(dominio):
     buckets = []
     try:
         print(f"[ct-logs] Buscando subdominios de {dominio}...")
-        
-        # Usar curl para consultar crt.sh
+
         result = subprocess.run(
             ['curl', '-s', f'https://crt.sh/?q=%.{dominio}&output=json'],
             capture_output=True,
             text=True,
             timeout=15
         )
-        
+
         if result.stdout:
             try:
                 certs = json.loads(result.stdout)
                 subdomains = set()
-                
+
                 for cert in certs:
                     name_value = cert.get('name_value', '')
                     for name in name_value.split('\n'):
                         name = name.strip()
                         if name and not name.startswith('*.'):
                             subdomains.add(name)
-                
-                # Convertir subdominios en candidatos de bucket
+
                 for sub in subdomains:
                     buckets.append(sub.replace('.', '-'))
                     buckets.append(sub.replace('.', ''))
-                    
+
             except json.JSONDecodeError:
                 pass
-    
+
     except Exception as e:
         print(f"[ct-logs] Error: {e}")
-    
+
     return buckets
 
 
 def _scan_with_wordlist(dominio):
     """Fuzzing agresivo de buckets con wordlist"""
     buckets = []
-    
+
     suffixes = [
         '', '-backup', '-backup-data', '-backups', '-bucket', '-aws', '-s3',
         '-data', '-files', '-assets', '-media', '-logs', '-public', '-private',
@@ -403,18 +373,18 @@ def _scan_with_wordlist(dominio):
         '-documents', '-images', '-storage', '-uploads', '-downloads',
         '-code', '-repo', '-git', '-source', '-build', '-dist',
     ]
-    
+
     prefixes = ['', 'aws-', 's3-', 'bucket-', 'data-']
-    
+
     domain_base = dominio.split('.')[0]
-    
+
     candidates = []
     for prefix in prefixes:
         for suffix in suffixes:
             candidates.append(f"{prefix}{domain_base}{suffix}")
-    
+
     print(f"[fuzzing] Probando {len(candidates)} candidatos...")
-    
+
     for bucket in candidates:
         try:
             result = subprocess.run(
@@ -428,25 +398,23 @@ def _scan_with_wordlist(dominio):
                 print(f"✓ Encontrado: {bucket}")
         except:
             pass
-    
+
     return buckets
 
 
 def _verify_bucket(bucket_name, dominio):
     """Verifica si un bucket existe y obtiene info"""
     resultado = []
-    
+
     try:
-        # Verificar si el bucket existe y es accesible
         result = subprocess.run(
             ['aws', 's3', 'ls', f"s3://{bucket_name}", '--max-items', '1'],
             capture_output=True,
             text=True,
             timeout=5
         )
-        
+
         if result.returncode == 0:
-            # Bucket es accesible
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
@@ -455,7 +423,6 @@ def _verify_bucket(bucket_name, dominio):
                 'estado': 'existe'
             })
         elif 'NoSuchBucket' not in result.stderr:
-            # Existe pero no tiene permisos de lectura
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
@@ -463,12 +430,12 @@ def _verify_bucket(bucket_name, dominio):
                 'acceso': 'privado',
                 'estado': 'existe'
             })
-    
+
     except subprocess.TimeoutExpired:
         pass
     except Exception as e:
         pass
-    
+
     return resultado
 
 def escaneo_repositorios(ejecucion_id, proyecto_id):
@@ -483,22 +450,110 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
         hallazgos = []
         dominios = _parse_multiline_config(dominio)
 
-        # Búsquedas simples en GitHub (requiere token)
-        # Por ahora solo placeholder
         for dom in dominios:
-            print(f"[repos] Buscando en GitHub: {dom}")
-            # Aquí iría integración con API de GitHub
-            # Requiere: github token, trufflehog instalado, etc.
+            # 1. Búsqueda en GitHub via API pública
+            hallazgos.extend(_search_github(dom))
+
+            # 2. Intentar con trufflehog si está instalado
+            hallazgos.extend(_search_trufflehog(dom))
 
         return {
             "tipo": "escaneo_repositorios",
             "dominio": dominio,
             "total": len(hallazgos),
-            "hallazgos": hallazgos,
-            "nota": "Requiere configurar GitHub token para buscar secretos"
+            "hallazgos": hallazgos
         }
 
     _run_osint_job(ejecucion_id, job)
+
+
+def _search_github(dominio):
+    """Busca en GitHub repositorios públicos del dominio"""
+    hallazgos = []
+    try:
+        print(f"[github] Buscando repositorios de {dominio}...")
+
+        # Búsquedas específicas
+        searches = [
+            f'org:{dominio.split(".")[0]}',  # org:telecom
+            f'"{dominio}"',  # "telecom.com.ar"
+            f'{dominio.split(".")[0]} secret',
+            f'{dominio.split(".")[0]} key',
+            f'{dominio.split(".")[0]} password',
+        ]
+
+        for search_query in searches:
+            try:
+                # GitHub API pública (limitada pero funciona sin token)
+                result = subprocess.run(
+                    ['curl', '-s', f'https://api.github.com/search/code?q={search_query}+language:python&per_page=5'],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+
+                if result.stdout:
+                    try:
+                        data = json.loads(result.stdout)
+                        items = data.get('items', [])
+
+                        for item in items:
+                            hallazgos.append({
+                                'tipo': 'github_repo',
+                                'nombre': item.get('name', ''),
+                                'url': item.get('html_url', ''),
+                                'path': item.get('path', ''),
+                                'repo': item.get('repository', {}).get('full_name', ''),
+                                'query': search_query
+                            })
+                    except json.JSONDecodeError:
+                        pass
+            except Exception as e:
+                print(f"[github] Error en búsqueda '{search_query}': {e}")
+
+    except Exception as e:
+        print(f"[github] Error general: {e}")
+
+    return hallazgos
+
+
+def _search_trufflehog(dominio):
+    """Usa trufflehog para detectar secretos"""
+    hallazgos = []
+    try:
+        print(f"[trufflehog] Buscando secretos en GitHub para {dominio}...")
+
+        # Buscar en GitHub con trufflehog
+        result = subprocess.run(
+            ['trufflehog', 'github', '--org', dominio.split('.')[0], '--json'],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        if result.stdout:
+            for line in result.stdout.strip().split('\n'):
+                if line:
+                    try:
+                        data = json.loads(line)
+                        hallazgos.append({
+                            'tipo': 'secreto_detectado',
+                            'verificación': data.get('Verified', False),
+                            'tipo_secreto': data.get('DetectorName', ''),
+                            'línea': data.get('Raw', '')[:100],  # Primeros 100 chars
+                            'repo': data.get('SourceMetadata', {}).get('Data', {}).get('Repo', '')
+                        })
+                    except json.JSONDecodeError:
+                        pass
+
+    except FileNotFoundError:
+        print("[trufflehog] trufflehog no instalado - usa: pip install trufflehog")
+    except subprocess.TimeoutExpired:
+        print("[trufflehog] Timeout en búsqueda")
+    except Exception as e:
+        print(f"[trufflehog] Error: {e}")
+
+    return hallazgos
 
 def analisis_dns(ejecucion_id, proyecto_id):
     """Análisis de registros DNS con dig"""
@@ -566,7 +621,7 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
                 if result.stdout:
                     endpoints.update(result.stdout.strip().split('\n'))
             except FileNotFoundError:
-                print(f"[waybackurls] No instalado. Instala: go install github.com/tomnomnom/waybackurls@latest")
+                print(f"[waybackurls] No instalado")
             except subprocess.TimeoutExpired:
                 print(f"[waybackurls] Timeout para {dom}")
             except Exception as e:
@@ -584,7 +639,7 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
     _run_osint_job(ejecucion_id, job)
 
 def google_dorking(ejecucion_id, proyecto_id):
-    """Google Dorking - búsquedas especializadas"""
+    """Google Dorking - búsquedas especializadas con resultados reales"""
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
         dominio = config.get('DOMINIO', '').strip()
@@ -598,29 +653,88 @@ def google_dorking(ejecucion_id, proyecto_id):
         if not dominios:
             raise Exception("No se encontraron dominios válidos")
 
-        # Dorks comunes
         for dom in dominios:
+            # Dorks comunes para encontrar información sensible
             dorks = [
                 f'site:{dom} inurl:admin',
                 f'site:{dom} filetype:pdf',
                 f'site:{dom} inurl:login',
                 f'site:{dom} "password"',
-                f'site:{dom} inurl:backup'
+                f'site:{dom} inurl:backup',
+                f'site:{dom} inurl:config',
+                f'site:{dom} filetype:xlsx',
+                f'site:{dom} filetype:docx',
+                f'site:{dom} "api_key"',
+                f'site:{dom} "secret"',
             ]
 
             for dork in dorks:
-                resultados.append({
-                    'dork': dork,
-                    'dominio': dom,
-                    'nota': 'Requiere API de Google Custom Search'
-                })
+                hallazgos = _ejecutar_google_dork(dom, dork)
+                resultados.extend(hallazgos)
 
         return {
             "tipo": "google_dorking",
             "dominio": dominio,
             "total": len(resultados),
-            "resultados": resultados,
-            "nota": "Requiere configurar Google Custom Search API"
+            "resultados": resultados
         }
 
     _run_osint_job(ejecucion_id, job)
+
+
+def _ejecutar_google_dork(dominio, dork_query):
+    """Ejecuta un dork en Google y obtiene resultados"""
+    resultados = []
+    try:
+        print(f"[google] Ejecutando dork: {dork_query}")
+
+        # Usar curl con User-Agent para simular navegador
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+
+        # Construir URL de búsqueda (sin usar API oficial)
+        search_url = f'https://www.google.com/search?q={dork_query}'
+
+        result = subprocess.run(
+            ['curl', '-s', '-H', f'User-Agent: {headers["User-Agent"]}', search_url],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.stdout:
+            # Extraer URLs del HTML
+            import re
+            # Patrón para encontrar URLs en resultados de Google
+            url_pattern = r'href="(/url\?q=([^"&]+))'
+            matches = re.findall(url_pattern, result.stdout)
+
+            for match in matches[:5]:  # Top 5 resultados
+                try:
+                    url = match[1]
+                    # Decodificar URL si es necesario
+                    if url and not url.startswith('http'):
+                        url = 'http://' + url
+
+                    resultados.append({
+                        'dork': dork_query,
+                        'dominio': dominio,
+                        'url': url,
+                        'tipo': 'google_search_result'
+                    })
+                except:
+                    pass
+
+    except Exception as e:
+        print(f"[google] Error ejecutando dork: {e}")
+        # Fallback: devolver al menos la estructura del dork
+        resultados.append({
+            'dork': dork_query,
+            'dominio': dominio,
+            'url': None,
+            'tipo': 'google_search_result',
+            'error': str(e)
+        })
+
+    return resultados
