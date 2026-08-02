@@ -1,8 +1,34 @@
-venv
-.env
-data
-uploads/
-tasking_stg.sql
-start_workers.bat
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+dump.rdb
+*.db
+*.sqlite
+
+# Logs
+*.log
 ejecuciones.txt
-requirements.txt
+
+# Environment
+.env
+.env.local
