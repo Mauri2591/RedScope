@@ -1,0 +1,16 @@
+# Auto normalize line endings
+* text=auto
+
+# Force LF for these (porque corren en Kali/Linux)
+*.py text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.pdf binary
+*.xlsx binary

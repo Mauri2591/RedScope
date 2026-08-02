@@ -1,0 +1,152 @@
+[
+  {
+    "status_code": "FAIL",
+    "metadata": {
+      "event_code": "accessanalyzer_enabled",
+      "event_name": "accessanalyzer_enabled"
+    },
+    "cloud": {
+      "provider": "aws",
+      "region": "us-east-1",
+      "account": {
+        "uid": "111046292918"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:accessanalyzer:us-east-1:111046292918:analyzer/ConsoleAnalyzer",
+        "group": {
+          "name": "accessanalyzer"
+        }
+      }
+    ],
+    "severity": "medium",
+    "finding_info": {
+      "title": "Access Analyzer is not enabled",
+      "desc": "AWS Access Analyzer helps you identify the resources in your organization and accounts that are shared with an external entity."
+    },
+    "remediation": {
+      "desc": "Sign in to the AWS IAM Access Analyzer console. Click 'Create analyzer' and select the appropriate account or organization."
+      ,"references": [
+        "https://docs.aws.amazon.com/IAM/latest/UserGuide/access-analyzer-getting-started.html"
+      ]
+    },
+    "unmapped": {
+      "compliance": {
+        "NIS2": [
+          "3.2.3.e",
+          "11.1.1",
+          "11.2.1",
+          "11.2.2.e"
+        ],
+        "C5-2025": [
+          "IAM-01.04B",
+          "IAM-06.01AC",
+          "IAM-10.01B",
+          "IAM-10.02B"
+        ],
+        "CIS-1.4": [
+          "1.20"
+        ],
+        "CIS-1.5": [
+          "1.20"
+        ],
+        "ISO27001-2022": [
+          "A.8.3"
+        ]
+      }
+    }
+  },
+  {
+    "status_code": "FAIL",
+    "metadata": {
+      "event_code": "s3_bucket_default_encryption",
+      "event_name": "s3_bucket_default_encryption"
+    },
+    "cloud": {
+      "provider": "aws",
+      "region": "us-east-1",
+      "account": {
+        "uid": "111046292918"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::b2b-tf-demo-cloud-111046292918-dev",
+        "group": {
+          "name": "s3"
+        }
+      }
+    ],
+    "severity": "medium",
+    "finding_info": {
+      "title": "S3 bucket does not have default encryption enabled",
+      "desc": "S3 buckets should have default encryption enabled to protect data at rest. This ensures that all objects uploaded to the bucket are automatically encrypted."
+    },
+    "remediation": {
+      "desc": "Enable default encryption in the S3 bucket using SSE-S3 or SSE-KMS",
+      "references": [
+        "https://docs.aws.amazon.com/AmazonS3/latest/dev/bucket-encryption.html"
+      ]
+    },
+    "unmapped": {
+      "compliance": {
+        "CIS-1.4": [
+          "2.1.5"
+        ],
+        "PCI-DSS": [
+          "3.2.1"
+        ],
+        "HIPAA": [
+          "164.312(a)(2)(c)(iv)"
+        ]
+      }
+    }
+  },
+  {
+    "status_code": "FAIL",
+    "metadata": {
+      "event_code": "cloudwatch_log_metric_filter_disable_or_scheduled_deletion_of_kms_cmk",
+      "event_name": "cloudwatch_log_metric_filter"
+    },
+    "cloud": {
+      "provider": "aws",
+      "region": "eu-west-1",
+      "account": {
+        "uid": "111046292918"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:logs:eu-west-1:111046292918:log-group:/aws/kms/key-audit",
+        "group": {
+          "name": "cloudwatch"
+        }
+      }
+    ],
+    "severity": "high",
+    "finding_info": {
+      "title": "CloudWatch log metric filter and alarm for KMS CMK deletion is not configured",
+      "desc": "A log metric filter and alarm should be configured to detect when KMS CMKs are disabled or scheduled for deletion."
+    },
+    "remediation": {
+      "desc": "Create a CloudWatch log metric filter for KMS CMK deletion and set up an alarm to notify when this occurs.",
+      "references": [
+        "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudwatch-alarms-for-cloudtrail-logging-api-calls.html"
+      ]
+    },
+    "unmapped": {
+      "compliance": {
+        "RGPD": [
+          "articulo_25"
+        ],
+        "NIS2": [
+          "3.2.3.e"
+        ],
+        "CIS-1.4": [
+          "4.5"
+        ]
+      }
+    }
+  }
+]
