@@ -5,3 +5,4 @@ uploads/
 tasking_stg.sql
 start_workers.bat
 ejecuciones.txt
+requirements.txt
