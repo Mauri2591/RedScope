@@ -260,14 +260,16 @@ class ReportService:
                     'condicion_logica': f.get('condicion_logica'),
                     'remediacion': f.get('remediacion'),
                     'referencia': f.get('referencia'),
+                    'referencias_data': f.get('referencias_data'),
                     'recursos': []
                 }
             grupos[key]['recursos'].append({
             'resource_id': f.get('resource_id'),
-            'region': f.get('region', ''),        # ← agregar esto
+            'region': f.get('region', ''),
             'estado': f.get('estado', 'ABIERTO'),
             'comment': f.get('finding_comment') or '',
             'inventory_data': f.get('inventory_data') or '',
+            'referencias_data': f.get('referencias_data') or '',
             'evidencias': f.get('evidencias', [])
         })
         return list(grupos.values())
@@ -1197,6 +1199,20 @@ class ReportService:
                 ('Remediación', ReportService._texto_seguro(g.get('remediacion'))),
                 ('Referencia',  ReportService._texto_seguro(g.get('referencia'))),
             ]
+
+            # Agregar Cumplimiento si hay referencias_data con compliance
+            compliance_data = None
+            if g.get('referencias_data'):
+                try:
+                    import json as _json
+                    ref_data = _json.loads(g['referencias_data'])
+                    compliance = ref_data.get('compliance', {})
+                    if compliance:
+                        compliance_data = compliance
+                        ficha_campos.append(('Cumplimiento', None))  # None = renderizado especial
+                except Exception:
+                    pass
+
             ficha = doc.add_table(rows=len(ficha_campos), cols=2)
             _remove_table_borders(ficha)
             for fi, (fl, fv) in enumerate(ficha_campos):
@@ -1218,10 +1234,31 @@ class ReportService:
                 _set_cell_bg(vc, bg)
                 _set_cell_borders(vc, 'DDDDDD', '2')
                 _set_cell_margin(vc)
-                vp = vc.paragraphs[0]
-                vr = vp.add_run(fv)
-                vr.font.name = 'Arial'; vr.font.size = Pt(9)
-                vr.font.color.rgb = _hex_to_rgb(color_oscuro)
+
+                # Si es Cumplimiento, renderizar como bullets
+                if fl == 'Cumplimiento' and compliance_data:
+                    vc.paragraphs[0].clear()
+                    for standard, controls in sorted(compliance_data.items()):
+                        p_comp = vc.add_paragraph(style='List Bullet')
+                        p_comp.paragraph_format.left_indent = Pt(0)
+                        p_comp.paragraph_format.first_line_indent = Pt(-18)
+
+                        if isinstance(controls, list):
+                            controls_str = ', '.join(str(c) for c in controls)
+                        else:
+                            controls_str = str(controls)
+
+                        texto_bullet = f"{standard}: {controls_str}"
+                        r_bullet = p_comp.add_run(texto_bullet)
+                        r_bullet.font.name = 'Arial'; r_bullet.font.size = Pt(9)
+                        r_bullet.font.color.rgb = _hex_to_rgb(color_oscuro)
+                else:
+                    # Renderizado normal de texto
+                    vp = vc.paragraphs[0]
+                    vr = vp.add_run(fv or '')
+                    vr.font.name = 'Arial'; vr.font.size = Pt(9)
+                    vr.font.color.rgb = _hex_to_rgb(color_oscuro)
+
                 vc.vertical_alignment = WD_ALIGN_VERTICAL.TOP
 
             # ── Tabla de recursos afectados ───────────────────────

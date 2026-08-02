@@ -4,6 +4,7 @@ import base64
 import uuid
 from db import get_db_connection
 import json
+from helpers.prowler_parser import ProwlerDataExtractor
 
 class Proyecto:
     @staticmethod
@@ -1184,23 +1185,21 @@ class Proyecto:
                     print(f"[PROWLER_WEB] ⏭️  Ya existe: {check_id} - {resource_id}")
                     continue
                 
-                # Insertar finding
-                inventory_json = json.dumps({
-                    "status_code": status_code,
-                    "account_id": account_id,
-                    "compliance": item.get('unmapped', {}).get('compliance', {})
-                }, ensure_ascii=False)
-                
+                # Insertar finding - usar parser para separar datos
+                parsed = ProwlerDataExtractor.parse_prowler_item(item)
+                inventory_json = ProwlerDataExtractor.generate_inventory_json(parsed)
+                referencias_json = ProwlerDataExtractor.generate_referencias_json(parsed)
+
                 cursor.execute("""
-                    INSERT INTO findings 
-                    (proyecto_id, usuario_id, security_rules_id, check_id, 
-                    provider, service, resource_id, region, severidad_id, 
-                    estados_findings_id, inventory_data, herramienta, estado_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, 'prowler_web', 1)
+                    INSERT INTO findings
+                    (proyecto_id, usuario_id, security_rules_id, check_id,
+                    provider, service, resource_id, region, severidad_id,
+                    estados_findings_id, inventory_data, referencias_data, herramienta, estado_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, 'prowler_web', 1)
                 """, (
                     proyecto_id, usuario_id, security_rule_id, check_id,
                     provider, service, resource_id, region, severidad_id,
-                    inventory_json
+                    inventory_json, referencias_json
                 ))
                 
                 importados += 1
