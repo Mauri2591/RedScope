@@ -503,13 +503,76 @@ class ReportService:
         ReportService._bloque_portada(doc, proyecto, tema, tipo_informe=tipo_informe)
         ReportService._bloque_toc(doc, estructura, tema)
 
+        # Reordenar estructura: Objetivos → Alcance → Resumen → Análisis → Hallazgos → Detalle → Conclusiones → Recomendaciones → Actividades → Anexos → Resto
+        estructura_reordenada = []
+        objetivos = None
+        alcance = None
+        resumen = None
+        analisis = None
+        hallazgos = None
+        detalle = None
+        conclusiones = None
+        recomendaciones = None
+        actividades = None
+        anexos = []
+        otras = []
+
+        for sec in estructura:
+            clave = sec['clave']
+            if clave == 'objetivos':
+                objetivos = sec
+            elif clave == 'alcance':
+                alcance = sec
+            elif clave == 'resumen_hallazgos':
+                resumen = sec
+            elif clave == 'analisis_exposicion':
+                analisis = sec
+            elif clave == 'hallazgos':
+                hallazgos = sec
+            elif clave == 'detalle_hallazgos':
+                detalle = sec
+            elif clave == 'conclusiones':
+                conclusiones = sec
+            elif clave == 'recomendaciones':
+                recomendaciones = sec
+            elif clave == 'actividades':
+                actividades = sec
+            elif clave.startswith('anexo_'):
+                anexos.append(sec)
+            else:
+                otras.append(sec)
+
+        # Ordenar anexos por su orden natural
+        anexos.sort(key=lambda x: x.get('orden', 999))
+
+        if objetivos:
+            estructura_reordenada.append(objetivos)
+        if alcance:
+            estructura_reordenada.append(alcance)
+        if resumen:
+            estructura_reordenada.append(resumen)
+        if analisis:
+            estructura_reordenada.append(analisis)
+        if hallazgos:
+            estructura_reordenada.append(hallazgos)
+        if detalle:
+            estructura_reordenada.append(detalle)
+        if conclusiones:
+            estructura_reordenada.append(conclusiones)
+        if recomendaciones:
+            estructura_reordenada.append(recomendaciones)
+        if actividades:
+            estructura_reordenada.append(actividades)
+        estructura_reordenada.extend(anexos)
+        estructura_reordenada.extend(otras)
+
         secciones_render = [
-            s for s in estructura
+            s for s in estructura_reordenada
             if s['tipo'] not in ('portada', 'toc') and s['clave'] not in config.get('excluir_secciones', [])
         ]
         ultima_clave = secciones_render[-1]['clave'] if secciones_render else None
 
-        for seccion in estructura:
+        for seccion in estructura_reordenada:
             tipo      = seccion['tipo']
             clave     = seccion['clave']
             subtitulo = seccion['subtitulo']
@@ -544,7 +607,12 @@ class ReportService:
                     ReportService._bloque_seccion_estatica(doc, subtitulo, contenido, tema)
 
             if clave != ultima_clave:
-                _page_break(doc)
+                # Entre Objetivos y Alcance: solo saltos de línea, no page break
+                if clave == 'objetivos':
+                    doc.add_paragraph()
+                    doc.add_paragraph()
+                else:
+                    _page_break(doc)
 
         output = BytesIO()
         doc.save(output)

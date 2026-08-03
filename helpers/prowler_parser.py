@@ -11,6 +11,117 @@ class ProwlerDataExtractor:
     """Extrae y estructura datos de reportes Prowler"""
 
     @staticmethod
+    def group_compliance_by_family(compliance_dict: Dict[str, str]) -> Dict[str, Dict[str, str]]:
+        """
+        Agrupa compliance por familia de estándares
+
+        Entrada:
+        {
+            "CIS-1.4": "1.16",
+            "NIST-800-53-Revision-5": "ac_3",
+            "ISO27001-2022": "A.5.18",
+            "GDPR": "article_25",
+            ...
+        }
+
+        Salida (agrupado):
+        {
+            "CIS Benchmarks": {
+                "CIS-1.4": "1.16",
+                "CIS-1.5": "1.16",
+                ...
+            },
+            "NIST Standards": {
+                "NIST-800-171": "3_1_1, 3_1_2",
+                "NIST-800-53-Revision-5": "ac_3, ac_6",
+                ...
+            },
+            "Regulatory": {
+                "GDPR": "article_25",
+                "HIPAA": "164_308_a_1_ii_b",
+                ...
+            },
+            ...
+        }
+        """
+        if not isinstance(compliance_dict, dict):
+            return {}
+
+        families = {
+            "CIS Benchmarks": [],
+            "NIST Standards": [],
+            "AWS Frameworks": [],
+            "ISO & Regulatory": [],
+            "Industry Standards": [],
+            "Otros": []
+        }
+
+        for standard, controls in compliance_dict.items():
+            # Clasificar por familia basado en el nombre del estándar
+            if standard.startswith("CIS"):
+                families["CIS Benchmarks"].append((standard, controls))
+            elif "NIST" in standard or "nist" in standard.lower():
+                families["NIST Standards"].append((standard, controls))
+            elif "AWS" in standard or "Well-Architected" in standard or "Foundational" in standard:
+                families["AWS Frameworks"].append((standard, controls))
+            elif any(x in standard for x in ["ISO", "GDPR", "HIPAA", "PCI", "SOC2"]):
+                families["ISO & Regulatory"].append((standard, controls))
+            elif any(x in standard for x in ["CCC", "KISA", "ENS", "RBI", "CISA", "FFIEC", "FedRAMP", "GxP", "SecNumCloud"]):
+                families["Industry Standards"].append((standard, controls))
+            else:
+                families["Otros"].append((standard, controls))
+
+        # Convertir a dict ordenado (solo familias con contenido)
+        result = {}
+        for family, items in families.items():
+            if items:
+                result[family] = dict(items)
+
+        return result
+
+    @staticmethod
+    def parse_compliance_string(compliance_data) -> Dict[str, str]:
+        """
+        Parsea compliance que viene como string o dict
+
+        Entrada (como string):
+        "ASD-Essential-Eight-Nov 2023: E8-4.4
+        AWS-AI-Security-Framework-1.0: AISF-IAM-02
+        ..."
+
+        Salida (como dict):
+        {
+            "ASD-Essential-Eight-Nov 2023": "E8-4.4",
+            "AWS-AI-Security-Framework-1.0": "AISF-IAM-02"
+        }
+        """
+        if isinstance(compliance_data, dict):
+            return compliance_data  # Ya está parseado
+
+        if not isinstance(compliance_data, str) or not compliance_data.strip():
+            return {}
+
+        compliance_dict = {}
+
+        # Parsear líneas del compliance
+        for line in compliance_data.strip().split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+
+            # Buscar el patrón: STANDARD: CONTROL
+            if ':' in line:
+                parts = line.split(':', 1)
+                if len(parts) == 2:
+                    standard = parts[0].strip()
+                    control = parts[1].strip()
+
+                    if standard and control:
+                        compliance_dict[standard] = control
+
+        return compliance_dict
+
+    @staticmethod
     def extract_links_from_field(text: str) -> List[Dict[str, str]]:
         """
         Busca URLs en texto (ej: "Leer más...") y extrae los links
@@ -101,9 +212,16 @@ class ProwlerDataExtractor:
         remediation_urls = remediation.get('references', [])
         remediation_url = remediation_urls[0] if remediation_urls else ''
 
-        # Compliance
+        # Compliance - extraer del campo unmapped.compliance
         unmapped = item.get('unmapped', {})
-        compliance = unmapped.get('compliance', {})
+        compliance_raw = unmapped.get('compliance', {})
+
+        # Parsear compliance (puede venir como string o dict)
+        compliance = ProwlerDataExtractor.parse_compliance_string(compliance_raw)
+
+        # DEBUG: loguear si hay compliance
+        # if compliance:
+        #     print(f"✅ Compliance extraído para {check_id}: {len(compliance)} estándares")
 
         # Links: referencia del campo remediation + otros
         links = []

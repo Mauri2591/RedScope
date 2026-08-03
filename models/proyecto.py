@@ -806,13 +806,13 @@ class Proyecto:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         query = """
-        SELECT 
+        SELECT
             p.titulo AS proyecto_titulo,
             f.id AS finding_id,
             f.provider AS proveedor,
             f.service AS servicio,
             f.check_id,
-            f.region,                       
+            f.region,
             sr.title AS titulo,
             sr.description AS descripcion,
             sev.nombre AS severidad,
@@ -821,6 +821,7 @@ class Proyecto:
             sr.reference AS referencia,
             f.resource_id,
             f.inventory_data,
+            f.referencias_data,
             ef.nombre AS estado,
             f.finding_comment,
             GROUP_CONCAT(fe.file_path ORDER BY fe.id SEPARATOR '|') AS imagenes
@@ -896,7 +897,7 @@ class Proyecto:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT * FROM reporte_contenido_secciones
-            WHERE tipo_servicio = %s AND estado_id = 1
+            WHERE LOWER(tipo_servicio) = LOWER(%s) AND estado_id = 1
             LIMIT 1
         """, (tipo_servicio,))
         result = cursor.fetchone()

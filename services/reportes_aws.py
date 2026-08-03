@@ -547,7 +547,6 @@ class ReportService:
             ('Cliente',   proyecto.get('cliente',   '')),
             ('Proyecto',  proyecto.get('titulo',    '')),
             ('Proveedor', tipo_servicio),
-            ('Cuenta',    proyecto.get('cuenta_id', 'N/A')),
             ('Fecha',     datetime.now().strftime('%d de %B de %Y')),
         ]
 
@@ -875,10 +874,10 @@ class ReportService:
         total_hallazgos= len(grupos)
         total_recursos = sum(len(g['recursos']) for g in grupos)
         
-        # ── Gráficos ───────────────────────────────────────────────
+        # ── Gráficos (Resumen de Hallazgos) ────────────────────────
         try:
             grafico_severidad = ReportService._generar_grafico_severidad(findings, severidades, tema)
-            grafico_servicios = ReportService._generar_grafico_servicios(findings, tema)
+            grafico_top_hallazgos = ReportService._generar_grafico_top_hallazgos(findings, severidades, tema)
 
             tabla_graficos = doc.add_table(rows=1, cols=2)
             _remove_table_borders(tabla_graficos)
@@ -893,7 +892,8 @@ class ReportService:
             c2.width = Cm(8.5)
             p2 = c2.paragraphs[0]
             p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            p2.add_run().add_picture(grafico_servicios, width=Cm(8))
+            if grafico_top_hallazgos:
+                p2.add_run().add_picture(grafico_top_hallazgos, width=Cm(8))
         except Exception:
             pass  # Si matplotlib no está disponible, el reporte se genera igual sin los gráficos
 
@@ -1060,7 +1060,7 @@ class ReportService:
 
         # DESPUÉS:
         cols    = ['#', 'Título', 'Servicio', 'Recurso', 'Severidad']
-        widths  = [1.0, 5.5, 2.5, 5.0, 2.5]
+        widths  = [1.0, 5.5, 2.5, 4.0, 3.5]
 
         table = doc.add_table(rows=1, cols=len(cols))
         _remove_table_borders(table)
@@ -1138,8 +1138,8 @@ class ReportService:
         intro.paragraph_format.space_after = Pt(12)
         ri = intro.add_run(
             'A continuación se presenta el detalle técnico de cada hallazgo identificado '
-            'durante la evaluación, incluyendo descripción, condición lógica, remediación, '
-            'referencias asociadas, recursos afectados y evidencia de las pruebas realizadas.'
+            'durante la evaluación, incluyendo descripción, remediación, referencia, '
+            'cumplimiento, recursos afectados y evidencia de las pruebas realizadas.'
         )
         ri.font.name      = 'Arial'
         ri.font.size      = Pt(10)
@@ -1200,17 +1200,29 @@ class ReportService:
                 ('Referencia',  ReportService._texto_seguro(g.get('referencia'))),
             ]
 
-            # Agregar Cumplimiento si hay referencias_data con compliance
+            # Agregar Cumplimiento si hay referencias_data
             compliance_data = None
-            if g.get('referencias_data'):
+            referencias_data_str = g.get('referencias_data')
+
+            if referencias_data_str:
                 try:
                     import json as _json
-                    ref_data = _json.loads(g['referencias_data'])
+                    ref_data = _json.loads(referencias_data_str)
                     compliance = ref_data.get('compliance', {})
-                    if compliance:
-                        compliance_data = compliance
-                        ficha_campos.append(('Cumplimiento', None))  # None = renderizado especial
-                except Exception:
+
+                    # SIEMPRE agregar el campo si hay referencias_data
+                    # El renderizado especial manejará si compliance está vacío
+                    if isinstance(compliance, dict):
+                        compliance_data = compliance  # Puede ser dict vacío, eso está bien
+                        # Solo agregar si realmente hay contenido
+                        if len(compliance) > 0:
+                            ficha_campos.append(('Cumplimiento', None))  # None = renderizado especial
+
+                except Exception as e:
+                    print(f"⚠️  Error parseando compliance para {g.get('check_id')}: {e}")
+                    print(f"   referencias_data: {referencias_data_str[:300] if referencias_data_str else 'NULL'}")
+                    import traceback
+                    traceback.print_exc()
                     pass
 
             ficha = doc.add_table(rows=len(ficha_campos), cols=2)
@@ -1233,27 +1245,112 @@ class ReportService:
                 vc.width = Cm(13.5)
                 _set_cell_bg(vc, bg)
                 _set_cell_borders(vc, 'DDDDDD', '2')
-                _set_cell_margin(vc)
 
-                # Si es Cumplimiento, renderizar como bullets
-                if fl == 'Cumplimiento' and compliance_data:
-                    vc.paragraphs[0].clear()
-                    for standard, controls in sorted(compliance_data.items()):
-                        p_comp = vc.add_paragraph(style='List Bullet')
-                        p_comp.paragraph_format.left_indent = Pt(0)
-                        p_comp.paragraph_format.first_line_indent = Pt(-18)
-
-                        if isinstance(controls, list):
-                            controls_str = ', '.join(str(c) for c in controls)
-                        else:
-                            controls_str = str(controls)
-
-                        texto_bullet = f"{standard}: {controls_str}"
-                        r_bullet = p_comp.add_run(texto_bullet)
-                        r_bullet.font.name = 'Arial'; r_bullet.font.size = Pt(9)
-                        r_bullet.font.color.rgb = _hex_to_rgb(color_oscuro)
+                # Margen especial para Cumplimiento (sin margen izquierdo)
+                if fl == 'Cumplimiento':
+                    _set_cell_margin(vc, top=80, bottom=80, left=0, right=120)  # left=0 elimina margen
                 else:
-                    # Renderizado normal de texto
+                    _set_cell_margin(vc)
+
+                # Si es Cumplimiento, renderizar como bullets agrupados
+                if fl == 'Cumplimiento' and compliance_data:
+                    # Usar el párrafo existente SIN crear uno nuevo (evita espacio extra)
+                    p_nota = vc.paragraphs[0]
+                    p_nota.paragraph_format.space_before = Pt(0)
+                    p_nota.paragraph_format.space_after = Pt(0)
+                    p_nota.paragraph_format.left_indent = Pt(0)
+
+                    r_nota = p_nota.add_run("Los estándares listados a continuación NO se cumplen mientras este hallazgo existe:")
+                    r_nota.font.name = 'Arial'
+                    r_nota.font.size = Pt(9)
+                    r_nota.font.bold = True
+                    r_nota.font.color.rgb = _hex_to_rgb(color_oscuro)
+
+                    # Agrupar compliance por familia
+                    from helpers.prowler_parser import ProwlerDataExtractor
+
+                    # Extraer MITRE ATTACK para hacerlo separado
+                    mitre_attack = compliance_data.pop('MITRE-ATTACK', None)
+
+                    compliance_grouped = ProwlerDataExtractor.group_compliance_by_family(compliance_data)
+
+                    # Renderizar cada familia como grupo
+                    for family_idx, (family_name, standards_dict) in enumerate(compliance_grouped.items()):
+                        # Título de la familia (en color celeste, sin indentación, sin espacio)
+                        p_family = vc.add_paragraph()
+                        p_family.paragraph_format.left_indent = Pt(0)
+                        p_family.paragraph_format.first_line_indent = Pt(0)
+                        p_family.paragraph_format.space_before = Pt(0)
+                        p_family.paragraph_format.space_after = Pt(0)
+
+                        r_family = p_family.add_run(f"{family_name}:")
+                        r_family.font.name = 'Arial'
+                        r_family.font.size = Pt(9)
+                        r_family.font.bold = True
+                        r_family.font.color.rgb = _hex_to_rgb(color_acento)  # Color celeste
+
+                        # Renderizar estándares dentro de la familia (sin indentación)
+                        for standard, controls in sorted(standards_dict.items()):
+                            p_comp = vc.add_paragraph()
+                            p_comp.paragraph_format.left_indent = Pt(0)      # SIN indentación
+                            p_comp.paragraph_format.first_line_indent = Pt(0) # SIN sangría
+                            p_comp.paragraph_format.space_before = Pt(0)
+                            p_comp.paragraph_format.space_after = Pt(0)
+
+                            if isinstance(controls, list):
+                                controls_str = ', '.join(str(c) for c in controls)
+                            else:
+                                controls_str = str(controls)
+
+                            texto_bullet = f"• {standard}: {controls_str}"
+                            r_bullet = p_comp.add_run(texto_bullet)
+                            r_bullet.font.name = 'Arial'
+                            r_bullet.font.size = Pt(9)
+                            r_bullet.font.color.rgb = _hex_to_rgb(color_oscuro)
+
+                    # Agregar sección de MITRE ATTACK si existe
+                    if mitre_attack:
+                        p_mitre_title = vc.add_paragraph()
+                        p_mitre_title.paragraph_format.space_before = Pt(2)
+                        p_mitre_title.paragraph_format.space_after = Pt(0)
+                        p_mitre_title.paragraph_format.left_indent = Pt(0)
+
+                        r_mitre_title = p_mitre_title.add_run("Técnicas MITRE ATTACK:")
+                        r_mitre_title.font.name = 'Arial'
+                        r_mitre_title.font.size = Pt(9)
+                        r_mitre_title.font.bold = True
+                        r_mitre_title.font.color.rgb = _hex_to_rgb(color_acento)
+
+                        # Renderizar técnicas
+                        if isinstance(mitre_attack, list):
+                            mitre_str = ', '.join(str(t) for t in mitre_attack)
+                        else:
+                            mitre_str = str(mitre_attack)
+
+                        p_mitre = vc.add_paragraph()
+                        p_mitre.paragraph_format.space_before = Pt(0)
+                        p_mitre.paragraph_format.space_after = Pt(0)
+                        p_mitre.paragraph_format.left_indent = Pt(0)
+
+                        r_mitre = p_mitre.add_run(f"• {mitre_str}")
+                        r_mitre.font.name = 'Arial'
+                        r_mitre.font.size = Pt(9)
+                        r_mitre.font.color.rgb = _hex_to_rgb(color_oscuro)
+
+                elif fl == 'Cumplimiento':
+                    # Si llegamos aquí es que no hay compliance_data
+                    # Mostrar un "-" para indicar sin datos
+                    p_empty = vc.paragraphs[0]
+                    p_empty.paragraph_format.space_before = Pt(0)
+                    p_empty.paragraph_format.space_after = Pt(0)
+
+                    r_empty = p_empty.add_run("-")
+                    r_empty.font.name = 'Arial'
+                    r_empty.font.size = Pt(9)
+                    r_empty.font.color.rgb = _hex_to_rgb(color_oscuro)
+
+                else:
+                    # Renderizado normal de texto (para otros campos)
                     vp = vc.paragraphs[0]
                     vr = vp.add_run(fv or '')
                     vr.font.name = 'Arial'; vr.font.size = Pt(9)
@@ -1415,7 +1512,75 @@ class ReportService:
         ]
         ultima_clave = secciones_render[-1]['clave'] if secciones_render else None
 
-        for seccion in estructura:
+        # Reordenar estructura: Objetivos → Alcance → Resumen → Análisis → Hallazgos → Detalle → Conclusiones → Recomendaciones → Actividades → Anexos → Resto
+        estructura_reordenada = []
+        objetivos = None
+        alcance = None
+        resumen = None
+        analisis = None
+        hallazgos = None
+        detalle = None
+        mitre_attack = None
+        conclusiones = None
+        recomendaciones = None
+        actividades = None
+        anexos = []
+        otras = []
+
+        for sec in estructura:
+            clave = sec['clave']
+            if clave == 'objetivos':
+                objetivos = sec
+            elif clave == 'alcance':
+                alcance = sec
+            elif clave == 'resumen_hallazgos':
+                resumen = sec
+            elif clave == 'analisis_exposicion':
+                analisis = sec
+            elif clave == 'hallazgos':
+                hallazgos = sec
+            elif clave == 'detalle_hallazgos':
+                detalle = sec
+            elif clave == 'mitre_attack':
+                mitre_attack = sec
+            elif clave == 'conclusiones':
+                conclusiones = sec
+            elif clave == 'recomendaciones':
+                recomendaciones = sec
+            elif clave == 'actividades':
+                actividades = sec
+            elif clave.startswith('anexo_'):
+                anexos.append(sec)
+            else:
+                otras.append(sec)
+
+        # Ordenar anexos por su orden natural
+        anexos.sort(key=lambda x: x.get('orden', 999))
+
+        if objetivos:
+            estructura_reordenada.append(objetivos)
+        if alcance:
+            estructura_reordenada.append(alcance)
+        if resumen:
+            estructura_reordenada.append(resumen)
+        if analisis:
+            estructura_reordenada.append(analisis)
+        if hallazgos:
+            estructura_reordenada.append(hallazgos)
+        if detalle:
+            estructura_reordenada.append(detalle)
+        if mitre_attack:
+            estructura_reordenada.append(mitre_attack)
+        if conclusiones:
+            estructura_reordenada.append(conclusiones)
+        if recomendaciones:
+            estructura_reordenada.append(recomendaciones)
+        if actividades:
+            estructura_reordenada.append(actividades)
+        estructura_reordenada.extend(anexos)
+        estructura_reordenada.extend(otras)
+
+        for seccion in estructura_reordenada:
             tipo      = seccion['tipo']
             clave     = seccion['clave']
             subtitulo = seccion['subtitulo']
@@ -1450,7 +1615,12 @@ class ReportService:
                     ReportService._bloque_seccion_estatica(doc, subtitulo, contenido, tema)
 
             if clave != ultima_clave:
-                _page_break(doc)
+                # Entre Objetivos y Alcance: solo saltos de línea, no page break
+                if clave == 'objetivos':
+                    doc.add_paragraph()
+                    doc.add_paragraph()
+                else:
+                    _page_break(doc)
 
         output = BytesIO()
         doc.save(output)
@@ -1462,16 +1632,16 @@ class ReportService:
         ReportService._seccion_titulo(doc, 'Análisis de Exposición', tema)
 
         try:
-            grafico_recursos = ReportService._generar_grafico_top_hallazgos(findings, severidades, tema)
+            grafico_servicios = ReportService._generar_grafico_servicios(findings, tema)
             grafico_regiones = ReportService._generar_grafico_regiones(findings, tema)
 
-            if grafico_recursos:
+            if grafico_servicios:
                 t1 = doc.add_table(rows=1, cols=1)
                 _remove_table_borders(t1)
                 c = t1.rows[0].cells[0]
                 p = c.paragraphs[0]
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                p.add_run().add_picture(grafico_recursos, width=Cm(14))
+                p.add_run().add_picture(grafico_servicios, width=Cm(14))
 
             if grafico_regiones:
                 t2 = doc.add_table(rows=1, cols=1)
@@ -1581,13 +1751,65 @@ class ReportService:
 
     @staticmethod
     def _cargar_mitre_tecnicas(base_dir):
-        ruta = os.path.join(base_dir, 'data', 'mitre_attack', 'mitre_tecnicas.json')
-        try:
-            with open(ruta, encoding='utf-8') as f:
-                import json as _json
-                return _json.load(f)
-        except Exception:
-            return {}
+        import json as _json
+
+        # Intentar cargar enterprise-attack.json primero, luego mitre_tecnicas.json
+        rutas = [
+            os.path.join(base_dir, 'data', 'mitre_attack', 'enterprise-attack.json'),
+            os.path.join(base_dir, 'data', 'mitre_attack', 'mitre_tecnicas.json')
+        ]
+
+        mitre_dict = {}
+
+        for ruta in rutas:
+            try:
+                with open(ruta, encoding='utf-8') as f:
+                    data = _json.load(f)
+
+                # Si es estructura STIX (tiene 'objects')
+                if isinstance(data, dict) and 'objects' in data:
+                    objects = data.get('objects', [])
+                    for obj in objects:
+                        # Solo procesar attack-patterns
+                        if obj.get('type') == 'attack-pattern':
+                            # Extraer el external_id (T1040, T1046, etc.)
+                            t_id = None
+                            for ext_ref in obj.get('external_references', []):
+                                if ext_ref.get('source_name') == 'mitre-attack':
+                                    t_id = ext_ref.get('external_id')
+                                    break
+
+                            if t_id:
+                                mitre_dict[t_id] = {
+                                    'nombre': obj.get('name', ''),
+                                    'descripcion': obj.get('description', ''),
+                                    'url': f'https://attack.mitre.org/techniques/{t_id}/',
+                                    'platforms': obj.get('x_mitre_platforms', [])
+                                }
+
+                    # Si encontramos técnicas, retornamos
+                    if mitre_dict:
+                        return mitre_dict
+
+                # Si es formato más simple (diccionario indexado por T-ID)
+                elif isinstance(data, dict):
+                    # Asumir que es directamente {T1040: {...}, T1046: {...}}
+                    for key, value in data.items():
+                        if isinstance(value, dict) and ('nombre' in value or 'name' in value):
+                            mitre_dict[key] = {
+                                'nombre': value.get('nombre') or value.get('name', ''),
+                                'descripcion': value.get('descripcion') or value.get('description', ''),
+                                'url': value.get('url', f'https://attack.mitre.org/techniques/{key}/'),
+                                'platforms': value.get('platforms', [])
+                            }
+
+                    if mitre_dict:
+                        return mitre_dict
+
+            except Exception:
+                continue
+
+        return {}
 
     @staticmethod
     def _bloque_mitre_attack(doc, findings, tema, base_dir):
@@ -1595,29 +1817,30 @@ class ReportService:
         from docx.oxml.ns import qn
         from docx.oxml import OxmlElement
 
-        mitre_map = ReportService._cargar_mitre_tecnicas(base_dir)
-        if not mitre_map:
-            return
-
         color_texto_claro = tema.get('texto_claro',          '#FFFFFF')
         color_fila_par    = tema.get('fondo_tabla_fila_par', '#E8EAF6')
         color_oscuro      = tema.get('texto_oscuro',         '#111827')
         color_acento      = tema.get('acento',               '#00B4D8')
 
+        # Cargar mapa de técnicas MITRE si existe
+        mitre_map = ReportService._cargar_mitre_tecnicas(base_dir)
+
+        # Extraer técnicas MITRE de los hallazgos desde referencias_data
         tecnicas_map = {}
         for f in findings:
-            inv = f.get('inventory_data')
-            if not inv:
+            referencias = f.get('referencias_data')
+            if not referencias:
                 continue
             try:
-                data = _json.loads(inv) if isinstance(inv, str) else inv
-                tecnicas = data.get('compliance', {}).get('MITRE-ATTACK', [])
+                data = _json.loads(referencias) if isinstance(referencias, str) else referencias
+                # Las técnicas MITRE están dentro de 'compliance' en referencias_data
+                compliance_data = data.get('compliance', {}) if isinstance(data, dict) else {}
+                tecnicas = compliance_data.get('MITRE-ATTACK', []) if isinstance(compliance_data, dict) else []
                 for t_id in tecnicas:
-                    if t_id not in mitre_map:
-                        continue
                     if t_id not in tecnicas_map:
+                        info = mitre_map.get(t_id, {}) if mitre_map else {}
                         tecnicas_map[t_id] = {
-                            'info':      mitre_map[t_id],
+                            'info':      info,
                             'hallazgos': set(),
                             'recursos':  set()
                         }
@@ -1630,9 +1853,11 @@ class ReportService:
             except Exception:
                 continue
 
+        # SI HAY técnicas MITRE, ENTONCES generar la sección
         if not tecnicas_map:
             return
 
+        # Generar la sección SOLO si hay técnicas
         ReportService._seccion_titulo(doc, 'Mapeo MITRE ATT&CK', tema)
 
         intro = doc.add_paragraph()
@@ -1644,10 +1869,10 @@ class ReportService:
         ri.font.color.rgb = _hex_to_rgb(color_oscuro)
         intro.paragraph_format.space_after = Pt(8)
 
-        headers    = ['ID', 'Técnica', 'Descripción', 'Checks']
-        col_widths = [2.0, 3.0, 6.5, 6.5]
+        headers    = ['ID', 'Técnica', 'Checks']
+        col_widths = [2.0, 4.0, 10.0]
 
-        table = doc.add_table(rows=1, cols=4)
+        table = doc.add_table(rows=1, cols=3)
         _remove_table_borders(table)
         table.autofit = False
         table.allow_autofit = False
@@ -1681,10 +1906,10 @@ class ReportService:
 
             hallazgos_txt = ', '.join(h.capitalize() for h in sorted(entry['hallazgos']))
 
-            valores      = [t_id, info.get('nombre', ''), info.get('descripcion', ''), hallazgos_txt]
-            alineaciones = [WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.LEFT]
-            font_sizes   = [9, 9, 8, 8]
-            bold_flags   = [True, False, False, False]
+            valores      = [t_id, info.get('nombre', ''), hallazgos_txt]
+            alineaciones = [WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.LEFT]
+            font_sizes   = [9, 9, 8]
+            bold_flags   = [True, False, False]
 
             for ci, (val, w, alin, fsize, bold) in enumerate(
                 zip(valores, col_widths, alineaciones, font_sizes, bold_flags)
