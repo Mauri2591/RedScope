@@ -66,7 +66,7 @@
                             {% elif f.regla_estado == 'herramienta' %}
                            {% set tool_name = f.rule_origen.replace('_cli', '').replace('_web', '') %}
                             <img src="{{ url_for('static', filename='img/tools/' + tool_name + '.png') }}"
-                                width="42" title="Regla importada de {{ f.rule_origen }}"
+                                width="45" title="Regla importada de {{ f.rule_origen }}"
                                 onerror="this.replaceWith(Object.assign(document.createElement('i'), {className: 'bi bi-shield-fill-check text-warning'}))">
                             {% else %}
                             <i class="bi bi-arrow-repeat text-info icono-spin" title="Creando Regla con IA"></i>
