@@ -10,6 +10,7 @@ from routes.inicio import inicio_bp
 from routes.servicio import servicio_bp
 from routes.proyecto import proyecto_bp
 from routes.cliente import cliente_bp
+from routes.debug_conclusiones import debug_bp
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -22,6 +23,7 @@ app.register_blueprint(inicio_bp)
 app.register_blueprint(servicio_bp)
 app.register_blueprint(proyecto_bp)
 app.register_blueprint(cliente_bp)
+app.register_blueprint(debug_bp)
 
 @app.route('/')
 def index():

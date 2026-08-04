@@ -5,6 +5,7 @@ import uuid
 from db import get_db_connection
 import json
 from helpers.prowler_parser import ProwlerDataExtractor
+from helpers.scoutsuite_parser import ScoutSuiteDataExtractor
 
 class Proyecto:
     @staticmethod
@@ -719,8 +720,8 @@ class Proyecto:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT id, proyecto_id, cloud_ejecucion_id, security_rules_id,
-                check_id, provider, service, resource_id, region, severidad_id, 
-                estados_findings_id, finding_comment, inventory_data
+                check_id, provider, service, resource_id, region, severidad_id,
+                estados_findings_id, finding_comment, inventory_data, referencias_data, estado_mitigacion
             FROM findings
             WHERE id = %s AND estado_id = 1
         """, (finding_id,))
@@ -815,6 +816,7 @@ class Proyecto:
             f.region,
             sr.title AS titulo,
             sr.description AS descripcion,
+            sev.id AS severidad_id,
             sev.nombre AS severidad,
             sr.condition_logic AS condicion_logica,
             sr.remediation AS remediacion,
@@ -822,11 +824,12 @@ class Proyecto:
             f.resource_id,
             f.inventory_data,
             f.referencias_data,
-            ef.nombre AS estado,
+            em.nombre AS estado_mitigacion,
+            em.color AS color_estado_mitigacion,
             f.finding_comment,
             GROUP_CONCAT(fe.file_path ORDER BY fe.id SEPARATOR '|') AS imagenes
         FROM findings f
-        INNER JOIN proyectos p 
+        INNER JOIN proyectos p
             ON p.id = f.proyecto_id
         LEFT JOIN cloud_ejecuciones ce
             ON ce.id = f.cloud_ejecucion_id
@@ -836,20 +839,20 @@ class Proyecto:
             WHERE proyecto_id = %s
             AND estado_id != 2
             GROUP BY accion_id
-        ) ultima 
+        ) ultima
             ON ultima.accion_id = ce.accion_id
             AND ultima.ultima_ejecucion_id = ce.id
-        LEFT JOIN security_rules sr 
+        LEFT JOIN security_rules sr
             ON sr.check_id = f.check_id
             AND sr.service = f.service
             AND sr.provider = f.provider
-        LEFT JOIN severidades sev 
+        LEFT JOIN severidades sev
             ON sev.id = sr.severidad_id
-        LEFT JOIN estados_findings ef
-            ON ef.id = f.estados_findings_id
-        LEFT JOIN findings_evidence fe 
+        LEFT JOIN estados em
+            ON em.id = f.estado_mitigacion
+        LEFT JOIN findings_evidence fe
             ON fe.finding_id = f.id AND fe.estado_id = 1
-        WHERE f.proyecto_id = %s 
+        WHERE f.proyecto_id = %s
         AND f.estado_id = 1
         AND (f.cloud_ejecucion_id IS NULL OR ultima.ultima_ejecucion_id IS NOT NULL)
         GROUP BY f.id
@@ -931,6 +934,10 @@ class Proyecto:
             return Proyecto._import_prowler_cli(proyecto_id, data, usuario_id)
         elif herramienta == 'prowler_web':
             return Proyecto._import_prowler_web(proyecto_id, data, usuario_id)
+        elif herramienta == 'scoutsuite_cli':
+            return Proyecto._import_scoutsuite_cli(proyecto_id, data, usuario_id)
+        elif herramienta == 'scoutsuite_web':
+            return Proyecto._import_scoutsuite_web(proyecto_id, data, usuario_id)
         return 0
 
     @staticmethod
@@ -1003,7 +1010,7 @@ class Proyecto:
                     continue
                 
                 if not check_id:
-                    print(f"[PROWLER_CLI] ⚠️  Saltando item sin CheckID en índice {idx}")
+                    print(f"[PROWLER_CLI] Saltando item sin CheckID en índice {idx}")
                     continue
                 
                 provider = item.get('Provider', 'aws').lower()
@@ -1062,29 +1069,42 @@ class Proyecto:
                     continue
                 
                 # ========================
-                # Insertar finding
+                # Separar datos: inventory vs referencias (igual que Prowler Web)
                 # ========================
+                # inventory_data: SOLO salida de la herramienta (status + account)
                 inventory_json = json.dumps({
-                    "status_extended": item.get('StatusExtended', ''),
-                    "finding_unique_id": item.get('FindingUniqueId', ''),
-                    "resource_arn": item.get('ResourceArn', ''),
-                    "compliance": item.get('Compliance', {})
+                    "status_code": status,
+                    "account_id": item.get('AccountId', '')
                 }, ensure_ascii=False)
-                
+
+                # referencias_data: compliance, remediation, etc.
+                referencias_json = json.dumps({
+                    "compliance": item.get('Compliance', {}),
+                    "remediation": item.get('Remediation', {}).get('Recommendation', {}).get('Text', ''),
+                    "remediation_url": item.get('RelatedUrl', item.get('Remediation', {}).get('Recommendation', {}).get('Url') if isinstance(item.get('Remediation'), dict) else None),
+                    "risk_details": item.get('Risk', ''),
+                    "referencias": [
+                        {
+                            "title": "Remediation",
+                            "url": item.get('RelatedUrl', item.get('Remediation', {}).get('Recommendation', {}).get('Url') if isinstance(item.get('Remediation'), dict) else '')
+                        }
+                    ] if item.get('RelatedUrl') or (isinstance(item.get('Remediation'), dict) and item.get('Remediation', {}).get('Recommendation', {}).get('Url')) else []
+                }, ensure_ascii=False)
+
                 cursor.execute("""
-                    INSERT INTO findings 
-                    (proyecto_id, usuario_id, security_rules_id, check_id, 
-                    provider, service, resource_id, region, severidad_id, 
-                    estados_findings_id, inventory_data, herramienta, estado_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, 'prowler_cli', 1)
+                    INSERT INTO findings
+                    (proyecto_id, usuario_id, security_rules_id, check_id,
+                    provider, service, resource_id, region, severidad_id,
+                    estados_findings_id, inventory_data, referencias_data, herramienta, estado_mitigacion, estado_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, 'prowler_cli', 8, 1)
                 """, (
                     proyecto_id, usuario_id, security_rule_id, check_id,
                     provider, service, resource_id, region, severidad_id,
-                    inventory_json
+                    inventory_json, referencias_json
                 ))
-                
+
                 importados += 1
-                print(f"[PROWLER_CLI] ✅ Importado: {check_id} - {resource_id}")
+                print(f"[PROWLER_CLI] Importado: {check_id} - {resource_id}")
             
             conn.commit()
         
@@ -1130,7 +1150,7 @@ class Proyecto:
                     continue
                 
                 if not check_id:
-                    print(f"[PROWLER_WEB] ⚠️  Sin CheckID en idx {idx}")
+                    print(f"[PROWLER_WEB] Sin CheckID en idx {idx}")
                     continue
                 
                 # Extraer datos
@@ -1145,25 +1165,30 @@ class Proyecto:
                 
                 severidad_id = severidad_map.get(severity_name, 3)
                 
-                # Guardar security_rule
+                # Usar parser para extraer datos correctamente
+                parsed = ProwlerDataExtractor.parse_prowler_item(item)
+
+                # Guardar security_rule (usando datos parseados)
                 cursor.execute("""
-                    INSERT INTO security_rules 
-                    (provider, service, check_id, title, description, severidad_id, 
-                    remediation, reference, origen, estado_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'prowler_web', 1)
-                    ON DUPLICATE KEY UPDATE 
+                    INSERT INTO security_rules
+                    (provider, service, check_id, title, description, severidad_id,
+                    remediation, reference, condition_logic, origen, estado_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'prowler_web', 1)
+                    ON DUPLICATE KEY UPDATE
                         reference = COALESCE(NULLIF(VALUES(reference), ''), reference),
+                        condition_logic = COALESCE(NULLIF(VALUES(condition_logic), ''), condition_logic),
                         origen = COALESCE(NULLIF(VALUES(origen), ''), origen),
                         estado_id = 1
                 """, (
                     provider,
                     service,
                     check_id,
-                    item.get('finding_info', {}).get('title', check_id)[:200],
-                    item.get('finding_info', {}).get('desc', '')[:500],
+                    parsed.get('title', check_id)[:200],
+                    parsed.get('description', '')[:500],
                     severidad_id,
-                    item.get('remediation', {}).get('desc', '')[:500],
-                    item.get('remediation', {}).get('references', [None])[0]
+                    parsed.get('remediation', '')[:500],
+                    parsed.get('remediation_url', ''),
+                    parsed.get('condition_logic', '')[:500]  # Condición Lógica (extraída del parser)
                 ))
                 
                 cursor.execute("SELECT id FROM security_rules WHERE check_id = %s LIMIT 1", (check_id,))
@@ -1186,8 +1211,7 @@ class Proyecto:
                     print(f"[PROWLER_WEB] ⏭️  Ya existe: {check_id} - {resource_id}")
                     continue
                 
-                # Insertar finding - usar parser para separar datos
-                parsed = ProwlerDataExtractor.parse_prowler_item(item)
+                # Usar parser ya creado arriba para separar datos
                 inventory_json = ProwlerDataExtractor.generate_inventory_json(parsed)
                 referencias_json = ProwlerDataExtractor.generate_referencias_json(parsed)
 
@@ -1195,8 +1219,8 @@ class Proyecto:
                     INSERT INTO findings
                     (proyecto_id, usuario_id, security_rules_id, check_id,
                     provider, service, resource_id, region, severidad_id,
-                    estados_findings_id, inventory_data, referencias_data, herramienta, estado_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, 'prowler_web', 1)
+                    estados_findings_id, inventory_data, referencias_data, herramienta, estado_mitigacion, estado_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, 'prowler_web', 8, 1)
                 """, (
                     proyecto_id, usuario_id, security_rule_id, check_id,
                     provider, service, resource_id, region, severidad_id,
@@ -1204,7 +1228,7 @@ class Proyecto:
                 ))
                 
                 importados += 1
-                print(f"[PROWLER_WEB] ✅ Importado: {check_id}")
+                print(f"[PROWLER_WEB] Importado: {check_id}")
             
             conn.commit()
         
@@ -1220,7 +1244,154 @@ class Proyecto:
         
         print(f"[PROWLER_WEB] Total: {importados}")
         return importados
-    
+
+    @staticmethod
+    def _import_scoutsuite_cli(proyecto_id, data, usuario_id):
+        """Importa findings desde ScoutSuite"""
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        importados = 0
+
+        # Extraer account_id del JSON
+        account_id = data.get('account_id', '')
+        print(f"[SCOUTSUITE_CLI] Account ID: {account_id}")
+        print(f"[SCOUTSUITE_CLI] Data keys: {list(data.keys())}")
+
+        if not account_id:
+            print(f"[SCOUTSUITE_CLI] ERROR: No account_id en JSON")
+            cursor.close()
+            conn.close()
+            return 0
+
+        severidades = Proyecto.get_severidades()
+        severidad_map = {s['nombre'].lower(): s['id'] for s in severidades}
+
+        try:
+            # Iterar sobre servicios
+            services = data.get('services', {})
+            print(f"[SCOUTSUITE_CLI] Services encontrados: {list(services.keys())}")
+
+            for service_name, service_data in services.items():
+                # Procesar findings del servicio
+                findings = service_data.get('findings', {})
+
+                for finding_id, finding_data in findings.items():
+                    # Saltar si no hay items flagged
+                    if finding_data.get('flagged_items', 0) == 0:
+                        continue
+
+                    level = finding_data.get('level', 'warning').lower()
+                    severity_name = 'critical' if level == 'danger' else ('medium' if level == 'warning' else 'low')
+                    severidad_id = severidad_map.get(severity_name, 3)
+
+                    print(f"[SCOUTSUITE_CLI] Finding={finding_id} Level={level} Service={service_name}")
+
+                    # Parsear el finding (genera multiple items, uno por recurso)
+                    parsed_items = ScoutSuiteDataExtractor.parse_scoutsuite_finding(
+                        finding_id, finding_data, account_id
+                    )
+
+                    if not parsed_items:
+                        continue
+
+                    # Guardar security_rule (una vez por finding)
+                    description = finding_data.get('description') or ''
+                    remediation = finding_data.get('remediation') or ''
+                    references = finding_data.get('references') or []
+                    reference_url = references[0] if references and isinstance(references, list) else ''
+
+                    cursor.execute("""
+                        INSERT INTO security_rules
+                        (provider, service, check_id, title, description, severidad_id,
+                        remediation, reference, condition_logic, origen, estado_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'scoutsuite_cli', 1)
+                        ON DUPLICATE KEY UPDATE
+                            reference = COALESCE(NULLIF(VALUES(reference), ''), reference),
+                            condition_logic = COALESCE(NULLIF(VALUES(condition_logic), ''), condition_logic),
+                            origen = COALESCE(NULLIF(VALUES(origen), ''), origen),
+                            estado_id = 1
+                    """, (
+                        'aws',
+                        service_name.lower(),
+                        finding_id,
+                        (description or '')[:200],
+                        (description or '')[:500],
+                        severidad_id,
+                        (remediation or '')[:500],
+                        reference_url,
+                        ''
+                    ))
+
+                    cursor.execute("SELECT id FROM security_rules WHERE check_id = %s LIMIT 1", (finding_id,))
+                    rule_row = cursor.fetchone()
+                    security_rule_id = rule_row['id'] if rule_row else None
+
+                    # Importar cada item parseado como un finding
+                    for parsed in parsed_items:
+                        check_id = parsed['check_id']
+                        resource_id = parsed['resource_id']
+                        region = parsed['region']
+
+                        # Verificar duplicado
+                        cursor.execute("""
+                            SELECT id FROM findings
+                            WHERE proyecto_id = %s
+                            AND check_id = %s
+                            AND resource_id = %s
+                            AND herramienta = 'scoutsuite_cli'
+                            AND cloud_ejecucion_id IS NULL
+                            AND estado_id = 1
+                            LIMIT 1
+                        """, (proyecto_id, check_id, resource_id))
+
+                        if cursor.fetchone():
+                            print(f"[SCOUTSUITE_CLI] ⏭️  Ya existe: {check_id} - {resource_id}")
+                            continue
+
+                        # Generar JSONs
+                        inventory_json = ScoutSuiteDataExtractor.generate_inventory_json(parsed)
+                        referencias_json = ScoutSuiteDataExtractor.generate_referencias_json(parsed)
+
+                        # Insertar finding
+                        cursor.execute("""
+                            INSERT INTO findings
+                            (proyecto_id, usuario_id, security_rules_id, check_id,
+                            provider, service, resource_id, region, severidad_id,
+                            estados_findings_id, inventory_data, referencias_data, herramienta, estado_mitigacion, estado_id)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, 'scoutsuite_cli', 8, 1)
+                        """, (
+                            proyecto_id, usuario_id, security_rule_id, check_id,
+                            'aws', service_name.lower(), resource_id, region, severidad_id,
+                            inventory_json, referencias_json
+                        ))
+
+                        importados += 1
+                        print(f"[SCOUTSUITE_CLI] ✓ Importado: {check_id} - {resource_id}")
+
+            conn.commit()
+
+        except Exception as e:
+            conn.rollback()
+            print(f"[SCOUTSUITE ERROR] {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+        finally:
+            cursor.close()
+            conn.close()
+
+        print(f"[SCOUTSUITE_CLI] Total importados: {importados}")
+        return importados
+
+    @staticmethod
+    def _import_scoutsuite_web(proyecto_id, data, usuario_id):
+        """
+        Importa findings desde ScoutSuite Web (versión paga)
+        Implementación futura cuando se tenga acceso a la versión Web
+        """
+        print("[SCOUTSUITE_WEB] No implementado aún")
+        return 0
+
     @staticmethod
     def get_findings_importados(proyecto_id, herramienta):
         conn = get_db_connection()

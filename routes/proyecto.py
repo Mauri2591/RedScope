@@ -397,7 +397,7 @@ def run_roles():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # ✅ Siempre inserta una nueva ejecución
+    # Siempre inserta una nueva ejecución
     cursor.execute("""
         INSERT INTO cloud_ejecuciones
         (proyecto_id, accion_id, usuario_id, estado, fecha_creacion, estado_id)
@@ -889,10 +889,56 @@ IMPORT_CONFIG = {
     'prowler_web': {
         'extensiones': ['.json']
     },
-    'scoutsuite': {
+    'scoutsuite_cli': {
+        'extensiones': ['.js', '.json']  # ScoutSuite CLI exporta .js
+    },
+    'scoutsuite_web': {
         'extensiones': ['.json']
     }
 }
+
+def detectar_framework_prowler(filename):
+    """
+    Valida que el archivo sea el template COMPLETO de Prowler Web OCSF.
+
+    SOLO acepta: prowler-output-{ACCOUNT_ID}-{TIMESTAMP}.ocsf.json
+    RECHAZA: Cualquier archivo con sufijo de framework (_cis_controls_8.1, _csa_ccm_4.0, _dora_2022_2554, etc.)
+
+    Formato válido:
+        prowler-output-601227218666-20260714223844.ocsf.json
+
+    Formatos rechazados:
+     prowler-output-601227218666-20260714223844_cis_controls_8.1.ocsf.json
+     prowler-output-601227218666-20260714223844_csa_ccm_4.0.ocsf.json
+     prowler-output-601227218666-20260714223844_dora_2022_2554.ocsf.json
+
+    Returns: (nombre, es_valido, error_message)
+    """
+    import re
+
+    # Patrón válido: prowler-output-{HASH}.ocsf.json (SIN guiones bajos antes de .ocsf)
+    # Ejemplo válido: prowler-output-601227218666-20260714223844.ocsf.json
+    patron_valido = r'^prowler-output-[a-zA-Z0-9]+-\d+\.ocsf\.json$'
+
+    filename_lower = filename.lower()
+
+    # Validar que coincida con el patrón válido
+    if not re.match(patron_valido, filename_lower):
+        # Si tiene un guión bajo seguido de texto antes de .ocsf, es un template específico
+        if '_' in filename_lower and '.ocsf.json' in filename_lower:
+            # Extraer el sufijo
+            match = re.search(r'_(.+?)\.ocsf\.json', filename_lower)
+            if match:
+                sufijo = match.group(1).upper()
+                error = f" Template específico '{sufijo}' no permitido.\n\nUsa el archivo COMPLETO de Prowler Web sin sufijo de framework:\nFormato correcto: prowler-output-[ACCOUNT]-[TIMESTAMP].ocsf.json\nEjemplo: prowler-output-601227218666-20260714223844.ocsf.json"
+                return None, False, error
+
+        # Si no coincide pero tampoco es un template específico
+        error = f" Formato de archivo inválido.\n\nFormato esperado: prowler-output-[ACCOUNT]-[TIMESTAMP].ocsf.json\nEjemplo: prowler-output-601227218666-20260714223844.ocsf.json"
+        return None, False, error
+
+    # Si llegó aquí, es el template completo válido (ACEPTAR)
+    return 'Prowler Web OCSF Completo', True, None
 
 @proyecto_bp.route('/proyecto/<int:proyecto_id>/cloud/import-findings', methods=['POST'])
 @login_required
@@ -900,25 +946,82 @@ def import_findings(proyecto_id):
     herramienta = request.form.get('herramienta')
     archivo = request.files.get('archivo')
 
-    if not herramienta or herramienta not in IMPORT_CONFIG:
-        return jsonify({"success": False, "message": "Herramienta no soportada."}), 400
-
     if not archivo:
         return jsonify({"success": False, "message": "No se envió ningún archivo."}), 400
+
+    # ========================================
+    # DETECCIÓN AUTOMÁTICA DE HERRAMIENTA
+    # ========================================
+    # Si no especifica herramienta, intentar detectar automáticamente
+    if not herramienta:
+        archivo_contenido = archivo.read()
+        archivo.seek(0)  # Reset para releer
+
+        try:
+            contenido_texto = archivo_contenido.decode('utf-8', errors='ignore')
+
+            # Detectar ScoutSuite CLI (formato: scoutsuite_results = {...})
+            if contenido_texto.startswith('scoutsuite_results ='):
+                herramienta = 'scoutsuite_cli'
+            # Detectar Prowler Web (OCSF) (formato: prowler_output_* o contiene status_code)
+            elif contenido_texto.startswith('prowler_output_') or ('"status_code"' in contenido_texto[:200] and '"cloud"' in contenido_texto[:200]):
+                herramienta = 'prowler_web'
+            # Default: Prowler CLI (formato: JSON array o dict sin prefijos)
+            else:
+                herramienta = 'prowler_cli'
+        except:
+            herramienta = 'prowler_cli'
+
+    if herramienta not in IMPORT_CONFIG:
+        return jsonify({"success": False, "message": f"Herramienta no soportada: {herramienta}"}), 400
 
     config = IMPORT_CONFIG[herramienta]
     ext = '.' + archivo.filename.rsplit('.', 1)[-1].lower()
     if ext not in config['extensiones']:
         return jsonify({"success": False, "message": f"Para {herramienta} se esperaba: {', '.join(config['extensiones'])}."}), 400
 
+    # Validar según la herramienta
+    if herramienta == 'prowler_web':
+        # Para Prowler Web: validar formato exacto
+        framework, es_valido, error_message = detectar_framework_prowler(archivo.filename)
+        if not es_valido:
+            return jsonify({"success": False, "message": error_message}), 400
+        framework_info = framework
+    elif herramienta == 'scoutsuite_cli':
+        # Para ScoutSuite CLI: formato scoutsuite_results = {...}
+        framework_info = "ScoutSuite CLI"
+    elif herramienta == 'scoutsuite_web':
+        # Para ScoutSuite Web (versión paga): será implementado cuando se tenga acceso
+        return jsonify({"success": False, "message": "ScoutSuite Web aún no está implementado. Use ScoutSuite CLI."}), 400
+    else:
+        # Para Prowler CLI y otros: solo validar que sea JSON
+        framework_info = herramienta.replace('_', ' ').title()
+
     try:
-        data = json.loads(archivo.read())
-    except Exception:
-        return jsonify({"success": False, "message": "El archivo no es un JSON válido."}), 400
+        contenido = archivo.read()
+
+        # Para ScoutSuite CLI: remover el prefijo "scoutsuite_results = "
+        if herramienta == 'scoutsuite_cli':
+            contenido_texto = contenido.decode('utf-8', errors='ignore')
+            if contenido_texto.startswith('scoutsuite_results ='):
+                contenido_texto = contenido_texto.replace('scoutsuite_results = ', '', 1).strip()
+                data = json.loads(contenido_texto)
+            else:
+                data = json.loads(contenido)
+        else:
+            data = json.loads(contenido)
+    except Exception as e:
+        return jsonify({"success": False, "message": f"El archivo no es un JSON válido: {str(e)}"}), 400
 
     resultado = Proyecto.import_findings(proyecto_id, herramienta, data, session.get('user_id'))
 
-    return jsonify({"success": True, "imported": resultado})
+    response = {
+        "success": True,
+        "imported": resultado,
+        "info": f"Importados {resultado} hallazgos desde {framework_info}"
+    }
+
+    return jsonify(response)
 
 @staticmethod
 def get_findings_importados(proyecto_id, herramienta):

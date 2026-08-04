@@ -183,16 +183,47 @@ class ProwlerDataExtractor:
         # Extraer status
         status_code = item.get('status_code', 'UNKNOWN').upper()
 
+        # Buscar account_id en múltiples ubicaciones (fallback)
+        account_id = ''
+
+        # Intento 1: unmapped.cloud.account.uid (ubicación correcta en Prowler OCSF)
+        unmapped = item.get('unmapped', {})
+        unmapped_cloud = unmapped.get('cloud', {})
+        account_id = unmapped_cloud.get('account', {}).get('uid', '')
+
+        # Intento 2: cloud.account.uid (alternativa)
+        if not account_id:
+            cloud = item.get('cloud', {})
+            account_id = cloud.get('account', {}).get('uid', '')
+
+        # Intento 3: account como string directo
+        if not account_id:
+            account = cloud.get('account') if cloud else None
+            if isinstance(account, str):
+                account_id = account
+
+        # Intento 4: en metadata
+        if not account_id:
+            metadata = item.get('metadata', {})
+            account_id = metadata.get('account_id', '')
+
         # Cloud info
         cloud = item.get('cloud', {})
-        account_id = cloud.get('account', {}).get('uid', '')
-        region = cloud.get('region', '')
-        provider = cloud.get('provider', 'aws').lower()
+        region = cloud.get('region', '') or unmapped_cloud.get('region', '')
+        provider = cloud.get('provider', '') or unmapped_cloud.get('provider', 'aws')
+        provider = provider.lower()
 
         # Recurso
         resources = item.get('resources', [])
         resource_id = resources[0].get('uid', '') if resources else ''
         service = resources[0].get('group', {}).get('name', '') if resources else ''
+
+        # Fallback: extraer account_id del ARN del recurso si no se encontró antes
+        if not account_id and resource_id and resource_id.startswith('arn:aws:'):
+            # Formato: arn:aws:service:region:account-id:resource
+            arn_parts = resource_id.split(':')
+            if len(arn_parts) >= 5:
+                account_id = arn_parts[4]
 
         # Check info
         metadata = item.get('metadata', {})
@@ -203,25 +234,62 @@ class ProwlerDataExtractor:
 
         # Finding info
         finding_info = item.get('finding_info', {})
-        title = finding_info.get('title', check_id)
+
+        # Título: buscar en compliance.checks primero (nombre del check)
+        title = check_id
+        compliance_checks = item.get('compliance', {}).get('checks', [])
+        if compliance_checks and isinstance(compliance_checks, list):
+            title = compliance_checks[0].get('name', title)
+
+        # Si no encontró en compliance, usar finding_info
+        if not title or title == check_id:
+            title = finding_info.get('title', check_id)
+
+        # Descripción: de finding_info
         description = finding_info.get('desc', '')
 
-        # Remediation
+        # Remediation (del nuevo template Prowler Web completo)
         remediation = item.get('remediation', {})
         remediation_desc = remediation.get('desc', '')
         remediation_urls = remediation.get('references', [])
         remediation_url = remediation_urls[0] if remediation_urls else ''
 
-        # Compliance - extraer del campo unmapped.compliance
-        unmapped = item.get('unmapped', {})
-        compliance_raw = unmapped.get('compliance', {})
+        # Risk Details (del nuevo template Prowler Web completo)
+        risk_details = item.get('risk_details', '')
 
-        # Parsear compliance (puede venir como string o dict)
-        compliance = ProwlerDataExtractor.parse_compliance_string(compliance_raw)
+        # Compliance - extraer de unmapped.compliance (nuevo template Prowler Web)
+        # En el nuevo template, compliance está en unmapped.compliance
+        compliance_raw = unmapped.get('compliance', {})
+        condicion_logica = ''
+
+        # Si compliance es un dict con frameworks (nuevo template)
+        if isinstance(compliance_raw, dict) and compliance_raw:
+            # En el nuevo template, compliance es un dict con frameworks como keys
+            # Ejemplo: {"CIS-1.4": ["1.20"], "NIST-CSF-2.0": ["po_3", "po_4"], ...}
+            compliance = compliance_raw  # Guardar completo
+
+            # Extraer primer control para condición lógica (si existe)
+            first_key = next(iter(compliance_raw.keys())) if compliance_raw else None
+            if first_key:
+                first_controls = compliance_raw[first_key]
+                if isinstance(first_controls, list) and first_controls:
+                    condicion_logica = f"{first_key}: {', '.join(first_controls)}"
+        else:
+            # Fallback: si no hay compliance en unmapped, intentar en raíz
+            compliance_root = item.get('compliance', {})
+            if isinstance(compliance_root, dict):
+                compliance = {
+                    'standards': compliance_root.get('standards', []),
+                    'requirements': compliance_root.get('requirements', []),
+                    'control': compliance_root.get('control', ''),
+                }
+                condicion_logica = compliance_root.get('control', '')
+            else:
+                compliance = ProwlerDataExtractor.parse_compliance_string(compliance_raw)
 
         # DEBUG: loguear si hay compliance
         # if compliance:
-        #     print(f"✅ Compliance extraído para {check_id}: {len(compliance)} estándares")
+        #     print(f" Compliance extraído para {check_id}: {len(compliance)} estándares")
 
         # Links: referencia del campo remediation + otros
         links = []
@@ -247,7 +315,9 @@ class ProwlerDataExtractor:
             "description": description,
             "remediation": remediation_desc,
             "remediation_url": remediation_url,
+            "risk_details": risk_details,  # Nuevo: detalle del riesgo
             "compliance": compliance,
+            "condition_logic": condicion_logica,  # Coincide con el campo SQL
             "links": links,
             "raw_data": item  # Guardar original para debuging
         }
@@ -257,9 +327,10 @@ class ProwlerDataExtractor:
     @staticmethod
     def generate_inventory_json(parsed_item: Dict) -> str:
         """
-        Genera el JSON para guardar en inventory_data (salida de la herramienta)
+        Genera el JSON para guardar en inventory_data (SOLO salida de la herramienta)
 
-        SOLO status_code y account_id
+        SOLO: status_code y account_id (resultado del escaneo)
+        Lo demás va en referencias_data
         """
         inventory = {
             "status_code": parsed_item["status_code"],
@@ -270,10 +341,13 @@ class ProwlerDataExtractor:
     @staticmethod
     def generate_referencias_json(parsed_item: Dict) -> str:
         """
-        Genera el JSON para guardar en referencias_data (compliance + links)
+        Genera el JSON para guardar en referencias_data (compliance + remediation + risk + links)
 
         {
             "compliance": {...},
+            "remediation": "...",
+            "remediation_url": "...",
+            "risk_details": "...",
             "referencias": [
                 {"titulo": "Remediation", "url": "https://..."},
                 {"titulo": "Reference", "url": "https://..."}
@@ -281,8 +355,11 @@ class ProwlerDataExtractor:
         }
         """
         referencias = {
-            "compliance": parsed_item["compliance"],
-            "referencias": parsed_item["links"]  # Renombrado a referencias
+            "compliance": parsed_item.get("compliance", {}),
+            "remediation": parsed_item.get("remediation", ""),
+            "remediation_url": parsed_item.get("remediation_url", ""),
+            "risk_details": parsed_item.get("risk_details", ""),
+            "referencias": parsed_item.get("links", [])
         }
         return json.dumps(referencias, ensure_ascii=False, indent=2)
 

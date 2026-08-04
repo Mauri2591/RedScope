@@ -258,7 +258,7 @@ class CloudEjecucion:
 
         interesting = []
 
-        # ✅ Jobs que devuelven lista directa (sin envelope)
+        # Jobs que devuelven lista directa (sin envelope)
         if isinstance(resultado, list):
             for item in resultado:
                 function_name = item.get('FunctionName', '')
@@ -294,7 +294,7 @@ class CloudEjecucion:
                 })
             return interesting
 
-        # ✅ Inspector CVE findings
+        # Inspector CVE findings
         inventory_type = resultado.get("inventory_type", "")
         INSPECTOR_CVE_TYPES = [
             "INSPECTOR_EC2_CVE_FINDINGS",
@@ -319,7 +319,7 @@ class CloudEjecucion:
                 })
             return interesting
 
-        # ✅ Lógica general
+        # Lógica general
         for r in resultado.get("resources", []):
             analysis = r.get("analysis", {})
             added_keys = set()

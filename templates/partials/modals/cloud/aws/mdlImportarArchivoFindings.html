@@ -13,13 +13,31 @@
                         <select id="herramientaImport" name="herramienta" class="form-select form-select-sm">
                             <option value="prowler_web">Prowler Web</option>
                             <option value="prowler_cli">Prowler Cli</option>
+                            <option value="scoutsuite_cli">ScoutSuite CLI</option>
                         </select>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Archivo JSON</label>
-                        <input type="file" class="form-control form-control-sm" id="archivoImport" accept=".json">
+                        <input type="file" class="form-control form-control-sm" id="archivoImport" accept=".json,.js">
                         <div id="errorArchivoImport" class="text-danger small mt-1" style="display:none;"></div>
+
+                        <!-- Framework detectado -->
+                        <div id="frameworkInfo" class="mt-2" style="display:none;">
+                            <small class="text-muted">
+                                <strong class="text-success">OK </strong> <span id="frameworkName"></span>
+                            </small>
+                        </div>
                     </div>
+
+                    <!-- Alert de framework no recomendado -->
+                    <div id="alertFrameworkWarning" class="alert alert-warning alert-dismissible fade show" role="alert" style="display:none;">
+                        <strong> Advertencia:</strong>
+                        <div id="warningMessage"></div>
+                        <hr class="my-2">
+                        <small><strong>Recomendación:</strong> Usa el archivo <code>*cis_controls_8.1.ocsf.json</code> para pentests generales. Otros frameworks son para compliance específico del cliente.</small>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+
                     <div class="d-flex justify-content-end">
                         <button type="button" class="btn btn-sm btn-secondary mx-1 py-0 px-2"
                             data-bs-dismiss="modal">Cerrar</button>

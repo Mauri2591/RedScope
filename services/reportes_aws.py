@@ -148,7 +148,7 @@ class ReportService:
 
     TIPOS_INFORME = {
     'tecnico':   {'incluir_evidencia': True,  'excluir_secciones': [],'label': 'INFORME TÉCNICO'},
-    'ejecutivo': {'incluir_evidencia': False, 'excluir_secciones': ['detalle_hallazgos'], 'label': 'INFORME EJECUTIVO'},
+    'ejecutivo': {'incluir_evidencia': False, 'excluir_secciones': ['detalle_hallazgos', 'mitre_attack'], 'label': 'INFORME EJECUTIVO'},
     }
     # ─────────────────────────────────────────────────────────────
     # Helpers de color
@@ -266,7 +266,8 @@ class ReportService:
             grupos[key]['recursos'].append({
             'resource_id': f.get('resource_id'),
             'region': f.get('region', ''),
-            'estado': f.get('estado', 'ABIERTO'),
+            'estado_mitigacion': f.get('estado_mitigacion', 'DESCONOCIDO'),
+            'color_estado_mitigacion': f.get('color_estado_mitigacion', ''),
             'comment': f.get('finding_comment') or '',
             'inventory_data': f.get('inventory_data') or '',
             'referencias_data': f.get('referencias_data') or '',
@@ -319,7 +320,7 @@ class ReportService:
         headers = [
             'proveedor', 'servicio', 'check_id', 'titulo', 'descripcion',
             'riesgo', 'condicion logica', 'remediacion', 'referencia',
-            'resource_id', 'estado'
+            'resource_id', 'estado_mitigacion'
         ]
         ws.append(headers)
 
@@ -340,7 +341,7 @@ class ReportService:
                 row.get('descripcion', ''),    row.get('severidad', ''),
                 row.get('condicion_logica', ''), row.get('remediacion', ''),
                 row.get('referencia', ''),     row.get('resource_id', ''),
-                row.get('estado', '')
+                row.get('estado_mitigacion', '')
             ]
             ws.append(fila)
             current_row = ws.max_row
@@ -348,9 +349,14 @@ class ReportService:
             for col_idx, value in enumerate(fila, start=1):
                 cell           = ws.cell(row=current_row, column=col_idx)
                 cell.alignment = wrap
-                if col_idx == 6:
+                if col_idx == 6:  # Severidad
                     raw   = sev_colors.get(str(value).upper())
                     color = ReportService._normalizar_color(raw)
+                    if color:
+                        cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+                elif col_idx == 11:  # Estado Mitigacion
+                    color_hex = row.get('color_estado_mitigacion', '')
+                    color = ReportService._normalizar_color(color_hex)
                     if color:
                         cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
 
@@ -1219,7 +1225,7 @@ class ReportService:
                             ficha_campos.append(('Cumplimiento', None))  # None = renderizado especial
 
                 except Exception as e:
-                    print(f"⚠️  Error parseando compliance para {g.get('check_id')}: {e}")
+                    print(f"Error parseando compliance para {g.get('check_id')}: {e}")
                     print(f"   referencias_data: {referencias_data_str[:300] if referencias_data_str else 'NULL'}")
                     import traceback
                     traceback.print_exc()
@@ -1408,14 +1414,17 @@ class ReportService:
 
                 c2 = row.cells[2]
                 c2.width = Cm(3.5)
-                _set_cell_bg(c2, bg)
+                # Usar color del estado_mitigacion si existe, sino color de fila
+                estado_color = rec.get('color_estado_mitigacion', '').lstrip('#') if rec.get('color_estado_mitigacion') else bg
+                _set_cell_bg(c2, estado_color)
                 _set_cell_borders(c2, 'DDDDDD', '2')
                 _set_cell_margin(c2)
                 p2 = c2.paragraphs[0]
                 p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                r2 = p2.add_run(ReportService._texto_seguro(rec['estado'], 'ABIERTO'))
-                r2.font.name = 'Arial'; r2.font.size = Pt(9)
-                r2.font.color.rgb = _hex_to_rgb(color_oscuro)
+                r2 = p2.add_run(ReportService._texto_seguro(rec['estado_mitigacion'], 'DESCONOCIDO'))
+                r2.font.name = 'Arial'; r2.font.size = Pt(9); r2.font.bold = True
+                # Letra blanca para contraste con el fondo coloreado
+                r2.font.color.rgb = _hex_to_rgb('FFFFFF')
                 c2.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
             # ── Evidencia por recurso (solo si el tipo de informe la incluye) ──
@@ -1430,8 +1439,9 @@ class ReportService:
                     rev_titulo.font.color.rgb = _hex_to_rgb(color_secundario)
 
                     for rec_idx, rec in enumerate(recursos_con_evidencia):
-                        if rec_idx > 0:
-                            _page_break(doc)
+                        # No forzar salto de página; dejar que Word gestione automáticamente
+                        # if rec_idx > 0:
+                        #     _page_break(doc)
 
                         p_res = doc.add_paragraph()
                         p_res.paragraph_format.space_before = Pt(4)
@@ -1592,6 +1602,10 @@ class ReportService:
             if clave in config.get('excluir_secciones', []):
                 continue
 
+            # IMPORTANTE: Conclusiones SIEMPRE dinámica si hay datos
+            if clave == 'conclusiones' and data:
+                dinamico = True
+
             if dinamico:
                 if clave == 'resumen_hallazgos':
                     ReportService._bloque_resumen(doc, data, tema, severidades)
@@ -1607,6 +1621,8 @@ class ReportService:
                     ReportService._bloque_analisis_exposicion(doc, data, tema, severidades)
                 elif clave == 'mitre_attack':
                     ReportService._bloque_mitre_attack(doc, data, tema, base_dir)
+                elif clave == 'conclusiones':
+                    ReportService._bloque_conclusiones_dinamicas(doc, data, tema, severidades)
             else:
                 contenido = contenido_secciones.get(clave)
                 if clave == 'anexo_clasificacion':
@@ -1653,7 +1669,114 @@ class ReportService:
 
         except Exception:
             pass
-        
+
+    @staticmethod
+    def _bloque_conclusiones_dinamicas(doc, findings, tema, severidades):
+        """Genera conclusiones dinámicamente basadas en los hallazgos del proyecto."""
+        try:
+            ReportService._seccion_titulo(doc, 'Conclusiones', tema)
+
+            # Contar hallazgos por severidad
+            hallazgos_por_severidad = {}
+            total_hallazgos = len(findings)
+
+            for finding in findings:
+                severidad_id = finding.get('severidad_id', 0)
+                if severidad_id:
+                    hallazgos_por_severidad[severidad_id] = hallazgos_por_severidad.get(severidad_id, 0) + 1
+
+            color_oscuro = tema.get('texto_oscuro', '#111827')
+            color_texto_claro = tema.get('texto_claro', '#FFFFFF')
+            color_encabezado = tema.get('color_primario', '#0066CC')
+
+            # Generar severidades ordenadas - DINÁMICO
+            severidades_ordenadas = sorted(severidades, key=lambda s: s['orden'], reverse=True)
+            severidad_maxima = severidades_ordenadas[0] if len(severidades_ordenadas) > 0 else None
+            severidad_segunda = severidades_ordenadas[1] if len(severidades_ordenadas) > 1 else None
+
+            criticos = hallazgos_por_severidad.get(severidad_maxima['id'], 0) if severidad_maxima else 0
+            altos = hallazgos_por_severidad.get(severidad_segunda['id'], 0) if severidad_segunda else 0
+
+            # ─────── PÁRRAFO 1: DESCRIPCIÓN ───────
+            p_descripcion = doc.add_paragraph()
+            p_descripcion.paragraph_format.space_before = Pt(5)
+            p_descripcion.paragraph_format.space_after = Pt(12)
+
+            if criticos > 0:
+                nombre_critico = severidad_maxima['nombre'].upper() if severidad_maxima else 'crítico'
+                descripcion = f"Se realizó un escaneo de seguridad exhaustivo en los servicios AWS del proyecto. Los resultados evidencian {total_hallazgos} hallazgos de seguridad distribuidos entre múltiples niveles de severidad. Se identificaron {criticos} hallazgo{'s' if criticos > 1 else ''} de severidad {nombre_critico} que requieren atención inmediata."
+            elif altos > 0:
+                nombre_alto = severidad_segunda['nombre'].lower() if severidad_segunda else 'alto'
+                descripcion = f"Se realizó un escaneo de seguridad exhaustivo en los servicios AWS del proyecto. Los resultados evidencian {total_hallazgos} hallazgos de seguridad distribuidos entre múltiples niveles de severidad. Se identificaron {altos} hallazgo{'s' if altos > 1 else ''} de severidad {nombre_alto} que requieren prioridad."
+            else:
+                descripcion = f"Se realizó un escaneo de seguridad en los servicios AWS del proyecto, identificándose {total_hallazgos} hallazgo{'s' if total_hallazgos > 1 else ''} distribuidos entre varios niveles de severidad."
+
+            r = p_descripcion.add_run(descripcion)
+            r.font.name = 'Arial'
+            r.font.size = Pt(10)
+            r.font.color.rgb = _hex_to_rgb(color_oscuro)
+
+            # ─────── PÁRRAFO 2: RECOMENDACIONES ───────
+            p_recomendaciones = doc.add_paragraph()
+            p_recomendaciones.paragraph_format.space_before = Pt(5)
+            p_recomendaciones.paragraph_format.space_after = Pt(12)
+
+            recomendaciones = f"Se recomienda elaborar un plan de remediación que aborde inicialmente los hallazgos previamente informados y, de manera progresiva, continúe con el tratamiento del resto de los hallazgos según su nivel de criticidad e impacto. Para ello, se deberán definir responsables, plazos de implementación y una ejecución por fases, con el objetivo de fortalecer la postura de seguridad de la infraestructura AWS y reducir la superficie de exposición a riesgos."
+
+            r = p_recomendaciones.add_run(recomendaciones)
+            r.font.name = 'Arial'
+            r.font.size = Pt(10)
+            r.font.color.rgb = _hex_to_rgb(color_oscuro)
+
+            tabla = doc.add_table(rows=1, cols=3)
+            tabla.style = 'Light Grid Accent 1'
+
+            # Encabezados
+            encabezados = tabla.rows[0].cells
+            for i, texto in enumerate(['Severidad', 'Cantidad', '% Total']):
+                encabezados[i].text = texto
+                for paragraph in encabezados[i].paragraphs:
+                    for run in paragraph.runs:
+                        run.font.bold = True
+                        run.font.color.rgb = _hex_to_rgb(color_texto_claro)
+                        run.font.size = Pt(11)
+                _set_cell_bg(encabezados[i], color_encabezado.lstrip('#'))
+
+            # Filas de datos
+            for severidad in severidades_ordenadas:
+                cantidad = hallazgos_por_severidad.get(severidad['id'], 0)
+                porcentaje = (cantidad / total_hallazgos * 100) if total_hallazgos > 0 else 0
+
+                fila = tabla.add_row()
+                fila.cells[0].text = severidad['nombre']
+                fila.cells[1].text = str(cantidad)
+                fila.cells[2].text = f"{porcentaje:.1f}%"
+
+                # Color SOLO en la celda Severidad
+                _set_cell_bg(fila.cells[0], severidad['color'].lstrip('#'))
+                for paragraph in fila.cells[0].paragraphs:
+                    for run in paragraph.runs:
+                        run.font.color.rgb = _hex_to_rgb(color_texto_claro)
+                        run.font.bold = True
+
+            # Fila total
+            fila_total = tabla.add_row()
+            fila_total.cells[0].text = 'TOTAL'
+            fila_total.cells[1].text = str(total_hallazgos)
+            fila_total.cells[2].text = '100%'
+
+            for cell in fila_total.cells:
+                _set_cell_bg(cell, '333333')
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.bold = True
+                        run.font.color.rgb = _hex_to_rgb(color_texto_claro)
+
+        except Exception as e:
+            print(f"[ERROR] en _bloque_conclusiones_dinamicas: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
     @staticmethod
     def _bloque_anexo_clasificacion(doc, contenido, tema, severidades):
         """Anexo de clasificación de riesgo con badges de color tomados dinámicamente de severidades."""

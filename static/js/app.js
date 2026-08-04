@@ -792,6 +792,22 @@
             $("#finding_comment").val(findingData.finding_comment);
             $("#tool_output").val(findingData.inventory_data || '');
 
+            // Referencias del finding importado (de referencias_data)
+            if (findingData.referencias_data) {
+                try {
+                    const refsData = typeof findingData.referencias_data === 'string'
+                        ? JSON.parse(findingData.referencias_data)
+                        : findingData.referencias_data;
+
+                    if (refsData.referencias && Array.isArray(refsData.referencias)) {
+                        const refLinks = refsData.referencias.map(ref => `${ref.titulo}: ${ref.url}`).join('\n');
+                        $("#rule_reference").val(refLinks);
+                    }
+                } catch (e) {
+                    console.warn("Error parseando referencias_data:", e);
+                }
+            }
+
             // Severidades
             let selectSeverity = $("#rule_severity");
             selectSeverity.empty();
@@ -799,13 +815,14 @@
                 selectSeverity.append(`<option value="${s.id}" style="background-color:${s.color}">${s.nombre}</option>`);
             });
 
-            // Estados
-            let selectStatus = $("#estados_findings_id");
-            selectStatus.empty();
-            ruleRes.combo_findings.forEach(e => {
-                selectStatus.append(`<option value="${e.id}">${e.nombre}</option>`);
-            });
-            selectStatus.val(findingData.estados_findings_id);
+            // Estado Mitigacion (readonly text)
+            let inputMitigacion = $("#estado_mitigacion");
+            // Mapear estado_mitigacion a nombre (8=SIN MITIGAR, 9=MITIGADO)
+            const estadosMitigacion = {
+                8: "SIN MITIGAR",
+                9: "MITIGADO"
+            };
+            inputMitigacion.val(estadosMitigacion[findingData.estado_mitigacion] || "DESCONOCIDO");
 
             // Rule
             if (!ruleRes.rule_exists) {
@@ -1222,6 +1239,59 @@
         $("#mdlAbrirModalImportArchivoFindings").modal("show")
     }
 
+    // Validar archivo según herramienta
+    $("#archivoImport").on("change", function () {
+        const filename = this.files[0]?.name || "";
+        const filename_lower = filename.toLowerCase();
+        const herramienta = $("#herramientaImport").val();
+
+        $("#frameworkInfo").hide();
+        $("#alertFrameworkWarning").hide();
+
+        if (filename) {
+            // SOLO validar formato para Prowler Web
+            if (herramienta === "prowler_web") {
+                // Patrón válido: prowler-output-{HASH}.ocsf.json (sin guiones bajos)
+                // Ejemplo: prowler-output-601227218666-20260714223844.ocsf.json
+                const patron_valido = /^prowler-output-[a-z0-9]+-\d+\.ocsf\.json$/i;
+
+                const es_valido = patron_valido.test(filename_lower);
+
+                if (!es_valido) {
+                    // Detectar si tiene un sufijo de framework
+                    if (filename_lower.includes("_") && filename_lower.includes(".ocsf.json")) {
+                        const match = filename_lower.match(/_(.+?)\.ocsf\.json/);
+                        const sufijo = match ? match[1].toUpperCase() : "DESCONOCIDO";
+
+                        $("#warningMessage").html(`
+                            <strong>❌ Template específico '${sufijo}' no permitido</strong><br><br>
+                            Este archivo contiene solo un framework específico de compliance.<br><br>
+                            <strong>Usa el archivo COMPLETO</strong> de Prowler Web:<br>
+                            <code>prowler-output-[ACCOUNT]-[TIMESTAMP].ocsf.json</code><br>
+                            <em>Ejemplo: prowler-output-601227218666-20260714223844.ocsf.json</em>
+                        `);
+                        $("#alertFrameworkWarning").removeClass("alert-warning").addClass("alert-danger").show();
+                    } else {
+                        $("#warningMessage").html(`
+                            <strong>❌ Formato de archivo inválido</strong><br><br>
+                            Formato esperado: <code>prowler-output-[ACCOUNT]-[TIMESTAMP].ocsf.json</code><br>
+                            <em>Ejemplo: prowler-output-601227218666-20260714223844.ocsf.json</em>
+                        `);
+                        $("#alertFrameworkWarning").removeClass("alert-warning").addClass("alert-danger").show();
+                    }
+                } else {
+                    // Template completo válido
+                    $("#frameworkName").text("Prowler Web OCSF Completo");
+                    $("#frameworkInfo").show();
+                }
+            } else {
+                // Para Prowler CLI: solo mostrar info, sin validación de formato
+                $("#frameworkName").text(herramienta.replace('_', ' ').toUpperCase());
+                $("#frameworkInfo").show();
+            }
+        }
+    });
+
     $("#btnImportFindings").on("click", function () {
         const herramienta = $("#herramientaImport").val();
         const archivo = $("#archivoImport")[0].files[0];
@@ -1237,7 +1307,8 @@
         const extensionesValidas = {
             "prowler_web": [".json"],
             "prowler_cli": [".json"],
-            "scoutsuite": [".json"]
+            "scoutsuite_cli": [".js", ".json"],  // ScoutSuite CLI exporta .js
+            "scoutsuite_web": [".json"]
         };
 
         const ext = "." + archivo.name.split(".").pop().toLowerCase();
@@ -1268,7 +1339,12 @@
                 if (data.success) {
                     $("#mdlAbrirModalImportArchivoFindings").modal("hide");
                     cargarFindingsImportados(proyectoId);
-                    alert(`Se importaron ${data.imported} hallazgo(s) correctamente.`);
+
+                    let mensaje = `Se importaron ${data.imported} hallazgo(s) correctamente.`;
+                    if (data.warning) {
+                        mensaje += "\n\n" + data.warning;
+                    }
+                    alert(mensaje);
                 } else {
                     $("#errorArchivoImport").text(data.message).show();
                 }
@@ -1444,7 +1520,7 @@
     const mdlOsint = document.getElementById('mdlGestionarConfiguracionOsint');
     if (mdlOsint) {
         mdlOsint.addEventListener('show.bs.modal', async function () {
-            console.log("✅ EVENTO DISPARADO: show.bs.modal");
+            console.log("EVENTO DISPARADO: show.bs.modal");
             const container = document.getElementById('osintConfigContainer');
 
             try {

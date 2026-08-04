@@ -84,14 +84,14 @@ def migrate_proyecto(proyecto_id):
 
         # Commit
         conn.commit()
-        print(f"\n✅ Migración completada:")
+        print(f"\n Migración completada:")
         print(f"   - Total procesados: {total}")
         print(f"   - Migratos: {migratos}")
         print(f"   - Errores: {errores}")
 
     except Exception as e:
         conn.rollback()
-        print(f"\n❌ Error en migración: {str(e)}")
+        print(f"\n Error en migración: {str(e)}")
         import traceback
         traceback.print_exc()
 

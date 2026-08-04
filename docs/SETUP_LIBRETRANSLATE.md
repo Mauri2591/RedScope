@@ -44,7 +44,7 @@ libretranslate --port 5000
 
 Esto iniciará el servidor en `http://localhost:5000`
 
-⚠️ **Nota:** La primera ejecución descargará los modelos de idioma (puede tomar 5-10 minutos y varios GB de espacio).
+**Nota:** La primera ejecución descargará los modelos de idioma (puede tomar 5-10 minutos y varios GB de espacio).
 
 ## Validar en RedScope
 

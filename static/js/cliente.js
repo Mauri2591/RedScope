@@ -53,7 +53,7 @@ $(document).ready(function () {
     const $contenedorServicio = $('#np_contenedor_servicio');
     const $selectServicio = $('#np_tipo_servicio');
 
-    if (tipo === 'CLOUD' || tipo === 'OSINT') {  // ✅ Agregar OSINT aquí
+    if (tipo === 'CLOUD' || tipo === 'OSINT') {  // Agregar OSINT aquí
         $contenedorServicio.show();
         $selectServicio.prop('disabled', false);
         
