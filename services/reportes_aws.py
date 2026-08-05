@@ -1064,12 +1064,22 @@ class ReportService:
         color_oscuro      = tema.get('texto_oscuro',         '#111827')
         sev_map           = {s['nombre'].upper(): s['color'].lstrip('#') for s in severidades}
 
-        # DESPUÉS:
-        cols    = ['#', 'Título', 'Servicio', 'Recurso', 'Severidad']
-        widths  = [1.0, 5.5, 2.5, 4.0, 3.5]
+        cols    = ['#', 'Título', 'Servicio', 'Recurso', 'Severidad', 'Estado']
+        widths  = [1, 5, 2, 5, 2.2, 2.3]
 
         table = doc.add_table(rows=1, cols=len(cols))
+        table.autofit = False
         _remove_table_borders(table)
+
+        # Tabla a ancho completo (100%)
+        tbl = table._tbl
+        tblPr = tbl.tblPr
+        tblW = OxmlElement('w:tblW')
+        tblW.set(qn('w:w'), '5000')
+        tblW.set(qn('w:type'), 'pct')
+        for old in tblPr.findall(qn('w:tblW')):
+            tblPr.remove(old)
+        tblPr.append(tblW)
 
         for ci, (txt, w) in enumerate(zip(cols, widths)):
             c = table.rows[0].cells[ci]
@@ -1079,6 +1089,7 @@ class ReportService:
             _set_cell_margin(c)
             p = c.paragraphs[0]
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.word_wrap = True
             r = p.add_run(txt)
             r.font.name      = 'Arial'
             r.font.size      = Pt(9)
@@ -1092,12 +1103,16 @@ class ReportService:
             bg      = color_fila_par.lstrip('#') if idx % 2 == 0 else 'FFFFFF'
             row     = table.add_row()
 
+            estado_mit = ReportService._texto_seguro(f.get('estado_mitigacion'), 'DESCONOCIDO')
+            color_estado = f.get('color_estado_mitigacion', '').lstrip('#') if f.get('color_estado_mitigacion') else bg
+
             valores = [
             str(idx),
             ReportService._texto_seguro(f.get('titulo')),
             ReportService._texto_seguro(f.get('servicio')),
             ReportService._texto_seguro(f.get('resource_id')),
             sev,
+            estado_mit
             ]
 
             for ci, (val, w) in enumerate(zip(valores, widths)):
@@ -1106,21 +1121,34 @@ class ReportService:
                 _set_cell_margin(c)
                 c.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-                if ci == 4:
+                if ci == 4:  # Severidad
                     _set_cell_bg(c, sev_hex)
                     _set_cell_borders(c, 'FFFFFF', '2')
                     p = c.paragraphs[0]
                     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    p.paragraph_format.word_wrap = True
                     r = p.add_run(val)
                     r.font.name      = 'Arial'
                     r.font.size      = Pt(9)
                     r.font.bold      = True
                     r.font.color.rgb = _hex_to_rgb(color_texto_claro)
+                elif ci == 5:  # Estado Mitigación
+                    _set_cell_bg(c, color_estado)
+                    _set_cell_borders(c, 'FFFFFF', '2')
+                    p = c.paragraphs[0]
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    p.paragraph_format.word_wrap = False
+                    r = p.add_run(val)
+                    r.font.name      = 'Arial'
+                    r.font.size      = Pt(8)
+                    r.font.bold      = True
+                    r.font.color.rgb = _hex_to_rgb('FFFFFF')
                 else:
                     _set_cell_bg(c, bg)
                     _set_cell_borders(c, 'DDDDDD', '2')
                     p = c.paragraphs[0]
                     p.alignment = WD_ALIGN_PARAGRAPH.CENTER if ci == 0 else WD_ALIGN_PARAGRAPH.LEFT
+                    p.paragraph_format.word_wrap = True
                     r = p.add_run(val)
                     r.font.name      = 'Arial'
                     r.font.size      = Pt(9)
@@ -1372,9 +1400,9 @@ class ReportService:
             rrec.font.name = 'Arial'; rrec.font.size = Pt(9); rrec.font.bold = True
             rrec.font.color.rgb = _hex_to_rgb(color_secundario)
 
-            tabla_rec = doc.add_table(rows=1, cols=3)
+            tabla_rec = doc.add_table(rows=1, cols=2)
             _remove_table_borders(tabla_rec)
-            for ci, (txt, w) in enumerate([('Recurso', 9.5), ('Región', 4.0), ('Estado', 3.5)]):
+            for ci, (txt, w) in enumerate([('Recurso', 11.0), ('Región', 5.5)]):
                 c = tabla_rec.rows[0].cells[ci]
                 c.width = Cm(w)
                 _set_cell_bg(c, color_primario.lstrip('#'))
@@ -1392,7 +1420,7 @@ class ReportService:
                 row = tabla_rec.add_row()
 
                 c0 = row.cells[0]
-                c0.width = Cm(9.5)
+                c0.width = Cm(11.0)
                 _set_cell_bg(c0, bg)
                 _set_cell_borders(c0, 'DDDDDD', '2')
                 _set_cell_margin(c0)
@@ -1401,7 +1429,7 @@ class ReportService:
                 r0.font.color.rgb = _hex_to_rgb(color_oscuro)
 
                 c1 = row.cells[1]
-                c1.width = Cm(4.0)
+                c1.width = Cm(5.5)
                 _set_cell_bg(c1, bg)
                 _set_cell_borders(c1, 'DDDDDD', '2')
                 _set_cell_margin(c1)
@@ -1411,21 +1439,6 @@ class ReportService:
                 r1.font.name = 'Arial'; r1.font.size = Pt(9)
                 r1.font.color.rgb = _hex_to_rgb(color_oscuro)
                 c1.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-                c2 = row.cells[2]
-                c2.width = Cm(3.5)
-                # Usar color del estado_mitigacion si existe, sino color de fila
-                estado_color = rec.get('color_estado_mitigacion', '').lstrip('#') if rec.get('color_estado_mitigacion') else bg
-                _set_cell_bg(c2, estado_color)
-                _set_cell_borders(c2, 'DDDDDD', '2')
-                _set_cell_margin(c2)
-                p2 = c2.paragraphs[0]
-                p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                r2 = p2.add_run(ReportService._texto_seguro(rec['estado_mitigacion'], 'DESCONOCIDO'))
-                r2.font.name = 'Arial'; r2.font.size = Pt(9); r2.font.bold = True
-                # Letra blanca para contraste con el fondo coloreado
-                r2.font.color.rgb = _hex_to_rgb('FFFFFF')
-                c2.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
             # ── Evidencia por recurso (solo si el tipo de informe la incluye) ──
             if incluir_evidencia:
