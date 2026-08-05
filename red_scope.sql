@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Servidor: 127.0.0.1
--- Tiempo de generación: 05-08-2026 a las 01:16:59
+-- Tiempo de generación: 05-08-2026 a las 02:18:01
 -- Versión del servidor: 10.4.32-MariaDB
 -- Versión de PHP: 8.2.12
 
@@ -107,9 +107,9 @@ INSERT INTO `estados` (`id`, `nombre`, `color`) VALUES
 (5, 'EN CURSO', '#007bff'),
 (6, 'CHECKEADO', '#6f42c1'),
 (7, 'SIN CHECKEAR', '#fd7e14'),
-(8, 'SIN MITIGAR', '#FF8F7A'),
-(9, 'MITIGADA', '#C3FFB5'),
-(10, 'NUEVA', '#DAC2FF');
+(8, 'SIN MITIGAR', '#FF5E30'),
+(9, 'MITIGADA', '#7DFF8D'),
+(10, 'NUEVA', '#C78CFF');
 
 -- --------------------------------------------------------
 
