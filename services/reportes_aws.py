@@ -17,9 +17,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 
-# ══════════════════════════════════════════════════════════════════
-# HELPERS XML (internos, no exponer fuera del módulo)
-# ══════════════════════════════════════════════════════════════════
+# HELPERS XML INTERNOS
 def _set_row_height(row, height_cm: float):
     """Fija la altura mínima de una fila en cm."""
     tr   = row._tr
@@ -67,7 +65,6 @@ def _set_cell_borders(cell, hex_color: str = 'CCCCCC', size: str = '4'):
         el.set(qn('w:color'), h)
         tcBorders.append(el)
     tcPr.append(tcBorders)
-
 
 def _set_cell_margin(cell, top=80, bottom=80, left=120, right=120):
     """Padding interno de celda en twips."""
@@ -140,9 +137,7 @@ def _sin_acentos(texto: str) -> str:
     ).upper()
 
 
-# ══════════════════════════════════════════════════════════════════
-# REPORT SERVICE
-# ══════════════════════════════════════════════════════════════════
+# -----REPORT SERVICE-----
 
 class ReportService:
 
@@ -150,9 +145,8 @@ class ReportService:
     'tecnico':   {'incluir_evidencia': True,  'excluir_secciones': [],'label': 'INFORME TÉCNICO'},
     'ejecutivo': {'incluir_evidencia': False, 'excluir_secciones': ['detalle_hallazgos', 'mitre_attack'], 'label': 'INFORME EJECUTIVO'},
     }
-    # ─────────────────────────────────────────────────────────────
-    # Helpers de color
-    # ─────────────────────────────────────────────────────────────
+    
+    # -----Helpers de color-----
     @staticmethod
     def _texto_seguro(valor, default=''):
         """Normaliza valores None provenientes de columnas NULL en la DB."""
@@ -307,10 +301,8 @@ class ReportService:
         sufijo_tipo = f"_{tipo_informe}" if tipo_informe else ""
         return f"{cliente}_{tipo_proyecto}_{tipo_servicio}{sufijo_tipo}.{extension}"
 
-    # ─────────────────────────────────────────────────────────────
-    # XLSX
-    # ─────────────────────────────────────────────────────────────
-
+    
+    # -----XLSX-----
     @staticmethod
     def generar_xlsx(data, severidades):
         wb = Workbook()
@@ -373,10 +365,7 @@ class ReportService:
         output.seek(0)
         return output
 
-    # ─────────────────────────────────────────────────────────────
-    # CSV VULMA
-    # ─────────────────────────────────────────────────────────────
-
+    # -----CSV VULMA-----
     @staticmethod
     def generar_csv_vulma(data):
         output = io.StringIO(newline='')
@@ -410,10 +399,8 @@ class ReportService:
         final_output.seek(0)
         return final_output
 
-    # ─────────────────────────────────────────────────────────────
-    # DOCX — bloques internos
-    # ─────────────────────────────────────────────────────────────
 
+    # DOCX — bloques internos
     @staticmethod
     def _doc_base(proyecto, tema):
         doc = Document()
@@ -600,7 +587,7 @@ class ReportService:
         color_primario = tema.get('fondo_primario', '#1E1B4B')
         color_acento   = tema.get('acento',         '#00B4D8')
 
-        # ── Título ───────────────────────────────────────────────
+        # ----- Título -----
         p_titulo = doc.add_paragraph()
         p_titulo.paragraph_format.space_before = Pt(0)
         p_titulo.paragraph_format.space_after  = Pt(4)
@@ -612,8 +599,7 @@ class ReportService:
 
         _add_hr(doc, color_acento.lstrip('#'), 12)
 
-        # ── Campo TOC nativo de Word ──────────────────────────────
-        # Word detecta párrafos con estilo Heading 1 y construye el índice
+        # ----- Campo TOC nativo de Word -----
         p_toc = doc.add_paragraph()
 
         # Instrucción del campo: TOC con nivel 1, sin hiperlinks, con líderes
@@ -624,10 +610,6 @@ class ReportService:
         instrText = OxmlElement('w:instrText')
         instrText.set(qn('xml:space'), 'preserve')
         instrText.text = ' TOC \\o "1-1" \\h \\z \\u '
-        # \\o "1-1" → solo Heading 1
-        # \\h       → hipervínculos (Ctrl+clic navega a la sección)
-        # \\z       → oculta números de página en web layout
-        # \\u       → usa estilos de párrafo con outlineLevel
 
         fldChar_sep = OxmlElement('w:fldChar')
         fldChar_sep.set(qn('w:fldCharType'), 'separate')
@@ -1196,7 +1178,7 @@ class ReportService:
             rs_val.font.name = 'Arial'; rs_val.font.size = Pt(10); rs_val.font.bold = True
             rs_val.font.color.rgb = _hex_to_rgb(color_primario)
 
-            # ── Encabezado: título + severidad ────────────────────
+            # ----- Encabezado: título + severidad -----
             enc = doc.add_table(rows=1, cols=2)
             _remove_table_borders(enc)
 
@@ -1227,7 +1209,7 @@ class ReportService:
             sr.font.color.rgb = _hex_to_rgb(color_texto_claro)
             tc_sev.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-            # ── Campos técnicos ────────────────────────────────────
+            # ----- Campos técnicos -----
             ficha_campos = [
                 ('Descripción', ReportService._texto_seguro(g.get('descripcion'))),
                 ('Remediación', ReportService._texto_seguro(g.get('remediacion'))),
@@ -1280,7 +1262,7 @@ class ReportService:
                 _set_cell_bg(vc, bg)
                 _set_cell_borders(vc, 'DDDDDD', '2')
 
-                # Margen especial para Cumplimiento (sin margen izquierdo)
+                # Margen especial para Cumplimiento
                 if fl == 'Cumplimiento':
                     _set_cell_margin(vc, top=80, bottom=80, left=0, right=120)  # left=0 elimina margen
                 else:
@@ -1440,7 +1422,7 @@ class ReportService:
                 r1.font.color.rgb = _hex_to_rgb(color_oscuro)
                 c1.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-            # ── Evidencia por recurso (solo si el tipo de informe la incluye) ──
+            # ----- Evidencia por recurso (solo si el tipo de informe la incluye) -----
             if incluir_evidencia:
                 recursos_con_evidencia = [r for r in recursos if r['comment'] or r['evidencias'] or r.get('inventory_data')]
                 if recursos_con_evidencia:
@@ -1508,14 +1490,12 @@ class ReportService:
                                             run_img.add_picture(abs_path, width=Cm(16.5))
                                         except Exception:
                                             pass
-
             doc.add_paragraph()
             if idx < len(grupos):
                 _page_break(doc)
 
-    # ─────────────────────────────────────────────────────────────
-    # DOCX — punto de entrada público
-    # ─────────────────────────────────────────────────────────────
+
+    # DOCX ----- punto de entrada público-----
     @staticmethod
     def generar_docx(data, proyecto, tema, estructura, severidades, contenido_secciones=None, base_dir=None, tipo_informe='tecnico'):
         contenido_secciones = contenido_secciones or {}
@@ -1710,7 +1690,7 @@ class ReportService:
             criticos = hallazgos_por_severidad.get(severidad_maxima['id'], 0) if severidad_maxima else 0
             altos = hallazgos_por_severidad.get(severidad_segunda['id'], 0) if severidad_segunda else 0
 
-            # ─────── PÁRRAFO 1: DESCRIPCIÓN ───────
+            # ----- PÁRRAFO 1: DESCRIPCIÓN -----
             p_descripcion = doc.add_paragraph()
             p_descripcion.paragraph_format.space_before = Pt(5)
             p_descripcion.paragraph_format.space_after = Pt(12)
@@ -1729,7 +1709,7 @@ class ReportService:
             r.font.size = Pt(10)
             r.font.color.rgb = _hex_to_rgb(color_oscuro)
 
-            # ─────── PÁRRAFO 2: RECOMENDACIONES ───────
+            # ----- PÁRRAFO 2: RECOMENDACIONES -----
             p_recomendaciones = doc.add_paragraph()
             p_recomendaciones.paragraph_format.space_before = Pt(5)
             p_recomendaciones.paragraph_format.space_after = Pt(12)

@@ -20,9 +20,8 @@ from docx.oxml import OxmlElement
 from services.reportes_aws import ReportService as ReportServiceAWS
 
 
-# ══════════════════════════════════════════════════════════════════
-# HELPERS XML (internos, no exponer fuera del módulo)
-# ══════════════════════════════════════════════════════════════════
+# HELPERS XML INTERNOS
+
 def _set_row_height(row, height_cm: float):
     """Fija la altura mínima de una fila en cm."""
     tr   = row._tr
@@ -142,20 +141,15 @@ def _sin_acentos(texto: str) -> str:
         if unicodedata.category(c) != 'Mn'
     ).upper()
 
-
-# ══════════════════════════════════════════════════════════════════
-# REPORT SERVICE
-# ══════════════════════════════════════════════════════════════════
-
 class ReportService:
 
     TIPOS_INFORME = {
     'tecnico':   {'incluir_evidencia': True,  'excluir_secciones': [],'label': 'INFORME TÉCNICO'},
     'ejecutivo': {'incluir_evidencia': False, 'excluir_secciones': ['detalle_hallazgos'], 'label': 'INFORME EJECUTIVO'},
     }
-    # ─────────────────────────────────────────────────────────────
+    
+    
     # Helpers de color
-    # ─────────────────────────────────────────────────────────────
     @staticmethod
     def _texto_seguro(valor, default=''):
         """Normaliza valores None provenientes de columnas NULL en la DB."""
@@ -192,10 +186,8 @@ class ReportService:
         sufijo_tipo = f"_{tipo_informe}" if tipo_informe else ""
         return f"{cliente}_{tipo_proyecto}_{tipo_servicio}{sufijo_tipo}.{extension}"
 
-    # ─────────────────────────────────────────────────────────────
-    # DOCX — bloques internos
-    # ─────────────────────────────────────────────────────────────
 
+    # DOCX — bloques internos
     @staticmethod
     def _doc_base(proyecto, tema):
         doc = Document()
@@ -239,7 +231,7 @@ class ReportService:
         r2.font.bold      = True
         r2.font.color.rgb = _hex_to_rgb(tema.get('acento', '#00B4D8'))
 
-        # Línea baja header
+        # ----- Línea baja header --------
         pPr  = hp._p.get_or_add_pPr()
         pBdr = OxmlElement('w:pBdr')
         bot  = OxmlElement('w:bottom')
@@ -250,7 +242,7 @@ class ReportService:
         pBdr.append(bot)
         pPr.append(pBdr)
 
-        # ── Footer ──
+        # ----- Footer -----
         footer = sec.footer
         footer.is_linked_to_previous = False
         fp = footer.paragraphs[0]
@@ -310,7 +302,7 @@ class ReportService:
         r1.font.bold      = True
         r1.font.color.rgb = _hex_to_rgb(color_texto_claro)
 
-        # ── Tipo de informe ──
+        # ----- Tipo de informe -----
         label_informe = ReportService.TIPOS_INFORME.get(tipo_informe, {}).get('label', '')
         if label_informe:
             p25 = c.add_paragraph()
@@ -382,7 +374,7 @@ class ReportService:
         color_primario = tema.get('fondo_primario', '#1E1B4B')
         color_acento   = tema.get('acento',         '#00B4D8')
 
-        # ── Título ───────────────────────────────────────────────
+        # ----- Título -----
         p_titulo = doc.add_paragraph()
         p_titulo.paragraph_format.space_before = Pt(0)
         p_titulo.paragraph_format.space_after  = Pt(4)
@@ -394,7 +386,7 @@ class ReportService:
 
         _add_hr(doc, color_acento.lstrip('#'), 12)
 
-        # ── Campo TOC nativo de Word ──────────────────────────────
+        # ----- Campo TOC nativo de Word -----
         # Word detecta párrafos con estilo Heading 1 y construye el índice
         p_toc = doc.add_paragraph()
 
@@ -406,15 +398,11 @@ class ReportService:
         instrText = OxmlElement('w:instrText')
         instrText.set(qn('xml:space'), 'preserve')
         instrText.text = ' TOC \\o "1-1" \\h \\z \\u '
-        # \\o "1-1" → solo Heading 1
-        # \\h       → hipervínculos (Ctrl+clic navega a la sección)
-        # \\z       → oculta números de página en web layout
-        # \\u       → usa estilos de párrafo con outlineLevel
 
         fldChar_sep = OxmlElement('w:fldChar')
         fldChar_sep.set(qn('w:fldCharType'), 'separate')
 
-        # Texto placeholder que ve el usuario antes de actualizar
+        # -----Texto placeholder que ve el usuario antes de actualizar-----
         r_placeholder = OxmlElement('w:r')
         t_placeholder = OxmlElement('w:t')
         t_placeholder.text = '[Haga clic en Actualizar tabla para generar el índice]'
@@ -423,7 +411,6 @@ class ReportService:
         fldChar_end = OxmlElement('w:fldChar')
         fldChar_end.set(qn('w:fldCharType'), 'end')
 
-        # Ensamblar el campo en el run del párrafo
         run = p_toc.add_run()
         run._r.append(fldChar_begin)
         run._r.append(instrText)
@@ -487,9 +474,7 @@ class ReportService:
         r.font.color.rgb = _hex_to_rgb(tema.get('borde', '#CCCCCC'))
         doc.add_paragraph()
 
-    # ─────────────────────────────────────────────────────────────
     # DOCX — punto de entrada público (OSINT)
-    # ─────────────────────────────────────────────────────────────
     @staticmethod
     def generar_docx(data, proyecto, tema, estructura, severidades, contenido_secciones=None, base_dir=None, tipo_informe='tecnico'):
         contenido_secciones = contenido_secciones or {}
