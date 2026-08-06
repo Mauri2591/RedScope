@@ -1015,11 +1015,11 @@ class Proyecto:
                 
                 provider = item.get('Provider', 'aws').lower()
                 service = item.get('ServiceName', '').lower()
-                severity_name = item.get('Severity', 'medium').lower()
                 resource_id = item.get('ResourceId', '')
                 region = item.get('Region', '')
-                
-                severidad_id = severidad_map.get(severity_name, 3)  # Default MEDIUM si no encuentra
+
+                # Usar severity_id directo. Si falta, default MEDIUM (3)
+                severidad_id = item.get('Severity', 3)
                 
                 # ========================
                 # Guardar o actualizar security_rule
@@ -1142,28 +1142,28 @@ class Proyecto:
                 # OCSF structure
                 status_code = item.get('status_code', '').upper()
                 check_id = item.get('metadata', {}).get('event_code', '').strip()
-                severity_name = item.get('severity', 'medium').lower()
-                
+
                 print(f"[PROWLER_WEB] idx={idx} CheckID={check_id} Status={status_code}")
-                
+
                 if status_code != 'FAIL':
                     continue
-                
+
                 if not check_id:
                     print(f"[PROWLER_WEB] Sin CheckID en idx {idx}")
                     continue
-                
+
                 # Extraer datos
                 provider = item.get('cloud', {}).get('provider', 'aws').lower()
                 region = item.get('cloud', {}).get('region', '')
                 account_id = item.get('cloud', {}).get('account', {}).get('uid', '')
-                
+
                 # Recurso: primera del array
                 resources = item.get('resources', [])
                 resource_id = resources[0].get('uid', '') if resources else ''
                 service = resources[0].get('group', {}).get('name', '') if resources else ''
-                
-                severidad_id = severidad_map.get(severity_name, 3)
+
+                # Usar severity_id directo. Si falta, default MEDIUM (3)
+                severidad_id = item.get('severity_id', 3)
                 
                 # Usar parser para extraer datos correctamente
                 parsed = ProwlerDataExtractor.parse_prowler_item(item)
