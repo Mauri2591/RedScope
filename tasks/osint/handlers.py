@@ -354,6 +354,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         print(f"[mapeo_ips] Total IPs a analizar: {len(ips_a_analizar)}")
 
         # 3. Hacer reverse DNS para cada IP
+        ips_success = []
         for ip in sorted(ips_a_analizar):
             try:
                 print(f"[mapeo_ips] Reverse DNS para {ip}...")
@@ -361,35 +362,33 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
                 # Tomar el primer hostname si hay múltiples, o marcar como unknown
                 hostname = reverse_result['hostnames'][0] if reverse_result['hostnames'] else 'unknown'
+                status = reverse_result['status']
 
-                ips_analizadas.append({
+                entry = {
                     'ip': ip,
                     'hostname': hostname,
-                    'reverse_status': reverse_result['status'],
-                    'resolver_info': reverse_result['by_resolver'],
-                    'all_hostnames': reverse_result['hostnames']
-                })
+                    'status': status
+                }
+                ips_analizadas.append(entry)
+
+                # Agregar solo los success a la lista resumida
+                if status == 'success':
+                    ips_success.append(entry)
+
             except Exception as e:
                 print(f"[mapeo_ips] Error en reverse DNS {ip}: {e}")
                 ips_analizadas.append({
                     'ip': ip,
                     'hostname': 'error',
-                    'reverse_status': 'error',
-                    'resolver_info': {},
-                    'all_hostnames': []
+                    'status': 'error'
                 })
 
         return {
             "tipo": "mapeo_ips",
-            "total": len(ips_analizadas),
-            "ips_analizadas": ips_analizadas,
-            "resolution_info": resolution_metadata,
-            "notas": [
-                "Usa múltiples resolvers DNS (Google, Cloudflare, Quad9) para validación",
-                "Reverse DNS puede fallar si el ISP no lo permite o está mal configurado",
-                "Status 'no_reverse_dns' significa que la IP existe pero no tiene DNS reverso configurado",
-                "Los resultados pueden variar según la ubicación y configuración de DNS del resolver"
-            ]
+            "total_ips": len(ips_a_analizar),
+            "total_success": len(ips_success),
+            "ips_success": ips_success,
+            "ips_todas": ips_analizadas
         }
 
     _run_osint_job(ejecucion_id, job)
