@@ -582,19 +582,17 @@ def _deduplicate_github_results(hallazgos_raw, dominio=''):
         if not repo:
             continue
 
-        # Filtro: Verificar que el repo/archivo contenga variantes del dominio
+        # Filtro: Verificar que el repo contenga variantes del dominio en el NOMBRE
+        # (no solo en archivos genéricos que son listas/research)
         if domain_variants:
             repo_lower = repo.lower()
-            nombre_lower = item.get('nombre', '').lower()
-            query_lower = item.get('query', '').lower()
 
-            # Debe contener al menos una variante del dominio
-            has_variant = any(
-                var in repo_lower or var in nombre_lower or var in query_lower
-                for var in domain_variants
-            )
+            # Prioridad 1: El nombre del repo contiene variante del dominio
+            has_variant_in_name = any(var in repo_lower for var in domain_variants)
 
-            if not has_variant:
+            if not has_variant_in_name:
+                # Prioridad 2: Si NO está en nombre, ignorar
+                # (evita false positives de listas genéricas)
                 continue
 
         if repo not in repos_dict:
