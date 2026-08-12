@@ -25,13 +25,13 @@ class Proyecto:
         return proyecto
 
     @staticmethod
-    def get_tipos_servicio(id_tipo_proyecto):
+    def get_tipos_servicio(tipo_proyecto_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         query = """
-        SELECT id, nombre FROM tipos_servicio WHERE id_tipo_proyecto=%s AND estado_id=1
+        SELECT id, nombre FROM tipos_servicio WHERE tipo_proyecto_id=%s AND estado_id=1
         """
-        cursor.execute(query,(id_tipo_proyecto,))
+        cursor.execute(query,(tipo_proyecto_id,))
         tipos_servicio = cursor.fetchall()
         cursor.close()
         conn.close()

@@ -710,7 +710,7 @@ CREATE TABLE `tenants` (
 
 CREATE TABLE `tipos_servicio` (
   `id` int(11) NOT NULL,
-  `id_tipo_proyecto` int(11) DEFAULT NULL,
+  `tipo_proyecto_id` int(11) DEFAULT NULL,
   `nombre` varchar(255) NOT NULL,
   `creacion` datetime DEFAULT current_timestamp(),
   `actualizacion` datetime DEFAULT NULL,
@@ -721,7 +721,7 @@ CREATE TABLE `tipos_servicio` (
 -- Volcado de datos para la tabla `tipos_servicio`
 --
 
-INSERT INTO `tipos_servicio` (`id`, `id_tipo_proyecto`, `nombre`, `creacion`, `actualizacion`, `estado_id`) VALUES
+INSERT INTO `tipos_servicio` (`id`, `tipo_proyecto_id`, `nombre`, `creacion`, `actualizacion`, `estado_id`) VALUES
 (1, 3, 'AWS', '2026-02-15 11:45:58', NULL, 1),
 (2, 3, 'AZURE', '2026-02-15 11:45:58', NULL, 2),
 (3, 3, 'GCP', '2026-02-15 11:45:58', NULL, 2),
@@ -1019,7 +1019,7 @@ ALTER TABLE `tenants`
 ALTER TABLE `tipos_servicio`
   ADD PRIMARY KEY (`id`),
   ADD KEY `fk_servicio_cloud_estado` (`estado_id`),
-  ADD KEY `id_tipo_proyecto` (`id_tipo_proyecto`);
+  ADD KEY `tipo_proyecto_id` (`tipo_proyecto_id`);
 
 --
 -- Indices de la tabla `tipo_proyecto`
@@ -1360,7 +1360,7 @@ ALTER TABLE `tenants`
 --
 ALTER TABLE `tipos_servicio`
   ADD CONSTRAINT `fk_servicio_cloud_estado` FOREIGN KEY (`estado_id`) REFERENCES `estados` (`id`),
-  ADD CONSTRAINT `tipos_servicio_ibfk_1` FOREIGN KEY (`id_tipo_proyecto`) REFERENCES `tipo_proyecto` (`id`);
+  ADD CONSTRAINT `tipos_servicio_ibfk_1` FOREIGN KEY (`tipo_proyecto_id`) REFERENCES `tipo_proyecto` (`id`);
 
 --
 -- Filtros para la tabla `tipo_proyecto`

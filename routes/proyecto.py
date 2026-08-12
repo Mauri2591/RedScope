@@ -59,10 +59,10 @@ def login_required(f):
 # ------------------------------------------------------------------
 # LISTADO PROYECTOS
 # ------------------------------------------------------------------
-@proyecto_bp.route('/api/tipos-servicio/<int:id_tipo_proyecto>', methods=['GET'])
+@proyecto_bp.route('/api/tipos-servicio/<int:tipo_proyecto_id>', methods=['GET'])
 @login_required
-def get_tipos_servicio_ajax(id_tipo_proyecto):
-    tipos_servicio = Proyecto.get_tipos_servicio(id_tipo_proyecto)
+def get_tipos_servicio_ajax(tipo_proyecto_id):
+    tipos_servicio = Proyecto.get_tipos_servicio(tipo_proyecto_id)
     return jsonify(tipos_servicio)
 
 @proyecto_bp.route('/proyectos')
