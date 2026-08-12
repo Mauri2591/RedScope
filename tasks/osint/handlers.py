@@ -475,27 +475,31 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
 def _search_github(dominio):
     """Busca en GitHub repositorios públicos del dominio"""
     import urllib.parse
-    
+
     hallazgos = []
     GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '')
-    
+
     if not GITHUB_TOKEN:
         print("[github] Token no configurado en .env")
         return hallazgos
-    
+
     try:
         print(f"[github] Buscando repositorios de {dominio}...")
-        
+
         # Extrae el dominio base (sin www)
         dom_parts = dominio.split('.')
         if dom_parts[0].lower() == 'www' and len(dom_parts) > 2:
             domain_base = '.'.join(dom_parts[1:])  # ater.gob.ar
         else:
             domain_base = dominio
-        
+
+        # ✅ ARREGLO 1: Extraer correctamente la parte de la organización
+        domain_base_parts = domain_base.split('.')
+        org_name = domain_base_parts[0]  # 'ater', no 'www'
+
         searches = [
             f'"{domain_base}"',           # "ater.gob.ar"
-            f'org:{dom_parts[0]}',        # org:ater (si no es www)
+            f'org:{org_name}',            # org:ater (correcto!)
             f'{domain_base} secret',
             f'{domain_base} password',
             f'{domain_base} api_key',
@@ -577,7 +581,14 @@ def _deduplicate_github_results(hallazgos_raw, dominio=''):
     domain_variants = set()
     if dominio:
         domain_variants = _generate_domain_variants(dominio)
-        print(f"[github] Variantes de dominio a buscar: {sorted(domain_variants)}")
+        print(f"[github] Variantes de dominio (ANTES): {sorted(domain_variants)}")
+
+        # ✅ ARREGLO 2: Remover palabras cortas que causan falsos positivos
+        # Mantener solo variantes que:
+        # - Contienen un punto (son dominios con múltiples partes)
+        # - O tienen más de 3 caracteres (como 'ater')
+        domain_variants = {v for v in domain_variants if '.' in v or len(v) > 3}
+        print(f"[github] Variantes de dominio (DESPUÉS): {sorted(domain_variants)}")
 
     for item in hallazgos_raw:
         if item.get('tipo') != 'github_repo':
@@ -589,10 +600,18 @@ def _deduplicate_github_results(hallazgos_raw, dominio=''):
 
         repo_lower = repo.lower()
 
-        # Filtro 1: El nombre del repo DEBE contener una variante del dominio
+        # ✅ Filtro 1 MEJORADO: El repo DEBE contener una variante del dominio con word boundary
         if domain_variants:
-            has_variant = any(var in repo_lower for var in domain_variants)
+            has_variant = any(
+                var in repo_lower and (
+                    f'/{var}' in repo_lower or  # owner/repo-ater-app
+                    f'-{var}' in repo_lower or  # repo-ater-something
+                    repo_lower.endswith(var)    # ...ater
+                )
+                for var in domain_variants
+            )
             if not has_variant:
+                print(f"[github] Rechazado (no contiene variante): {repo}")
                 continue
 
         # Filtro 2: Remover repos que sean claramente no relacionados
