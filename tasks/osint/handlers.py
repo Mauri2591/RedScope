@@ -758,24 +758,36 @@ def _search_github(dominio):
         domain_base_parts = domain_base.split('.')
         is_subdomain = len(domain_base_parts) > 3  # Más de 3 partes = subdominio
 
-        # ✅ ARREGLO 2: Solo buscar org: para el dominio raíz, NO para subdominios
-        # Para "ater.gob.ar" (3 partes) → buscar org:ater
-        # Para "smail.ater.gob.ar" (4 partes) → NO buscar org:smail (evita falsos positivos)
-        searches = [
-            f'"{domain_base}"',  # Siempre buscar el dominio/subdominio exacto
-        ]
+        # ✅ ARREGLO 2: Búsquedas inteligentes evitando falsos positivos
+        searches = []
 
-        # Solo agregar búsqueda org: si es el dominio raíz, NO si es subdominio
+        # 1. Búsquedas exactas y de palabras clave del dominio raíz
         if not is_subdomain:
-            org_name = domain_base_parts[0]  # 'ater' del dominio raíz
-            searches.append(f'org:{org_name}')
+            # Para dominio raíz: ater.gob.ar
+            org_name = domain_base_parts[0]  # 'ater'
 
-        # Búsquedas de secretos para el dominio/subdominio
-        searches.extend([
-            f'{domain_base} secret',
-            f'{domain_base} password',
-            f'{domain_base} api_key',
-        ])
+            searches.extend([
+                f'"{domain_base}"',        # "ater.gob.ar"
+                f'org:{org_name}',         # org:ater (evita falsos positivos)
+                f'"{org_name}.ar"',        # "ater.ar"
+                org_name,                  # ater (palabra clave amplia)
+                f'{domain_base} secret',
+                f'{domain_base} password',
+                f'{domain_base} api_key',
+            ])
+        else:
+            # Para subdominios: smail.ater.gob.ar → NO buscar org:smail
+            # Solo buscar el subdominio exacto y variantes
+            subdomain_name = domain_base_parts[0]  # 'smail'
+            root_domain = '.'.join(domain_base_parts[1:])  # 'ater.gob.ar'
+
+            searches.extend([
+                f'"{domain_base}"',        # "smail.ater.gob.ar" (exacto)
+                f'{domain_base} secret',
+                f'{domain_base} password',
+                f'{domain_base} api_key',
+                f'"{subdomain_name}"',     # "smail" (palabra clave del subdominio)
+            ])
 
         for search_query in searches:
             try:
