@@ -532,40 +532,109 @@ def _search_github(dominio):
 
 
 def _search_trufflehog(dominio):
-    """Usa trufflehog para detectar secretos"""
+    """Usa trufflehog para detectar secretos en GitHub"""
     hallazgos = []
+    GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '')
+
+    if not GITHUB_TOKEN:
+        print("[trufflehog] Token de GitHub no configurado - saltando trufflehog")
+        return hallazgos
+
     try:
         print(f"[trufflehog] Buscando secretos en GitHub para {dominio}...")
 
-        # Buscar en GitHub con trufflehog
-        result = subprocess.run(
-            ['trufflehog', 'github', '--org', dominio.split('.')[0], '--json'],
-            capture_output=True,
-            text=True,
-            timeout=60
-        )
+        # Extrae el dominio base
+        dom_parts = dominio.split('.')
+        if dom_parts[0].lower() == 'www' and len(dom_parts) > 2:
+            domain_base = '.'.join(dom_parts[1:])
+        else:
+            domain_base = dominio
 
-        if result.stdout:
-            for line in result.stdout.strip().split('\n'):
-                if line:
-                    try:
-                        data = json.loads(line)
-                        hallazgos.append({
-                            'tipo': 'secreto_detectado',
-                            'verificación': data.get('Verified', False),
-                            'tipo_secreto': data.get('DetectorName', ''),
-                            'línea': data.get('Raw', '')[:100],  # Primeros 100 chars
-                            'repo': data.get('SourceMetadata', {}).get('Data', {}).get('Repo', '')
-                        })
-                    except json.JSONDecodeError:
-                        pass
+        # Primero, buscar repositorios relacionados con el dominio
+        search_queries = [
+            f'"{domain_base}"',
+            f'org:{dom_parts[0]}',
+            f'{domain_base} secret',
+        ]
 
-    except FileNotFoundError:
-        print("[trufflehog] trufflehog no instalado - usa: pip install trufflehog")
-    except subprocess.TimeoutExpired:
-        print("[trufflehog] Timeout en búsqueda")
+        repos_encontrados = set()
+
+        for query in search_queries:
+            try:
+                import urllib.parse
+                encoded_query = urllib.parse.quote(query)
+
+                result = subprocess.run(
+                    ['curl', '-s', '-H', f'Authorization: token {GITHUB_TOKEN}',
+                     f'https://api.github.com/search/repositories?q={encoded_query}&per_page=5'],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+
+                if result.stdout:
+                    data = json.loads(result.stdout)
+                    repos = data.get('items', [])
+
+                    for repo in repos:
+                        repos_encontrados.add(repo.get('full_name', ''))
+
+            except Exception as e:
+                print(f"[trufflehog] Error buscando repos con query '{query}': {e}")
+
+        # Ahora ejecutar trufflehog en cada repositorio encontrado
+        for repo_full_name in list(repos_encontrados)[:5]:  # Limitar a 5 repos
+            try:
+                print(f"[trufflehog] Analizando repo: {repo_full_name}")
+
+                # Trufflehog en modo GitHub repo
+                result = subprocess.run(
+                    ['trufflehog', 'github', '--repo', repo_full_name,
+                     '--token', GITHUB_TOKEN, '--json'],
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+
+                if result.stdout:
+                    for line in result.stdout.strip().split('\n'):
+                        if line.strip():
+                            try:
+                                data = json.loads(line)
+
+                                # Extraer información del secreto
+                                resultado = {
+                                    'tipo': 'secreto_detectado',
+                                    'repo': repo_full_name,
+                                    'detector': data.get('DetectorName', 'unknown'),
+                                    'verified': data.get('Verified', False),
+                                }
+
+                                # Agregar contexto si disponible
+                                if data.get('Raw'):
+                                    resultado['preview'] = data.get('Raw', '')[:80]
+
+                                if data.get('SourceMetadata'):
+                                    source = data.get('SourceMetadata', {}).get('Data', {})
+                                    resultado['file'] = source.get('File', '')
+                                    resultado['line'] = source.get('Line', '')
+
+                                hallazgos.append(resultado)
+
+                            except json.JSONDecodeError:
+                                pass
+
+            except subprocess.TimeoutExpired:
+                print(f"[trufflehog] Timeout analizando {repo_full_name}")
+            except FileNotFoundError:
+                print("[trufflehog] trufflehog no instalado")
+                print("[trufflehog] Instalar: pip install trufflehog")
+                break
+            except Exception as e:
+                print(f"[trufflehog] Error en {repo_full_name}: {e}")
+
     except Exception as e:
-        print(f"[trufflehog] Error: {e}")
+        print(f"[trufflehog] Error general: {e}")
 
     return hallazgos
 
