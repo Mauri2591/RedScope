@@ -356,14 +356,17 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         # 3. Hacer reverse DNS para cada IP
         ips_success = []
 
-        # Crear mapeo de IP → dominios que la resolvieron
+        # Crear mapeo de IP → dominios que la resolvieron (sin duplicados)
         ip_to_dominios = {}
         for dom, resolvers_data in resolution_metadata['dominios_resueltos'].items():
             for ips_list in resolvers_data.values():
                 for ip in ips_list:
                     if ip not in ip_to_dominios:
-                        ip_to_dominios[ip] = []
-                    ip_to_dominios[ip].append(dom)
+                        ip_to_dominios[ip] = set()
+                    ip_to_dominios[ip].add(dom)
+
+        # Convertir sets a listas ordenadas
+        ip_to_dominios = {ip: sorted(list(doms)) for ip, doms in ip_to_dominios.items()}
 
         for ip in sorted(ips_a_analizar):
             try:
