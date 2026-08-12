@@ -459,35 +459,62 @@ def mapeo_ips(ejecucion_id, proyecto_id):
     _run_osint_job(ejecucion_id, job)
 
 def recon_cloud(ejecucion_id, proyecto_id):
-    """Reconocimiento de buckets S3 y servicios cloud mejorado"""
+    """Reconocimiento de buckets S3 y servicios cloud con fallback automático"""
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
-        dominio = config.get('DOMINIO', '').strip()
+        dominio_scope = config.get('DOMINIO', '').strip() if config else ''
 
-        if not dominio:
-            raise Exception("Dominio no configurado")
+        # 1. Obtener dominios de configuración inicial (OPCIONAL)
+        dominios_config = _parse_multiline_config(dominio_scope) if dominio_scope else []
+        if dominios_config:
+            print(f"[recon_cloud] Dominios del scope: {dominios_config}")
+        else:
+            print(f"[recon_cloud] Sin DOMINIO configurado, buscando fallbacks...")
+
+        # 2. FALLBACK 1: Dominios válidos de mapeo_ips (si DOMINIO vacío)
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id) if not dominios_config else []
+        if dominios_from_ips:
+            print(f"[recon_cloud] Dominios de mapeo_ips: {dominios_from_ips}")
+
+        # 3. FALLBACK 2: Subdominios descubiertos (si DOMINIO y mapeo_ips vacíos)
+        dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        if dominios_descubiertos:
+            print(f"[recon_cloud] Subdominios descubiertos: {len(dominios_descubiertos)}")
+
+        # 4. Combinar todas las fuentes
+        todos_los_dominios = list(set(dominios_config + dominios_from_ips + dominios_descubiertos))
+
+        if not todos_los_dominios:
+            raise Exception("No hay dominios para escanear (DOMINIO vacío, mapeo_ips sin resultados, subdominios no descubiertos)")
+
+        print(f"[recon_cloud] Dominios scope: {len(dominios_config)}, De mapeo_ips: {len(dominios_from_ips)}, Subdominios descubiertos: {len(dominios_descubiertos)}")
+        print(f"[recon_cloud] Total dominios a escanear: {len(todos_los_dominios)}")
 
         recursos = []
-        dominios = _parse_multiline_config(dominio)
+        for dom in todos_los_dominios:
+            try:
+                print(f"[recon_cloud] Escaneando buckets S3 para {dom}...")
+                bucket_names = _generate_bucket_candidates(dom)
+                bucket_names.extend(_find_buckets_wayback(dom))
+                bucket_names.extend(_find_buckets_from_ct(dom))
+                bucket_names.extend(_scan_with_wordlist(dom))
 
-        if not dominios:
-            raise Exception("No se encontraron dominios válidos")
+                bucket_names = list(set(filter(None, bucket_names)))
+                print(f"[recon_cloud] {dom} → {len(bucket_names)} candidatos de buckets")
 
-        for dom in dominios:
-            bucket_names = _generate_bucket_candidates(dom)
-            bucket_names.extend(_find_buckets_wayback(dom))
-            bucket_names.extend(_find_buckets_from_ct(dom))
-            bucket_names.extend(_scan_with_wordlist(dom))
-
-            bucket_names = list(set(filter(None, bucket_names)))
-
-            for bucket in bucket_names:
-                recursos.extend(_verify_bucket(bucket, dom))
+                for bucket in bucket_names:
+                    recursos.extend(_verify_bucket(bucket, dom))
+            except Exception as e:
+                print(f"[recon_cloud] Error escaneando {dom}: {e}")
 
         return {
             "tipo": "recon_cloud",
-            "dominio": dominio,
-            "total": len(recursos),
+            "dominio_scope": dominio_scope,
+            "total_dominios_scope": len(dominios_config),
+            "total_dominios_from_ips": len(dominios_from_ips),
+            "total_subdominios_descubiertos": len(dominios_descubiertos),
+            "total_dominios_buscados": len(todos_los_dominios),
+            "total_recursos": len(recursos),
             "recursos": recursos
         }
 
