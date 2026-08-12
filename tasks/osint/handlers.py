@@ -750,21 +750,32 @@ def _search_github(dominio):
         # Extrae el dominio base (sin www)
         dom_parts = dominio.split('.')
         if dom_parts[0].lower() == 'www' and len(dom_parts) > 2:
-            domain_base = '.'.join(dom_parts[1:])  # ater.gob.ar
+            domain_base = '.'.join(dom_parts[1:])  # www.ater.gob.ar → ater.gob.ar
         else:
             domain_base = dominio
 
-        # ✅ ARREGLO 1: Extraer correctamente la parte de la organización
+        # Detectar si es un subdominio (ej: smail.ater.gob.ar tiene 4 partes)
         domain_base_parts = domain_base.split('.')
-        org_name = domain_base_parts[0]  # 'ater', no 'www'
+        is_subdomain = len(domain_base_parts) > 3  # Más de 3 partes = subdominio
 
+        # ✅ ARREGLO 2: Solo buscar org: para el dominio raíz, NO para subdominios
+        # Para "ater.gob.ar" (3 partes) → buscar org:ater
+        # Para "smail.ater.gob.ar" (4 partes) → NO buscar org:smail (evita falsos positivos)
         searches = [
-            f'"{domain_base}"',           # "ater.gob.ar"
-            f'org:{org_name}',            # org:ater (correcto!)
+            f'"{domain_base}"',  # Siempre buscar el dominio/subdominio exacto
+        ]
+
+        # Solo agregar búsqueda org: si es el dominio raíz, NO si es subdominio
+        if not is_subdomain:
+            org_name = domain_base_parts[0]  # 'ater' del dominio raíz
+            searches.append(f'org:{org_name}')
+
+        # Búsquedas de secretos para el dominio/subdominio
+        searches.extend([
             f'{domain_base} secret',
             f'{domain_base} password',
             f'{domain_base} api_key',
-        ]
+        ])
 
         for search_query in searches:
             try:
