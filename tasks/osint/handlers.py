@@ -205,7 +205,9 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
             print(f"[discovery_subdominios] Dominios del scope: {dominios_scope}")
 
         # 2. Obtener dominios descubiertos por reverse DNS (mapeo_ips)
-        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
+        # Pasar el dominio objetivo para filtrar solo los que pertenezcan al objetivo
+        dominio_objetivo = dominios_scope[0] if dominios_scope else None
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id, dominio_objetivo)
         if dominios_from_ips:
             print(f"[discovery_subdominios] Dominios descubiertos de reverse DNS: {dominios_from_ips}")
 
@@ -394,6 +396,12 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         # Convertir sets a listas ordenadas
         ip_to_dominios = {ip: sorted(list(doms)) for ip, doms in ip_to_dominios.items()}
 
+        # Obtener dominio objetivo para validar hostnames
+        dominio_objetivo = None
+        dominios_config = _parse_multiline_config(dominio) if dominio else []
+        if dominios_config:
+            dominio_objetivo = dominios_config[0]
+
         for ip in sorted(ips_a_analizar):
             try:
                 print(f"[mapeo_ips] Reverse DNS para {ip}...")
@@ -403,16 +411,28 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                 hostname = reverse_result['hostnames'][0] if reverse_result['hostnames'] else 'unknown'
                 status = reverse_result['status']
 
+                # Validar que el hostname pertenezca al dominio objetivo (si existe)
+                hostname_valido = False
+                if hostname == 'unknown' or hostname == 'error':
+                    hostname_valido = False
+                elif dominio_objetivo:
+                    # Solo es válido si pertenece al dominio objetivo
+                    hostname_valido = (hostname == dominio_objetivo or hostname.endswith('.' + dominio_objetivo))
+                else:
+                    # Si no hay dominio objetivo, aceptar cualquier hostname
+                    hostname_valido = True
+
                 entry = {
                     'ip': ip,
                     'hostname': hostname,
                     'status': status,
-                    'from_domains': ip_to_dominios.get(ip, [])
+                    'from_domains': ip_to_dominios.get(ip, []),
+                    'es_valido': hostname_valido
                 }
                 ips_analizadas.append(entry)
 
-                # Agregar solo los success a la lista resumida
-                if status == 'success':
+                # Agregar solo los success Y válidos a la lista resumida
+                if status == 'success' and hostname_valido:
                     ips_success.append(entry)
 
             except Exception as e:

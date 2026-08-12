@@ -259,13 +259,16 @@ class OsintEjecucion:
         return subdomains
 
     @staticmethod
-    def get_discovered_domains_from_ips(proyecto_id):
+    def get_discovered_domains_from_ips(proyecto_id, dominio_objetivo=None):
         """Obtiene dominios descubiertos por reverse DNS en mapeo_ips (servicio_osint_id=3)
 
         Retorna lista de hostnames únicos del resultado más reciente de mapeo_ips que esté:
         - estado='COMPLETED'
         - estado_id=1 (habilitado)
         - status='success' en ips_success
+
+        Si dominio_objetivo se proporciona, filtra solo los hostnames que pertenezcan a ese dominio
+        (evita incluir dominios del proveedor de hosting como telecom.net.ar)
 
         Se usa para continuar discovery_subdominios de forma iterativa
         """
@@ -295,10 +298,18 @@ class OsintEjecucion:
                     for ip_entry in ips_success:
                         hostname = ip_entry.get('hostname')
                         if hostname and hostname != 'unknown' and hostname != 'error':
-                            dominios.append(hostname)
+                            # Filtrar por dominio objetivo si se proporciona
+                            if dominio_objetivo:
+                                # Verificar si el hostname pertenece al dominio objetivo
+                                if hostname.endswith('.' + dominio_objetivo) or hostname == dominio_objetivo:
+                                    dominios.append(hostname)
+                            else:
+                                dominios.append(hostname)
 
                     dominios = sorted(list(set(dominios)))  # Deduplicar y ordenar
                     print(f"[OsintEjecucion] Dominios descubiertos por reverse DNS: {len(dominios)}")
+                    if dominio_objetivo:
+                        print(f"[OsintEjecucion] (Filtrados por dominio objetivo: {dominio_objetivo})")
                 except json.JSONDecodeError as e:
                     print(f"[OsintEjecucion] Error parseando JSON de mapeo_ips: {e}")
             else:
