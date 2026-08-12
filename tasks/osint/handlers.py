@@ -8,6 +8,9 @@ import subprocess
 import socket
 import requests
 import os
+import dns.resolver
+import dns.reversename
+import dns.exception
 
 # ══════════════════════════════════════════════════════════════════
 # HELPERS GLOBALES OSINT
@@ -28,6 +31,138 @@ def _run_osint_job(ejecucion_id, fn):
     except Exception as e:
         OsintEjecucion.mark_failed(ejecucion_id, str(e))
         print(f"[OSINT ERROR] {str(e)}")
+
+# ══════════════════════════════════════════════════════════════════
+# HELPERS DNS MEJORADO (Multi-Resolver)
+# ══════════════════════════════════════════════════════════════════
+
+def _resolve_domain_multi_resolver(domain):
+    """
+    Resuelve un dominio usando múltiples resolvers DNS.
+    Retorna dict con IPs y información de resolvers.
+    """
+    ips_by_resolver = {}
+
+    # Lista de resolvers públicos (IP, Nombre)
+    resolvers = [
+        ('8.8.8.8', 'Google'),
+        ('1.1.1.1', 'Cloudflare'),
+        ('9.9.9.9', 'Quad9'),
+        ('208.67.222.222', 'OpenDNS'),
+    ]
+
+    # Método 1: usar dnspython si está disponible
+    try:
+        for resolver_ip, resolver_name in resolvers:
+            try:
+                resolver = dns.resolver.Resolver()
+                resolver.nameservers = [resolver_ip]
+                resolver.timeout = 5
+                resolver.lifetime = 5
+
+                answers = resolver.resolve(domain, 'A')
+                ips = [str(rdata) for rdata in answers]
+                ips_by_resolver[resolver_name] = ips
+                print(f"[DNS] {resolver_name} ({resolver_ip}): {ips}")
+            except dns.exception.Timeout:
+                print(f"[DNS] {resolver_name} ({resolver_ip}): TIMEOUT")
+            except dns.exception.NXDOMAIN:
+                print(f"[DNS] {resolver_name} ({resolver_ip}): NXDOMAIN")
+            except Exception as e:
+                print(f"[DNS] {resolver_name} ({resolver_ip}): {str(e)}")
+    except ImportError:
+        print("[DNS] dnspython no disponible, usando nslookup")
+
+    # Método 2: usar nslookup (siempre como fallback)
+    try:
+        result = subprocess.run(
+            ['nslookup', domain],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        ips = []
+        for line in result.stdout.split('\n'):
+            if 'Address:' in line and not line.startswith(';'):
+                ip = line.split('Address:')[1].strip()
+                if ip and not ip.startswith('#') and ':' not in ip:
+                    ips.append(ip)
+        if ips:
+            ips_by_resolver['System'] = ips
+            print(f"[DNS] System (default): {ips}")
+    except Exception as e:
+        print(f"[DNS] nslookup error: {e}")
+
+    # Consolidar IPs únicas
+    all_ips = set()
+    for ips in ips_by_resolver.values():
+        all_ips.update(ips)
+
+    return {
+        'ips': sorted(list(all_ips)),
+        'by_resolver': ips_by_resolver
+    }
+
+
+def _reverse_dns_multi_resolver(ip):
+    """
+    Intenta resolver reverso una IP usando múltiples métodos.
+    Retorna dict con hostname y información de resolvers.
+    """
+    reverses_by_resolver = {}
+
+    # Método 1: usar dnspython
+    try:
+        for resolver_ip, resolver_name in [('8.8.8.8', 'Google'), ('1.1.1.1', 'Cloudflare')]:
+            try:
+                resolver = dns.resolver.Resolver()
+                resolver.nameservers = [resolver_ip]
+                resolver.timeout = 5
+                resolver.lifetime = 5
+
+                rev_name = dns.reversename.from_address(ip)
+                answers = resolver.resolve(rev_name, 'PTR')
+                hostnames = [str(rdata).rstrip('.') for rdata in answers]
+                reverses_by_resolver[resolver_name] = hostnames
+                print(f"[Reverse DNS] {resolver_name}: {hostnames}")
+            except dns.exception.Timeout:
+                print(f"[Reverse DNS] {resolver_name}: TIMEOUT")
+            except dns.exception.NXDOMAIN:
+                print(f"[Reverse DNS] {resolver_name}: NXDOMAIN (no reverse DNS)")
+            except Exception as e:
+                print(f"[Reverse DNS] {resolver_name}: {str(e)}")
+    except ImportError:
+        print("[Reverse DNS] dnspython no disponible")
+
+    # Método 2: usar nslookup
+    try:
+        result = subprocess.run(
+            ['nslookup', ip],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        hostname = None
+        for line in result.stdout.split('\n'):
+            if 'name =' in line:
+                hostname = line.split('name =')[1].strip().rstrip('.')
+                break
+        if hostname and hostname != 'unknown':
+            reverses_by_resolver['System'] = [hostname]
+            print(f"[Reverse DNS] System: {hostname}")
+    except Exception as e:
+        print(f"[Reverse DNS] nslookup error: {e}")
+
+    # Consolidar hostnames
+    all_hostnames = set()
+    for hostnames in reverses_by_resolver.values():
+        all_hostnames.update(hostnames)
+
+    return {
+        'hostnames': sorted(list(all_hostnames)),
+        'by_resolver': reverses_by_resolver,
+        'status': 'success' if all_hostnames else 'no_reverse_dns'
+    }
 
 # ══════════════════════════════════════════════════════════════════
 # HANDLERS OSINT
@@ -154,69 +289,88 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
     _run_osint_job(ejecucion_id, job)
 
 def mapeo_ips(ejecucion_id, proyecto_id):
-    """Mapeo y resolución de IPs - combina IPS configuradas + dominios resueltos"""
+    """
+    Mapeo y resolución de IPs mejorado con múltiples resolvers DNS.
+    - Combina IPs configuradas + dominios resueltos
+    - Usa múltiples resolvers (Google, Cloudflare, Quad9) para validar
+    - Proporciona información detallada de reverse DNS
+    """
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
 
         ips_analizadas = []
         ips_a_analizar = set()
+        resolution_metadata = {
+            'dominios_resueltos': {},
+            'ips_configuradas': []
+        }
 
+        # 1. Agregar IPs configuradas directamente
         ips_str = config.get('IPS', '').strip() if config else ''
         if ips_str:
-            ips_a_analizar.update(_parse_multiline_config(ips_str))
+            ips_configuradas = _parse_multiline_config(ips_str)
+            ips_a_analizar.update(ips_configuradas)
+            resolution_metadata['ips_configuradas'] = ips_configuradas
+            print(f"[mapeo_ips] IPs configuradas: {ips_configuradas}")
 
+        # 2. Resolver dominios configurados usando múltiples resolvers
         dominio = config.get('DOMINIO', '').strip() if config else ''
         if dominio:
             dominios = _parse_multiline_config(dominio)
             for dom in dominios:
                 try:
-                    print(f"[mapeo_ips] Resolviendo dominio {dom}...")
-                    result = subprocess.run(
-                        ['nslookup', dom],
-                        capture_output=True,
-                        text=True,
-                        timeout=10
-                    )
-                    for line in result.stdout.split('\n'):
-                        if 'Address:' in line and not line.startswith(';'):
-                            ip = line.split('Address:')[1].strip()
-                            if ip and not ip.startswith('#') and ':' not in ip:
-                                ips_a_analizar.add(ip)
+                    print(f"[mapeo_ips] Resolviendo dominio {dom} con múltiples resolvers...")
+                    resolution_result = _resolve_domain_multi_resolver(dom)
+
+                    ips_a_analizar.update(resolution_result['ips'])
+                    resolution_metadata['dominios_resueltos'][dom] = resolution_result['by_resolver']
+
+                    print(f"[mapeo_ips] {dom} → {resolution_result['ips']}")
                 except Exception as e:
                     print(f"[mapeo_ips] Error resolviendo {dom}: {e}")
 
         if not ips_a_analizar:
             raise Exception("No hay IPs ni dominios configurados para analizar")
 
+        print(f"[mapeo_ips] Total IPs a analizar: {len(ips_a_analizar)}")
+
+        # 3. Hacer reverse DNS para cada IP
         for ip in sorted(ips_a_analizar):
             try:
-                result_reverse = subprocess.run(
-                    ['nslookup', ip],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
-                hostname = 'unknown'
-                for rev_line in result_reverse.stdout.split('\n'):
-                    if 'name =' in rev_line:
-                        hostname = rev_line.split('name =')[1].strip().rstrip('.')
-                        break
+                print(f"[mapeo_ips] Reverse DNS para {ip}...")
+                reverse_result = _reverse_dns_multi_resolver(ip)
+
+                # Tomar el primer hostname si hay múltiples, o marcar como unknown
+                hostname = reverse_result['hostnames'][0] if reverse_result['hostnames'] else 'unknown'
 
                 ips_analizadas.append({
                     'ip': ip,
-                    'hostname': hostname
+                    'hostname': hostname,
+                    'reverse_status': reverse_result['status'],
+                    'resolver_info': reverse_result['by_resolver'],
+                    'all_hostnames': reverse_result['hostnames']
                 })
             except Exception as e:
-                print(f"[mapeo_ips] Error resolviendo reverso {ip}: {e}")
+                print(f"[mapeo_ips] Error en reverse DNS {ip}: {e}")
                 ips_analizadas.append({
                     'ip': ip,
-                    'hostname': 'error'
+                    'hostname': 'error',
+                    'reverse_status': 'error',
+                    'resolver_info': {},
+                    'all_hostnames': []
                 })
 
         return {
             "tipo": "mapeo_ips",
             "total": len(ips_analizadas),
-            "ips_analizadas": ips_analizadas
+            "ips_analizadas": ips_analizadas,
+            "resolution_info": resolution_metadata,
+            "notas": [
+                "Usa múltiples resolvers DNS (Google, Cloudflare, Quad9) para validación",
+                "Reverse DNS puede fallar si el ISP no lo permite o está mal configurado",
+                "Status 'no_reverse_dns' significa que la IP existe pero no tiene DNS reverso configurado",
+                "Los resultados pueden variar según la ubicación y configuración de DNS del resolver"
+            ]
         }
 
     _run_osint_job(ejecucion_id, job)
@@ -799,23 +953,39 @@ def _fuzz_common_endpoints(dominio):
 
     print(f"[fuzzing] Probando {len(common_paths)} endpoints comunes en {dominio}...")
 
+    # Status codes que indican que el endpoint EXISTE
+    valid_status_codes = ['200', '201', '204', '301', '302', '307', '308', '400', '401', '403', '405']
+
     for path in common_paths:
         url = f"https://{dominio}{path}"
         try:
             result = subprocess.run(
-                ['curl', '-s', '-I', '-m', '3', url],
+                ['curl', '-s', '-I', '-m', '3', '--insecure', url],
                 capture_output=True,
                 text=True,
                 timeout=5
             )
-            # Si no da 404 o error de conexión, probablemente existe
-            if result.returncode == 0 and '404' not in result.stdout:
-                endpoints.add(url)
-                print(f"✓ {url}")
+
+            if result.returncode == 0:
+                # Extraer el status code de la respuesta
+                status_code = None
+                for line in result.stdout.split('\n'):
+                    if line.startswith('HTTP'):
+                        # Extraer código: "HTTP/1.1 200 OK" → "200"
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            status_code = parts[1]
+                            break
+
+                # Solo agregar si el status code indica que existe
+                if status_code and status_code in valid_status_codes:
+                    endpoint_info = f"{url} [{status_code}]"
+                    endpoints.add(endpoint_info)
+                    print(f"✓ {endpoint_info}")
         except:
             pass
 
-    print(f"[fuzzing] Encontrados {len(endpoints)} endpoints activos")
+    print(f"[fuzzing] Encontrados {len(endpoints)} endpoints activos (status válido)")
     return endpoints
 
 
