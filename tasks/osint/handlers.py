@@ -755,20 +755,37 @@ def _search_github(dominio):
         else:
             domain_base = dominio
 
-        # ✅ SIMPLIFICADO: Solo buscar palabra clave del dominio raíz
-        # Para "ater.gob.ar" → buscar "ater"
+        # ✅ BÚSQUEDAS INTELIGENTES: Palabra clave + archivos típicos de credenciales
+        # Para "ater.gob.ar" → buscar "ater" en archivos específicos
         # Los subdominios NO se buscan individuales (evita falsos positivos)
 
         domain_parts = domain_base.split('.')
         keyword = domain_parts[0]  # 'ater' de 'ater.gob.ar'
 
         searches = [
-            f'"{keyword}"',                    # "ater" (búsqueda exacta)
-            f'org:{keyword}',                  # org:ater (organización)
-            f'{keyword} secret',               # ater secret
-            f'{keyword} password',             # ater password
-            f'{keyword} api_key',              # ater api_key
-            f'{keyword} credentials',          # ater credentials
+            # 1. Búsquedas por palabra clave en archivos de credenciales
+            f'filename:.env {keyword}',                    # .env files
+            f'filename:.env.example {keyword}',            # .env.example files
+            f'filename:config.json {keyword}',             # config.json
+            f'filename:secrets.json {keyword}',            # secrets.json
+            f'filename:credentials.json {keyword}',        # credentials.json
+            f'filename:.postman_collection.json {keyword}',# Postman collections
+            f'filename:docker-compose.yml {keyword}',      # docker-compose
+
+            # 2. Búsquedas generales
+            f'{keyword} API_KEY',
+            f'{keyword} SECRET',
+            f'{keyword} PASSWORD',
+            f'{keyword} TOKEN',
+            f'{keyword} CREDENTIALS',
+
+            # 3. Variantes comunes del nombre
+            f'"{keyword}apps"',                            # aterapps
+            f'"{keyword}-api"',                            # ater-api
+            f'"customer-{keyword}"',                       # customer-ater
+
+            # 4. Búsquedas por dominio
+            f'"{domain_base}"',                            # "ater.gob.ar"
         ]
 
         for search_query in searches:
