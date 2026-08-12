@@ -600,16 +600,28 @@ def _deduplicate_github_results(hallazgos_raw, dominio=''):
 
         repo_lower = repo.lower()
 
-        # ✅ Filtro 1 MEJORADO: El repo DEBE contener una variante del dominio con word boundary
+        # ✅ Filtro 1 MEJORADO: El repo DEBE contener una variante del dominio con separadores
         if domain_variants:
-            has_variant = any(
-                var in repo_lower and (
-                    f'/{var}' in repo_lower or  # owner/repo-ater-app
-                    f'-{var}' in repo_lower or  # repo-ater-something
-                    repo_lower.endswith(var)    # ...ater
-                )
-                for var in domain_variants
-            )
+            import re
+            has_variant = False
+            for var in domain_variants:
+                if var not in repo_lower:
+                    continue
+
+                # Variante encontrada. Verificar que esté bien separada (no substring accidental)
+                # Patrones válidos:
+                # - aterapps/wsNodeApp (ater al inicio, seguido de consonante)
+                # - customer-ater-api (rodeado de guiones)
+                # - ater.gob.ar (con puntos)
+                # Patrones INVÁLIDOS:
+                # - www.github.io (www está en su propio nombre, no es dominio buscado)
+
+                # Buscar var con límites: /, -, _, punto, o inicio/fin
+                pattern = rf'(^|/|-|_|\.){re.escape(var)}($|/|-|_|\.)'
+                if re.search(pattern, repo_lower):
+                    has_variant = True
+                    break
+
             if not has_variant:
                 print(f"[github] Rechazado (no contiene variante): {repo}")
                 continue
