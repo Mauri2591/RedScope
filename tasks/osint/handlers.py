@@ -411,18 +411,15 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                 hostname = reverse_result['hostnames'][0] if reverse_result['hostnames'] else 'unknown'
                 status = reverse_result['status']
 
-                # Validar que el hostname pertenezca al dominio objetivo
-                # Solo es válido si: tiene from_domains (fue resuelto desde un dominio scope)
-                # Y el hostname pertenece a ese dominio
+                # Validar que sea una IP del objetivo
+                # Es válido si: tiene from_domains (fue resuelto desde un dominio scope)
+                # El reverse DNS puede estar bloqueado/mal configurado, pero la IP es del objetivo
                 from_domains = ip_to_dominios.get(ip, [])
                 hostname_valido = False
 
-                if hostname != 'unknown' and hostname != 'error' and from_domains:
-                    # IP fue resuelto desde un dominio scope, validar que hostname pertenezca
-                    for domain in from_domains:
-                        if hostname == domain or hostname.endswith('.' + domain):
-                            hostname_valido = True
-                            break
+                if from_domains:
+                    # IP fue resuelto desde un dominio scope = IP del objetivo (aunque reverse DNS sea del proveedor)
+                    hostname_valido = True
 
                 entry = {
                     'ip': ip,
