@@ -766,7 +766,7 @@ def _verify_bucket(bucket_name, dominio):
                 'acceso': 'anónimo_abierto',  # ← CRÍTICO: ACCESO PÚBLICO
                 'acceso_anonimo': acceso_anonimo,
                 'estado': 'existe',
-                'criticidad': 'CRÍTICA'
+                'severidad': 'CRITICAL'
             })
         elif result.returncode == 0:
             # Acceso con credenciales AWS
