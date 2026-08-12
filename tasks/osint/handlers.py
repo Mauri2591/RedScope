@@ -695,8 +695,32 @@ def _scan_with_wordlist(dominio):
     return buckets
 
 
+def _check_bucket_anonymous_access(bucket_name):
+    """Verifica si el bucket permite acceso anónimo (sin credenciales AWS)"""
+    try:
+        # Intentar listar bucket via HTTP anónimo
+        url = f"https://{bucket_name}.s3.amazonaws.com/"
+        result = subprocess.run(
+            ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}', url],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        http_code = result.stdout.strip()
+
+        # 200 = acceso público, 403 = privado, 404 = no existe
+        if http_code == '200':
+            return 'anónimo'  # ← BUCKET ABIERTO AL PÚBLICO
+        elif http_code == '403':
+            return 'privado'
+        else:
+            return 'desconocido'
+    except:
+        return 'error'
+
 def _verify_bucket(bucket_name, dominio):
-    """Verifica si un bucket existe y obtiene info"""
+    """Verifica si un bucket existe y obtiene info + acceso anónimo"""
     resultado = []
 
     try:
@@ -707,12 +731,16 @@ def _verify_bucket(bucket_name, dominio):
             timeout=5
         )
 
+        # Verificar acceso anónimo (sin credenciales)
+        acceso_anonimo = _check_bucket_anonymous_access(bucket_name)
+
         if result.returncode == 0:
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
                 'dominio': dominio,
                 'acceso': 'público_o_auth',
+                'acceso_anonimo': acceso_anonimo,
                 'estado': 'existe'
             })
         elif 'NoSuchBucket' not in result.stderr:
@@ -721,6 +749,7 @@ def _verify_bucket(bucket_name, dominio):
                 'nombre': bucket_name,
                 'dominio': dominio,
                 'acceso': 'privado',
+                'acceso_anonimo': acceso_anonimo,
                 'estado': 'existe'
             })
 
