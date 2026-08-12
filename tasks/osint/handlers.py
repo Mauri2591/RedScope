@@ -411,16 +411,18 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                 hostname = reverse_result['hostnames'][0] if reverse_result['hostnames'] else 'unknown'
                 status = reverse_result['status']
 
-                # Validar que el hostname pertenezca al dominio objetivo (si existe)
+                # Validar que el hostname pertenezca al dominio objetivo
+                # Solo es válido si: tiene from_domains (fue resuelto desde un dominio scope)
+                # Y el hostname pertenece a ese dominio
+                from_domains = ip_to_dominios.get(ip, [])
                 hostname_valido = False
-                if hostname == 'unknown' or hostname == 'error':
-                    hostname_valido = False
-                elif dominio_objetivo:
-                    # Solo es válido si pertenece al dominio objetivo
-                    hostname_valido = (hostname == dominio_objetivo or hostname.endswith('.' + dominio_objetivo))
-                else:
-                    # Si no hay dominio objetivo, aceptar cualquier hostname
-                    hostname_valido = True
+
+                if hostname != 'unknown' and hostname != 'error' and from_domains:
+                    # IP fue resuelto desde un dominio scope, validar que hostname pertenezca
+                    for domain in from_domains:
+                        if hostname == domain or hostname.endswith('.' + domain):
+                            hostname_valido = True
+                            break
 
                 entry = {
                     'ip': ip,
@@ -431,9 +433,13 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                 }
                 ips_analizadas.append(entry)
 
-                # Agregar solo los success Y válidos a la lista resumida
+                # Agregar solo los success Y válidos a la lista resumida (formato limpio)
                 if status == 'success' and hostname_valido:
-                    ips_success.append(entry)
+                    ips_success.append({
+                        'ip': ip,
+                        'hostname': hostname,
+                        'status': status
+                    })
 
             except Exception as e:
                 print(f"[mapeo_ips] Error en reverse DNS {ip}: {e}")
