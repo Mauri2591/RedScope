@@ -85,6 +85,9 @@ def _resolve_domain_multi_resolver(domain):
         for line in result.stdout.split('\n'):
             if 'Address:' in line and not line.startswith(';'):
                 ip = line.split('Address:')[1].strip()
+                # Remover puerto si está presente (ej: 8.8.8.8#53)
+                if '#' in ip:
+                    ip = ip.split('#')[0].strip()
                 if ip and not ip.startswith('#') and ':' not in ip:
                     ips.append(ip)
         if ips:
