@@ -458,8 +458,8 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
             # 2. Intentar con trufflehog si está instalado
             hallazgos_raw.extend(_search_trufflehog(dom))
 
-        # Deduplicar y agrupar por repositorio
-        hallazgos_dedup = _deduplicate_github_results(hallazgos_raw)
+        # Deduplicar y agrupar por repositorio (con filtro de relevancia)
+        hallazgos_dedup = _deduplicate_github_results(hallazgos_raw, dominio)
 
         return {
             "tipo": "escaneo_repositorios",
@@ -534,9 +534,45 @@ def _search_github(dominio):
     return hallazgos
 
 
-def _deduplicate_github_results(hallazgos_raw):
-    """Deduplica y agrupa hallazgos por repositorio"""
+def _generate_domain_variants(dominio):
+    """Genera todas las variantes posibles de un dominio
+
+    Ejemplo: capacita.ater.gob.ar genera:
+    - capacita.ater.gob.ar
+    - ater.gob.ar
+    - capacita.ater.gob
+    - ater.gob
+    - capacita.ater
+    - ater
+    """
+    variants = set()
+    parts = dominio.lower().split('.')
+
+    # Agregar el dominio completo
+    variants.add(dominio.lower())
+
+    # Generar todas las combinaciones eliminando partes desde el inicio
+    for i in range(1, len(parts)):
+        variant = '.'.join(parts[i:])
+        variants.add(variant)
+
+    # Agregar cada palabra individual (útil para búsquedas en repos)
+    for part in parts:
+        if part and len(part) > 2:  # Ignorar TLDs cortos
+            variants.add(part)
+
+    return variants
+
+
+def _deduplicate_github_results(hallazgos_raw, dominio=''):
+    """Deduplica y agrupa hallazgos por repositorio, filtrando por variantes del dominio"""
     repos_dict = {}
+
+    # Generar todas las variantes del dominio
+    domain_variants = set()
+    if dominio:
+        domain_variants = _generate_domain_variants(dominio)
+        print(f"[github] Variantes de dominio a buscar: {sorted(domain_variants)}")
 
     for item in hallazgos_raw:
         if item.get('tipo') != 'github_repo':
@@ -545,6 +581,21 @@ def _deduplicate_github_results(hallazgos_raw):
         repo = item.get('repo', '').replace('[', '').replace('](', '/').replace(')', '')
         if not repo:
             continue
+
+        # Filtro: Verificar que el repo/archivo contenga variantes del dominio
+        if domain_variants:
+            repo_lower = repo.lower()
+            nombre_lower = item.get('nombre', '').lower()
+            query_lower = item.get('query', '').lower()
+
+            # Debe contener al menos una variante del dominio
+            has_variant = any(
+                var in repo_lower or var in nombre_lower or var in query_lower
+                for var in domain_variants
+            )
+
+            if not has_variant:
+                continue
 
         if repo not in repos_dict:
             repos_dict[repo] = {
