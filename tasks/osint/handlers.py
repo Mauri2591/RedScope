@@ -1339,6 +1339,97 @@ def _search_github_endpoints(dominio):
 
     return endpoints
 
+def busqueda_urls_historicas(ejecucion_id, proyecto_id):
+    """Búsqueda de URLs históricas con GAU - múltiples fuentes públicas
+
+    Fallback cascade:
+    1. DOMINIO configurado
+    2. Dominios descubiertos desde mapeo_ips (reverse DNS)
+    3. Subdominios descubiertos
+    4. Fallar si no hay datos en ninguna fuente
+
+    GAU obtiene URLs de:
+    - Wayback Machine
+    - Common Crawl
+    - URLScan
+    - AlienVault OTX
+    """
+    def job():
+        config = Proyecto.get_osint_config(proyecto_id)
+        dominio_config = config.get('DOMINIO', '').strip()
+
+        # 1. Obtener dominios del scope inicial (OPCIONAL)
+        dominios_scope = _parse_multiline_config(dominio_config) if dominio_config else []
+        if dominios_scope:
+            print(f"[gau] Dominios del scope encontrados: {dominios_scope}")
+        else:
+            print(f"[gau] Sin dominios configurados en DOMINIO")
+
+        # 2. Fallback: Obtener dominios descubiertos por reverse DNS (mapeo_ips)
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
+        if dominios_from_ips:
+            print(f"[gau] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
+
+        # 3. Fallback: Obtener subdominios descubiertos
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        if subdominios_descubiertos:
+            print(f"[gau] Subdominios descubiertos: {len(subdominios_descubiertos)}")
+
+        # 4. Combinar todas las fuentes de dominios
+        todos_los_dominios = list(set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
+
+        # 5. Validar que hay dominios para escanear
+        if not todos_los_dominios:
+            raise Exception("No hay dominios para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
+
+        urls = set()
+        print(f"[gau] Buscando URLs históricas en {len(todos_los_dominios)} dominios...")
+
+        for dom in todos_los_dominios:
+            print(f"[gau] Escaneando {dom}...")
+            urls.update(_search_gau(dom))
+
+        urls = sorted(list(filter(None, urls)))
+
+        return {
+            "tipo": "busqueda_urls_historicas",
+            "dominios_scope": dominios_scope,
+            "dominios_from_ips": dominios_from_ips,
+            "subdominios_descubiertos": subdominios_descubiertos,
+            "total_dominios": len(todos_los_dominios),
+            "total": len(urls),
+            "urls": urls
+        }
+
+    _run_osint_job(ejecucion_id, job)
+
+
+def _search_gau(dominio):
+    """Busca URLs históricas usando GAU (múltiples fuentes)"""
+    urls = set()
+    try:
+        print(f"[gau] Buscando URLs históricas de {dominio}...")
+
+        result = subprocess.run(
+            ['gau', '--subs', dominio],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.stdout:
+            urls_found = result.stdout.strip().split('\n')
+            urls.update([url for url in urls_found if url])
+            print(f"[gau] Encontradas {len(urls_found)} URLs históricas")
+    except FileNotFoundError:
+        print(f"[gau] No instalado (instalar: go install github.com/lc/gau/v2/cmd/gau@latest)")
+    except subprocess.TimeoutExpired:
+        print(f"[gau] Timeout")
+    except Exception as e:
+        print(f"[gau] Error: {e}")
+
+    return urls
+
 def google_dorking(ejecucion_id, proyecto_id):
     """Google Dorking - búsquedas especializadas con resultados reales
 
