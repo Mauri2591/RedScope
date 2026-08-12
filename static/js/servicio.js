@@ -1,4 +1,5 @@
 function inhabilitarServicio(id) {
+    alert('inhabilitarServicio')
     if (!confirm('¿Inhabilitar este servicio?')) return;
     fetch(`/servicio/${id}/inhabilitar`, {
         method: 'POST',

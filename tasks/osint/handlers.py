@@ -470,6 +470,8 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
 
 def _search_github(dominio):
     """Busca en GitHub repositorios públicos del dominio"""
+    import urllib.parse
+    
     hallazgos = []
     GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '')
     
@@ -479,20 +481,30 @@ def _search_github(dominio):
     
     try:
         print(f"[github] Buscando repositorios de {dominio}...")
-
+        
+        # Extrae el dominio base (sin www)
+        dom_parts = dominio.split('.')
+        if dom_parts[0].lower() == 'www' and len(dom_parts) > 2:
+            domain_base = '.'.join(dom_parts[1:])  # ater.gob.ar
+        else:
+            domain_base = dominio
+        
         searches = [
-            f'org:{dominio.split(".")[0]}',
-            f'"{dominio}"',
-            f'{dominio.split(".")[0]} secret',
-            f'{dominio.split(".")[0]} key',
-            f'{dominio.split(".")[0]} password',
+            f'"{domain_base}"',           # "ater.gob.ar"
+            f'org:{dom_parts[0]}',        # org:ater (si no es www)
+            f'{domain_base} secret',
+            f'{domain_base} password',
+            f'{domain_base} api_key',
         ]
 
         for search_query in searches:
             try:
+                # URL encode la query
+                encoded_query = urllib.parse.quote(search_query)
+                
                 result = subprocess.run(
                     ['curl', '-s', '-H', f'Authorization: token {GITHUB_TOKEN}',
-                     f'https://api.github.com/search/code?q={search_query}&per_page=5'],
+                     f'https://api.github.com/search/code?q={encoded_query}&per_page=10'],
                     capture_output=True,
                     text=True,
                     timeout=10
@@ -510,8 +522,8 @@ def _search_github(dominio):
                             'repo': item.get('repository', {}).get('full_name', ''),
                             'query': search_query
                         })
-            except:
-                pass
+            except Exception as e:
+                print(f"[github] Error en query '{search_query}': {e}")
 
     except Exception as e:
         print(f"[github] Error: {e}")

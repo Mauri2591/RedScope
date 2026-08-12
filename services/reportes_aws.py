@@ -260,8 +260,6 @@ class ReportService:
             grupos[key]['recursos'].append({
             'resource_id': f.get('resource_id'),
             'region': f.get('region', ''),
-            'estado_mitigacion': f.get('estado_mitigacion', 'DESCONOCIDO'),
-            'color_estado_mitigacion': f.get('color_estado_mitigacion', ''),
             'comment': f.get('finding_comment') or '',
             'inventory_data': f.get('inventory_data') or '',
             'referencias_data': f.get('referencias_data') or '',
@@ -311,8 +309,7 @@ class ReportService:
 
         headers = [
             'proveedor', 'servicio', 'check_id', 'titulo', 'descripcion',
-            'riesgo', 'condicion logica', 'remediacion', 'referencia',
-            'resource_id', 'estado_mitigacion'
+            'riesgo', 'condicion logica', 'remediacion', 'referencia'
         ]
         ws.append(headers)
 
@@ -332,8 +329,7 @@ class ReportService:
                 row.get('check_id', ''),       row.get('titulo', ''),
                 row.get('descripcion', ''),    row.get('severidad', ''),
                 row.get('condicion_logica', ''), row.get('remediacion', ''),
-                row.get('referencia', ''),     row.get('resource_id', ''),
-                row.get('estado_mitigacion', '')
+                row.get('referencia', ''),     row.get('resource_id', '')
             ]
             ws.append(fila)
             current_row = ws.max_row
@@ -346,9 +342,6 @@ class ReportService:
                     color = ReportService._normalizar_color(raw)
                     if color:
                         cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
-                elif col_idx == 11:  # Estado Mitigacion
-                    color_hex = row.get('color_estado_mitigacion', '')
-                    color = ReportService._normalizar_color(color_hex)
                     if color:
                         cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
 
@@ -1046,8 +1039,8 @@ class ReportService:
         color_oscuro      = tema.get('texto_oscuro',         '#111827')
         sev_map           = {s['nombre'].upper(): s['color'].lstrip('#') for s in severidades}
 
-        cols    = ['#', 'Título', 'Servicio', 'Recurso', 'Severidad', 'Estado']
-        widths  = [1, 5, 2, 5, 2.2, 2.3]
+        cols    = ['#', 'Título', 'Servicio', 'Recurso', 'Severidad']
+        widths  = [1, 3.5, 2.5, 4.5, 2]
 
         table = doc.add_table(rows=1, cols=len(cols))
         table.autofit = False
@@ -1085,16 +1078,13 @@ class ReportService:
             bg      = color_fila_par.lstrip('#') if idx % 2 == 0 else 'FFFFFF'
             row     = table.add_row()
 
-            estado_mit = ReportService._texto_seguro(f.get('estado_mitigacion'), 'DESCONOCIDO')
-            color_estado = f.get('color_estado_mitigacion', '').lstrip('#') if f.get('color_estado_mitigacion') else bg
 
             valores = [
             str(idx),
             ReportService._texto_seguro(f.get('titulo')),
             ReportService._texto_seguro(f.get('servicio')),
             ReportService._texto_seguro(f.get('resource_id')),
-            sev,
-            estado_mit
+            sev
             ]
 
             for ci, (val, w) in enumerate(zip(valores, widths)):
