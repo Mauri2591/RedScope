@@ -677,27 +677,36 @@ def _verify_bucket(bucket_name, dominio):
     return resultado
 
 def escaneo_repositorios(ejecucion_id, proyecto_id):
-    """Búsqueda de secretos en repositorios públicos"""
+    """Búsqueda de secretos en repositorios públicos con fallback automático"""
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
         dominio_scope = config.get('DOMINIO', '').strip() if config else ''
 
-        if not dominio_scope:
-            raise Exception("Dominio no configurado")
+        # 1. Obtener dominios de configuración inicial (OPCIONAL)
+        dominios_config = _parse_multiline_config(dominio_scope) if dominio_scope else []
+        if dominios_config:
+            print(f"[escaneo_repositorios] Dominios del scope: {dominios_config}")
+        else:
+            print(f"[escaneo_repositorios] Sin DOMINIO configurado, buscando fallbacks...")
 
-        # 1. Obtener dominios de configuración inicial
-        dominios_config = _parse_multiline_config(dominio_scope)
+        # 2. FALLBACK 1: Dominios válidos de mapeo_ips (si DOMINIO vacío)
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id) if not dominios_config else []
+        if dominios_from_ips:
+            print(f"[escaneo_repositorios] Dominios de mapeo_ips: {dominios_from_ips}")
 
-        # 2. Obtener subdominios de ejecuciones previas habilitadas
+        # 3. FALLBACK 2: Subdominios descubiertos (si DOMINIO y mapeo_ips vacíos)
         dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        if dominios_descubiertos:
+            print(f"[escaneo_repositorios] Subdominios descubiertos: {len(dominios_descubiertos)}")
 
-        # 3. Combinar todos
-        todos_los_dominios = list(set(dominios_config + dominios_descubiertos))
+        # 4. Combinar todas las fuentes
+        todos_los_dominios = list(set(dominios_config + dominios_from_ips + dominios_descubiertos))
 
         if not todos_los_dominios:
-            raise Exception("No hay dominios ni subdominios para escanear")
+            raise Exception("No hay dominios para escanear (DOMINIO vacío, mapeo_ips sin resultados, subdominios no descubiertos)")
 
-        print(f"[escaneo_repositorios] Dominios scope: {len(dominios_config)}, Subdominios descubiertos: {len(dominios_descubiertos)}")
+        print(f"[escaneo_repositorios] Dominios scope: {len(dominios_config)}, De mapeo_ips: {len(dominios_from_ips)}, Subdominios descubiertos: {len(dominios_descubiertos)}")
+        print(f"[escaneo_repositorios] Total dominios a buscar: {len(todos_los_dominios)}")
 
         hallazgos_raw = []
         for dom in todos_los_dominios:
@@ -714,6 +723,7 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
             "tipo": "escaneo_repositorios",
             "dominio_scope": dominio_scope,
             "total_dominios_scope": len(dominios_config),
+            "total_dominios_from_ips": len(dominios_from_ips),
             "total_subdominios_descubiertos": len(dominios_descubiertos),
             "total_dominios_buscados": len(todos_los_dominios),
             "total_hallazgos_unicos": len(hallazgos_dedup),
