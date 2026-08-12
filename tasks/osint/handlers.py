@@ -199,28 +199,31 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
         config = Proyecto.get_osint_config(proyecto_id)
         dominio_scope = config.get('DOMINIO', '').strip() if config else ''
 
-        # 1. Obtener dominios del scope inicial (REQUERIDO)
+        # 1. Obtener dominios del scope inicial (OPCIONAL)
         dominios_scope = _parse_multiline_config(dominio_scope) if dominio_scope else []
-        if not dominios_scope:
-            raise Exception("Dominio no configurado")
-
-        print(f"[discovery_subdominios] Dominios del scope: {dominios_scope}")
+        if dominios_scope:
+            print(f"[discovery_subdominios] Dominios del scope: {dominios_scope}")
+        else:
+            print(f"[discovery_subdominios] Sin dominios configurados en DOMINIO, buscando en mapeo_ips...")
 
         # 2. Obtener dominios descubiertos por reverse DNS (mapeo_ips)
-        # NOTA: Los reverse DNS hostnames son del proveedor, no se escanean
-        # Se usan como información complementaria si son subdominios válidos del objetivo
+        # Se usan como fallback si DOMINIO no está configurado
         dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
         if dominios_from_ips:
-            print(f"[discovery_subdominios] Hostnames encontrados en reverse DNS (info complementaria): {dominios_from_ips}")
+            print(f"[discovery_subdominios] Dominios descubiertos por reverse DNS: {dominios_from_ips}")
 
-        # 3. Escanear solo dominios del scope (no hostnames de proveedor)
-        todos_los_dominios = dominios_scope
+        # 3. Combinar dominios del scope + dominios descubiertos
+        todos_los_dominios = list(set(dominios_scope + dominios_from_ips))
+
+        # 4. Validar que hay dominios para escanear
+        if not todos_los_dominios:
+            raise Exception("No hay dominios para escanear (DOMINIO no configurado y mapeo_ips sin resultados)")
 
         print(f"[discovery_subdominios] Total dominios a escanear con subfinder: {len(todos_los_dominios)}")
 
         subdominios = set()
 
-        # 4. Ejecutar subfinder para cada dominio
+        # 5. Ejecutar subfinder para cada dominio
         for dom in sorted(todos_los_dominios):
             try:
                 print(f"[subfinder] Escaneando {dom}...")
