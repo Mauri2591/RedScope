@@ -260,14 +260,16 @@ class OsintEjecucion:
 
     @staticmethod
     def get_discovered_domains_from_ips(proyecto_id):
-        """Obtiene dominios descubiertos por reverse DNS en mapeo_ips (servicio_osint_id=3)
+        """Obtiene dominios del OBJETIVO descubiertos en mapeo_ips (servicio_osint_id=3)
 
-        Retorna lista de hostnames únicos del resultado más reciente de mapeo_ips que esté:
+        Retorna lista de dominios únicos del objetivo (from_domains) del resultado
+        más reciente de mapeo_ips que esté:
         - estado='COMPLETED'
         - estado_id=1 (habilitado)
-        - status='success' en ips_success (ya están validados)
+        - es_valido=true (IP validada como perteneciente al objetivo)
 
-        Se usa para continuar discovery_subdominios de forma iterativa
+        NO retorna hostnames del proveedor, solo dominios del objetivo.
+        Se usa para continuar discovery_subdominios de forma iterativa.
         """
         dominios = []
         try:
@@ -289,16 +291,19 @@ class OsintEjecucion:
             if result and result.get('resultado'):
                 try:
                     data = json.loads(result['resultado'])
-                    ips_success = data.get('ips_success', [])
+                    # Usar ips_todas (lista completa) en lugar de ips_success (resumida)
+                    ips_todas = data.get('ips_todas', [])
 
-                    # Extraer todos los hostnames de ips_success (ya están filtrados como válidos)
-                    for ip_entry in ips_success:
-                        hostname = ip_entry.get('hostname')
-                        if hostname and hostname != 'unknown' and hostname != 'error':
-                            dominios.append(hostname)
+                    # Extraer dominios del objetivo (from_domains) solo de IPs válidas
+                    for ip_entry in ips_todas:
+                        # Solo procesar IPs validadas como pertenecientes al objetivo
+                        if ip_entry.get('es_valido') == True and ip_entry.get('status') == 'success':
+                            from_domains = ip_entry.get('from_domains', [])
+                            if from_domains:
+                                dominios.extend(from_domains)
 
                     dominios = sorted(list(set(dominios)))  # Deduplicar y ordenar
-                    print(f"[OsintEjecucion] Dominios descubiertos por reverse DNS: {len(dominios)}")
+                    print(f"[OsintEjecucion] Dominios del objetivo en mapeo_ips: {len(dominios)} - {dominios}")
                 except json.JSONDecodeError as e:
                     print(f"[OsintEjecucion] Error parseando JSON de mapeo_ips: {e}")
             else:
