@@ -212,3 +212,48 @@ class OsintEjecucion:
         finally:
             cursor.close()
             conn.close()
+
+    @staticmethod
+    def get_discovered_subdomains(proyecto_id):
+        """Obtiene el ÚLTIMO resultado habilitado de discovery_subdominios (servicio_osint_id=1)
+
+        Retorna lista de subdominios del resultado más reciente que esté:
+        - estado='COMPLETED'
+        - estado_id=1 (habilitado, no estado_id=2 que es inhabilitado)
+
+        Si hay múltiples ejecuciones de subdominios, toma SOLO la más reciente habilitada
+        """
+        subdomains = []
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("""
+                SELECT resultado FROM osint_ejecuciones
+                WHERE proyecto_id = %s
+                AND servicio_osint_id = 1
+                AND estado = 'COMPLETED'
+                AND estado_id = 1
+                ORDER BY fecha_creacion DESC
+                LIMIT 1
+            """, (proyecto_id,))
+
+            result = cursor.fetchone()
+
+            if result and result.get('resultado'):
+                try:
+                    data = json.loads(result['resultado'])
+                    subdomains = data.get('subdominios', [])
+                    print(f"[OsintEjecucion] Subdominios descubiertos (habilitados): {len(subdomains)}")
+                except json.JSONDecodeError as e:
+                    print(f"[OsintEjecucion] Error parseando JSON: {e}")
+            else:
+                print(f"[OsintEjecucion] Sin resultados habilitados de discovery_subdominios para proyecto {proyecto_id}")
+
+        except Exception as e:
+            print(f"[OsintEjecucion] Error obteniendo subdominios descubiertos: {e}")
+        finally:
+            cursor.close()
+            conn.close()
+
+        return subdomains
