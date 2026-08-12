@@ -1218,7 +1218,11 @@ def _search_waybackurls(dominio):
 
 
 def _fuzz_common_endpoints(dominio):
-    """Fuzzing de directorios/endpoints comunes"""
+    """Fuzzing de directorios/endpoints comunes - SIGUE REDIRECTS
+
+    Mejora: Ahora sigue 301/302 redirects y reporta solo si el destino
+    devuelve 200/401/403 (no 404)
+    """
     endpoints = set()
 
     # Palabras clave comunes en APIs y aplicaciones
@@ -1242,41 +1246,47 @@ def _fuzz_common_endpoints(dominio):
         '/api/auth', '/api/login', '/api/token',
     ]
 
-    print(f"[fuzzing] Probando {len(common_paths)} endpoints comunes en {dominio}...")
+    print(f"[fuzzing] Probando {len(common_paths)} endpoints comunes en {dominio} (siguiendo redirects)...")
 
-    # Status codes que indican que el endpoint EXISTE
-    valid_status_codes = ['200', '201', '204', '301', '302', '307', '308', '400', '401', '403', '405']
+    # Status codes que indican que el endpoint REALMENTE EXISTE (después de seguir redirects)
+    # 200: OK, 401/403: Acceso denegado (pero existe), 405: Método no permitido
+    valid_status_codes = ['200', '201', '204', '400', '401', '403', '405']
 
     for path in common_paths:
         url = f"https://{dominio}{path}"
         try:
+            # -L: seguir redirects, -I: solo headers
             result = subprocess.run(
-                ['curl', '-s', '-I', '-m', '3', '--insecure', url],
+                ['curl', '-s', '-I', '-L', '-m', '5', '--insecure', url],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=6
             )
 
             if result.returncode == 0:
-                # Extraer el status code de la respuesta
+                # Extraer el ÚLTIMO status code (después de seguir redirects)
                 status_code = None
                 for line in result.stdout.split('\n'):
                     if line.startswith('HTTP'):
-                        # Extraer código: "HTTP/1.1 200 OK" → "200"
+                        # Capturar todas las líneas HTTP (para tomar la última)
                         parts = line.split()
                         if len(parts) >= 2:
-                            status_code = parts[1]
-                            break
+                            status_code = parts[1]  # Sobreescribe con la última
 
-                # Solo agregar si el status code indica que existe
+                # Solo agregar si el status code FINAL indica que existe
+                # Ignora 404 (no existe) y 301/302 (redirect loop)
                 if status_code and status_code in valid_status_codes:
                     endpoint_info = f"{url} [{status_code}]"
                     endpoints.add(endpoint_info)
                     print(f"✓ {endpoint_info}")
+                elif status_code == '404':
+                    print(f"✗ {url} [404 - No existe]")
+        except subprocess.TimeoutExpired:
+            pass
         except:
             pass
 
-    print(f"[fuzzing] Encontrados {len(endpoints)} endpoints activos (status válido)")
+    print(f"[fuzzing] Encontrados {len(endpoints)} endpoints accesibles (no 404)")
     return endpoints
 
 
