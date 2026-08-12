@@ -709,7 +709,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
     _run_osint_job(ejecucion_id, job)
 
 def busqueda_endpoints(ejecucion_id, proyecto_id):
-    """Búsqueda de endpoints con waybackurls"""
+    """Búsqueda de endpoints - múltiples estrategias (waybackurls, fuzzing, GitHub)"""
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
         dominio = config.get('DOMINIO', '').strip()
@@ -724,21 +724,16 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
             raise Exception("No se encontraron dominios válidos")
 
         for dom in dominios:
-            try:
-                result = subprocess.run(
-                    ['waybackurls', dom],
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                if result.stdout:
-                    endpoints.update(result.stdout.strip().split('\n'))
-            except FileNotFoundError:
-                print(f"[waybackurls] No instalado")
-            except subprocess.TimeoutExpired:
-                print(f"[waybackurls] Timeout para {dom}")
-            except Exception as e:
-                print(f"[waybackurls] Error en {dom}: {e}")
+            print(f"[busqueda_endpoints] Escaneando {dom}...")
+
+            # 1. Wayback Machine (URLs históricas)
+            endpoints.update(_search_waybackurls(dom))
+
+            # 2. Fuzzing de directorios comunes
+            endpoints.update(_fuzz_common_endpoints(dom))
+
+            # 3. Búsqueda en GitHub (código que referencia endpoints)
+            endpoints.update(_search_github_endpoints(dom))
 
         endpoints = sorted(list(filter(None, endpoints)))
 
@@ -750,6 +745,128 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
         }
 
     _run_osint_job(ejecucion_id, job)
+
+
+def _search_waybackurls(dominio):
+    """Busca URLs en Wayback Machine"""
+    endpoints = set()
+    try:
+        print(f"[waybackurls] Buscando en Wayback Machine para {dominio}...")
+        result = subprocess.run(
+            ['waybackurls', dominio],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.stdout:
+            urls = result.stdout.strip().split('\n')
+            endpoints.update([url for url in urls if url])
+            print(f"[waybackurls] Encontrados {len(endpoints)} endpoints")
+    except FileNotFoundError:
+        print(f"[waybackurls] No instalado (instalar: go install github.com/tomnomnom/waybackurls@latest)")
+    except subprocess.TimeoutExpired:
+        print(f"[waybackurls] Timeout")
+    except Exception as e:
+        print(f"[waybackurls] Error: {e}")
+
+    return endpoints
+
+
+def _fuzz_common_endpoints(dominio):
+    """Fuzzing de directorios/endpoints comunes"""
+    endpoints = set()
+
+    # Palabras clave comunes en APIs y aplicaciones
+    common_paths = [
+        '/api', '/api/v1', '/api/v2', '/api/v3',
+        '/admin', '/admin/panel', '/admin/dashboard',
+        '/login', '/signin', '/logout',
+        '/users', '/user', '/profile', '/account',
+        '/search', '/query', '/data', '/list',
+        '/backup', '/backups', '/export',
+        '/config', '/configuration', '/settings',
+        '/test', '/debug', '/status', '/health',
+        '/wp-admin', '/wp-login.php',
+        '/.git', '/.svn', '/.env',
+        '/swagger', '/swagger-ui', '/api-docs',
+        '/actuator', '/graphql', '/graphiql',
+        '/rest', '/service', '/services',
+        '/download', '/upload', '/file',
+        '/webhook', '/webhooks',
+        '/oauth', '/auth', '/authorize',
+        '/api/auth', '/api/login', '/api/token',
+    ]
+
+    print(f"[fuzzing] Probando {len(common_paths)} endpoints comunes en {dominio}...")
+
+    for path in common_paths:
+        url = f"https://{dominio}{path}"
+        try:
+            result = subprocess.run(
+                ['curl', '-s', '-I', '-m', '3', url],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            # Si no da 404 o error de conexión, probablemente existe
+            if result.returncode == 0 and '404' not in result.stdout:
+                endpoints.add(url)
+                print(f"✓ {url}")
+        except:
+            pass
+
+    print(f"[fuzzing] Encontrados {len(endpoints)} endpoints activos")
+    return endpoints
+
+
+def _search_github_endpoints(dominio):
+    """Busca referencias a endpoints en GitHub"""
+    endpoints = set()
+    GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '')
+
+    if not GITHUB_TOKEN:
+        print("[github] Token no configurado, saltando búsqueda de endpoints en GitHub")
+        return endpoints
+
+    try:
+        print(f"[github] Buscando endpoints en GitHub para {dominio}...")
+        import urllib.parse
+
+        # Buscar patterns de rutas en código
+        searches = [
+            f'"{dominio}/api',
+            f'"/api/{dominio.split(".")[0]}',
+            f'endpoint.*{dominio}',
+        ]
+
+        for search_query in searches:
+            try:
+                encoded_query = urllib.parse.quote(search_query)
+                result = subprocess.run(
+                    ['curl', '-s', '-H', f'Authorization: token {GITHUB_TOKEN}',
+                     f'https://api.github.com/search/code?q={encoded_query}&per_page=5'],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+
+                if result.stdout:
+                    data = json.loads(result.stdout)
+                    items = data.get('items', [])
+
+                    for item in items:
+                        # Extraer URLs/paths del código
+                        url = item.get('html_url', '')
+                        if url:
+                            endpoints.add(url)
+            except:
+                pass
+
+        print(f"[github] Encontrados {len(endpoints)} referencias en GitHub")
+    except Exception as e:
+        print(f"[github] Error: {e}")
+
+    return endpoints
 
 def google_dorking(ejecucion_id, proyecto_id):
     """Google Dorking - búsquedas especializadas con resultados reales"""
