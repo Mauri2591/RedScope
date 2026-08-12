@@ -700,23 +700,34 @@ def _check_bucket_anonymous_access(bucket_name):
     try:
         # Intentar listar bucket via HTTP anónimo
         url = f"https://{bucket_name}.s3.amazonaws.com/"
-        result = subprocess.run(
-            ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}', url],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
 
-        http_code = result.stdout.strip()
+        try:
+            response = requests.head(url, timeout=5, allow_redirects=False, verify=False)
+            http_code = response.status_code
+            print(f"[s3-anon] {bucket_name}: HTTP {http_code}")
 
-        # 200 = acceso público, 403 = privado, 404 = no existe
-        if http_code == '200':
-            return 'anónimo'  # ← BUCKET ABIERTO AL PÚBLICO
-        elif http_code == '403':
-            return 'privado'
-        else:
-            return 'desconocido'
-    except:
+            # 200 = acceso público, 403 = privado, 404 = no existe
+            if http_code == 200:
+                print(f"[s3-anon] ✅ {bucket_name} - ACCESO ANÓNIMO ABIERTO")
+                return 'anónimo'  # ← BUCKET ABIERTO AL PÚBLICO
+            elif http_code == 403:
+                print(f"[s3-anon] ❌ {bucket_name} - Acceso denegado (privado)")
+                return 'privado'
+            elif http_code == 404:
+                return 'no_existe'
+            else:
+                return 'desconocido'
+        except requests.exceptions.Timeout:
+            print(f"[s3-anon] ⏱ {bucket_name} - Timeout")
+            return 'timeout'
+        except requests.exceptions.SSLError:
+            print(f"[s3-anon] 🔒 {bucket_name} - SSL error")
+            return 'ssl_error'
+        except requests.exceptions.ConnectionError as e:
+            print(f"[s3-anon] 🌐 {bucket_name} - Conexión error: {e}")
+            return 'conexion_error'
+    except Exception as e:
+        print(f"[s3-anon] ⚠ {bucket_name} - Error general: {e}")
         return 'error'
 
 def _verify_bucket(bucket_name, dominio):
