@@ -459,7 +459,8 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
             hallazgos_raw.extend(_search_trufflehog(dom))
 
         # Deduplicar y agrupar por repositorio (con filtro de relevancia)
-        hallazgos_dedup = _deduplicate_github_results(hallazgos_raw, dominio)
+        # Pasar la lista de dominios parseados, no el string original
+        hallazgos_dedup = _deduplicate_github_results(hallazgos_raw, dominios)
 
         return {
             "tipo": "escaneo_repositorios",
@@ -534,38 +535,42 @@ def _search_github(dominio):
     return hallazgos
 
 
-def _generate_domain_variants(dominio):
-    """Genera todas las variantes posibles de un dominio
+def _generate_domain_variants(dominios):
+    """Genera todas las variantes posibles de uno o múltiples dominios
 
-    Ejemplo: capacita.ater.gob.ar genera:
-    - capacita.ater.gob.ar
-    - ater.gob.ar
-    - capacita.ater.gob
-    - ater.gob
-    - capacita.ater
-    - ater
+    Ejemplo: ['capacita.ater.gob.ar', 'www.ater.gob.ar'] genera:
+    - capacita.ater.gob.ar, ater.gob.ar, capacita.ater.gob, ater.gob, capacita.ater, ater
+    - www.ater.gob.ar, ater.gob.ar, www.ater.gob, ater.gob, www.ater, ater
     """
     variants = set()
-    parts = dominio.lower().split('.')
 
-    # Agregar el dominio completo
-    variants.add(dominio.lower())
+    # Si recibe string, convertir a lista
+    if isinstance(dominios, str):
+        dominios = [dominios.strip()]
+    else:
+        dominios = [d.strip() for d in dominios if d.strip()]
 
-    # Generar todas las combinaciones eliminando partes desde el inicio
-    for i in range(1, len(parts)):
-        variant = '.'.join(parts[i:])
-        variants.add(variant)
+    for dominio in dominios:
+        parts = dominio.lower().split('.')
 
-    # Agregar cada palabra individual (útil para búsquedas en repos)
-    for part in parts:
-        if part and len(part) > 2:  # Ignorar TLDs cortos
-            variants.add(part)
+        # Agregar el dominio completo
+        variants.add(dominio.lower())
+
+        # Generar todas las combinaciones eliminando partes desde el inicio
+        for i in range(1, len(parts)):
+            variant = '.'.join(parts[i:])
+            variants.add(variant)
+
+        # Agregar cada palabra individual (útil para búsquedas en repos)
+        for part in parts:
+            if part and len(part) > 2:  # Ignorar TLDs cortos
+                variants.add(part)
 
     return variants
 
 
 def _deduplicate_github_results(hallazgos_raw, dominio=''):
-    """Deduplica y agrupa hallazgos por repositorio, filtrando por variantes del dominio"""
+    """Deduplica y agrupa hallazgos por repositorio, filtrando SOLO repos relevantes"""
     repos_dict = {}
 
     # Generar todas las variantes del dominio
@@ -582,18 +587,23 @@ def _deduplicate_github_results(hallazgos_raw, dominio=''):
         if not repo:
             continue
 
-        # Filtro: Verificar que el repo contenga variantes del dominio en el NOMBRE
-        # (no solo en archivos genéricos que son listas/research)
+        repo_lower = repo.lower()
+
+        # Filtro 1: El nombre del repo DEBE contener una variante del dominio
         if domain_variants:
-            repo_lower = repo.lower()
-
-            # Prioridad 1: El nombre del repo contiene variante del dominio
-            has_variant_in_name = any(var in repo_lower for var in domain_variants)
-
-            if not has_variant_in_name:
-                # Prioridad 2: Si NO está en nombre, ignorar
-                # (evita false positives de listas genéricas)
+            has_variant = any(var in repo_lower for var in domain_variants)
+            if not has_variant:
                 continue
+
+        # Filtro 2: Remover repos que sean claramente no relacionados
+        # (incluso si mencionan el dominio, no son de ATER)
+        exclusion_keywords = [
+            'privatdb', 'gfw', 'piiexel', 'random', 'immobiliaria',
+            'cerosmrt', 'pasxalisk', 'rahultop', 'swrdfgd'
+        ]
+        if any(excl in repo_lower for excl in exclusion_keywords):
+            print(f"[github] Rechazado (exclusion list): {repo}")
+            continue
 
         if repo not in repos_dict:
             repos_dict[repo] = {
