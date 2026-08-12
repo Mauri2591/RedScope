@@ -257,3 +257,57 @@ class OsintEjecucion:
             conn.close()
 
         return subdomains
+
+    @staticmethod
+    def get_discovered_domains_from_ips(proyecto_id):
+        """Obtiene dominios descubiertos por reverse DNS en mapeo_ips (servicio_osint_id=3)
+
+        Retorna lista de hostnames únicos del resultado más reciente de mapeo_ips que esté:
+        - estado='COMPLETED'
+        - estado_id=1 (habilitado)
+        - status='success' en ips_success
+
+        Se usa para continuar discovery_subdominios de forma iterativa
+        """
+        dominios = []
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("""
+                SELECT resultado FROM osint_ejecuciones
+                WHERE proyecto_id = %s
+                AND servicio_osint_id = 3
+                AND estado = 'COMPLETED'
+                AND estado_id = 1
+                ORDER BY fecha_creacion DESC
+                LIMIT 1
+            """, (proyecto_id,))
+
+            result = cursor.fetchone()
+
+            if result and result.get('resultado'):
+                try:
+                    data = json.loads(result['resultado'])
+                    ips_success = data.get('ips_success', [])
+
+                    # Extraer todos los hostnames que no sean 'unknown'
+                    for ip_entry in ips_success:
+                        hostname = ip_entry.get('hostname')
+                        if hostname and hostname != 'unknown' and hostname != 'error':
+                            dominios.append(hostname)
+
+                    dominios = sorted(list(set(dominios)))  # Deduplicar y ordenar
+                    print(f"[OsintEjecucion] Dominios descubiertos por reverse DNS: {len(dominios)}")
+                except json.JSONDecodeError as e:
+                    print(f"[OsintEjecucion] Error parseando JSON de mapeo_ips: {e}")
+            else:
+                print(f"[OsintEjecucion] Sin resultados habilitados de mapeo_ips para proyecto {proyecto_id}")
+
+        except Exception as e:
+            print(f"[OsintEjecucion] Error obteniendo dominios de mapeo_ips: {e}")
+        finally:
+            cursor.close()
+            conn.close()
+
+        return dominios

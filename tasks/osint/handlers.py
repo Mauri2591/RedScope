@@ -186,27 +186,49 @@ def _reverse_dns_multi_resolver(ip):
 # ══════════════════════════════════════════════════════════════════
 
 def discovery_subdominios(ejecucion_id, proyecto_id):
-    """Descubrimiento de subdominios con subfinder"""
+    """
+    Descubrimiento de subdominios con subfinder - ITERATIVO
+
+    Busca subdominios de:
+    1. Dominios del scope inicial (DOMINIO configurado)
+    2. Dominios descubiertos por reverse DNS en mapeo_ips
+
+    Esto permite descubrimiento más profundo sin depender solo del scope inicial
+    """
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
-        dominio = config.get('DOMINIO', '').strip() if config else ''
+        dominio_scope = config.get('DOMINIO', '').strip() if config else ''
 
-        if not dominio:
+        if not dominio_scope:
             raise Exception("Dominio no configurado")
 
-        subdominios = set()
-        dominios = _parse_multiline_config(dominio)
-
-        if not dominios:
+        # 1. Obtener dominios del scope inicial
+        dominios_scope = _parse_multiline_config(dominio_scope)
+        if not dominios_scope:
             raise Exception("No se encontraron dominios válidos en la configuración")
 
-        for dom in dominios:
+        print(f"[discovery_subdominios] Dominios del scope: {dominios_scope}")
+
+        # 2. Obtener dominios descubiertos por reverse DNS (mapeo_ips)
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
+        print(f"[discovery_subdominios] Dominios descubiertos de reverse DNS: {dominios_from_ips}")
+
+        # 3. Combinar dominios (scope + reverse DNS)
+        todos_los_dominios = list(set(dominios_scope + dominios_from_ips))
+        print(f"[discovery_subdominios] Total dominios a escanear: {len(todos_los_dominios)}")
+
+        subdominios = set()
+
+        # 4. Ejecutar subfinder para cada dominio
+        for dom in sorted(todos_los_dominios):
             try:
                 print(f"[subfinder] Escaneando {dom}...")
                 OsintEjecucion.update_resultado(ejecucion_id, {
                     "tipo": "discovery_subdominios",
-                    "dominio": dominio,
-                    "total": len(subdominios),
+                    "dominios_scope": dominios_scope,
+                    "dominios_from_ips": dominios_from_ips,
+                    "total_dominios_buscados": len(todos_los_dominios),
+                    "total_subdominios": len(subdominios),
                     "subdominios": sorted(list(filter(None, subdominios))),
                     "estado": f"Escaneando {dom}..."
                 })
@@ -218,7 +240,9 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
                     timeout=60
                 )
                 if result.stdout:
-                    subdominios.update(result.stdout.strip().split('\n'))
+                    nuevos = result.stdout.strip().split('\n')
+                    subdominios.update(nuevos)
+                    print(f"[subfinder] {dom} → {len(nuevos)} subdominios encontrados")
             except subprocess.TimeoutExpired:
                 print(f"[subfinder] Timeout para {dom}")
             except Exception as e:
@@ -228,8 +252,10 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
 
         return {
             "tipo": "discovery_subdominios",
-            "dominio": dominio,
-            "total": len(subdominios),
+            "dominios_scope": dominios_scope,
+            "dominios_from_ips": dominios_from_ips,
+            "total_dominios_buscados": len(todos_los_dominios),
+            "total_subdominios": len(subdominios),
             "subdominios": subdominios
         }
 
