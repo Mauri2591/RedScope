@@ -306,7 +306,7 @@ th {
 .análisis-de-dns { font-size: .7rem; font-weight: bold; background-color: #27ae60; color: var(--color-blanco-primario); padding: 0; }
 .búsqueda-de-endpoints { font-size: .7rem; font-weight: bold; background-color: #2c3e50; color: var(--color-blanco-primario); padding: 0; }
 .google-dorking { font-size: .7rem; font-weight: bold; background-color: #f39c12; color: var(--color-blanco-primario); padding: 0; }
-.busqueda-urls-historicas { font-size: .7rem; font-weight: bold; background-color: #9b59b6; color: var(--color-blanco-primario); padding: 0; }
+.urls-historicas { font-size: .7rem; font-weight: bold; background-color: #9b59b6; color: var(--color-blanco-primario); padding: 0; }
 
 .icono-spin {
     display: inline-block;
