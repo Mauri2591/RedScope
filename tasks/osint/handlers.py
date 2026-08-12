@@ -993,23 +993,48 @@ def _search_trufflehog(dominio):
     return []
 
 def analisis_dns(ejecucion_id, proyecto_id):
-    """Análisis de registros DNS con dig"""
+    """Análisis de registros DNS con dig
+
+    Fallback cascade:
+    1. DOMINIO configurado
+    2. Dominios descubiertos desde mapeo_ips (reverse DNS)
+    3. Subdominios descubiertos
+    4. Fallar si no hay datos en ninguna fuente
+    """
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
-        dominio = config.get('DOMINIO', '').strip()
+        dominio_config = config.get('DOMINIO', '').strip()
 
-        if not dominio:
-            raise Exception("Dominio no configurado")
+        # 1. Obtener dominios del scope inicial (OPCIONAL)
+        dominios_scope = _parse_multiline_config(dominio_config) if dominio_config else []
+        if dominios_scope:
+            print(f"[analisis_dns] Dominios del scope encontrados: {dominios_scope}")
+        else:
+            print(f"[analisis_dns] Sin dominios configurados en DOMINIO")
+
+        # 2. Fallback: Obtener dominios descubiertos por reverse DNS (mapeo_ips)
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
+        if dominios_from_ips:
+            print(f"[analisis_dns] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
+
+        # 3. Fallback: Obtener subdominios descubiertos
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        if subdominios_descubiertos:
+            print(f"[analisis_dns] Subdominios descubiertos: {len(subdominios_descubiertos)}")
+
+        # 4. Combinar todas las fuentes de dominios
+        todos_los_dominios = list(set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
+
+        # 5. Validar que hay dominios para escanear
+        if not todos_los_dominios:
+            raise Exception("No hay dominios para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
 
         registros = {}
-        dominios = _parse_multiline_config(dominio)
+        tipos = ['A', 'MX', 'NS', 'TXT', 'SOA', 'CNAME']
+        print(f"[dig] Analizando {len(todos_los_dominios)} dominios - tipos: {tipos}")
 
-        if not dominios:
-            raise Exception("No se encontraron dominios válidos")
-
-        for dom in dominios:
+        for dom in todos_los_dominios:
             registros[dom] = {}
-            tipos = ['A', 'MX', 'NS', 'TXT', 'SOA', 'CNAME']
 
             for tipo in tipos:
                 try:
@@ -1026,28 +1051,56 @@ def analisis_dns(ejecucion_id, proyecto_id):
 
         return {
             "tipo": "analisis_dns",
-            "dominio": dominio,
+            "dominios_scope": dominios_scope,
+            "dominios_from_ips": dominios_from_ips,
+            "subdominios_descubiertos": subdominios_descubiertos,
+            "total_dominios": len(todos_los_dominios),
             "registros": registros
         }
 
     _run_osint_job(ejecucion_id, job)
 
 def busqueda_endpoints(ejecucion_id, proyecto_id):
-    """Búsqueda de endpoints - múltiples estrategias (waybackurls, fuzzing, GitHub)"""
+    """Búsqueda de endpoints - múltiples estrategias (waybackurls, fuzzing, GitHub)
+
+    Fallback cascade:
+    1. DOMINIO configurado
+    2. Dominios descubiertos desde mapeo_ips (reverse DNS)
+    3. Subdominios descubiertos
+    4. Fallar si no hay datos en ninguna fuente
+    """
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
-        dominio = config.get('DOMINIO', '').strip()
+        dominio_config = config.get('DOMINIO', '').strip()
 
-        if not dominio:
-            raise Exception("Dominio no configurado")
+        # 1. Obtener dominios del scope inicial (OPCIONAL)
+        dominios_scope = _parse_multiline_config(dominio_config) if dominio_config else []
+        if dominios_scope:
+            print(f"[busqueda_endpoints] Dominios del scope encontrados: {dominios_scope}")
+        else:
+            print(f"[busqueda_endpoints] Sin dominios configurados en DOMINIO")
+
+        # 2. Fallback: Obtener dominios descubiertos por reverse DNS (mapeo_ips)
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
+        if dominios_from_ips:
+            print(f"[busqueda_endpoints] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
+
+        # 3. Fallback: Obtener subdominios descubiertos
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        if subdominios_descubiertos:
+            print(f"[busqueda_endpoints] Subdominios descubiertos: {len(subdominios_descubiertos)}")
+
+        # 4. Combinar todas las fuentes de dominios
+        todos_los_dominios = list(set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
+
+        # 5. Validar que hay dominios para escanear
+        if not todos_los_dominios:
+            raise Exception("No hay dominios para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
 
         endpoints = set()
-        dominios = _parse_multiline_config(dominio)
+        print(f"[busqueda_endpoints] Buscando endpoints en {len(todos_los_dominios)} dominios...")
 
-        if not dominios:
-            raise Exception("No se encontraron dominios válidos")
-
-        for dom in dominios:
+        for dom in todos_los_dominios:
             print(f"[busqueda_endpoints] Escaneando {dom}...")
 
             # 1. Wayback Machine (URLs históricas)
@@ -1063,7 +1116,10 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
 
         return {
             "tipo": "busqueda_endpoints",
-            "dominio": dominio,
+            "dominios_scope": dominios_scope,
+            "dominios_from_ips": dominios_from_ips,
+            "subdominios_descubiertos": subdominios_descubiertos,
+            "total_dominios": len(todos_los_dominios),
             "total": len(endpoints),
             "endpoints": endpoints
         }
@@ -1209,21 +1265,46 @@ def _search_github_endpoints(dominio):
     return endpoints
 
 def google_dorking(ejecucion_id, proyecto_id):
-    """Google Dorking - búsquedas especializadas con resultados reales"""
+    """Google Dorking - búsquedas especializadas con resultados reales
+
+    Fallback cascade:
+    1. DOMINIO configurado
+    2. Dominios descubiertos desde mapeo_ips (reverse DNS)
+    3. Subdominios descubiertos
+    4. Fallar si no hay datos en ninguna fuente
+    """
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
-        dominio = config.get('DOMINIO', '').strip()
+        dominio_config = config.get('DOMINIO', '').strip()
 
-        if not dominio:
-            raise Exception("Dominio no configurado")
+        # 1. Obtener dominios del scope inicial (OPCIONAL)
+        dominios_scope = _parse_multiline_config(dominio_config) if dominio_config else []
+        if dominios_scope:
+            print(f"[google_dorking] Dominios del scope encontrados: {dominios_scope}")
+        else:
+            print(f"[google_dorking] Sin dominios configurados en DOMINIO")
+
+        # 2. Fallback: Obtener dominios descubiertos por reverse DNS (mapeo_ips)
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
+        if dominios_from_ips:
+            print(f"[google_dorking] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
+
+        # 3. Fallback: Obtener subdominios descubiertos
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        if subdominios_descubiertos:
+            print(f"[google_dorking] Subdominios descubiertos: {len(subdominios_descubiertos)}")
+
+        # 4. Combinar todas las fuentes de dominios
+        todos_los_dominios = list(set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
+
+        # 5. Validar que hay dominios para escanear
+        if not todos_los_dominios:
+            raise Exception("No hay dominios para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
 
         resultados = []
-        dominios = _parse_multiline_config(dominio)
+        print(f"[google_dorking] Ejecutando dorks en {len(todos_los_dominios)} dominios...")
 
-        if not dominios:
-            raise Exception("No se encontraron dominios válidos")
-
-        for dom in dominios:
+        for dom in todos_los_dominios:
             # Dorks comunes para encontrar información sensible
             dorks = [
                 f'site:{dom} inurl:admin',
@@ -1244,7 +1325,10 @@ def google_dorking(ejecucion_id, proyecto_id):
 
         return {
             "tipo": "google_dorking",
-            "dominio": dominio,
+            "dominios_scope": dominios_scope,
+            "dominios_from_ips": dominios_from_ips,
+            "subdominios_descubiertos": subdominios_descubiertos,
+            "total_dominios": len(todos_los_dominios),
             "total": len(resultados),
             "resultados": resultados
         }
