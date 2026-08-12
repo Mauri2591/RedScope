@@ -1514,9 +1514,9 @@ class Proyecto:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT id, nombre, descripcion 
+            SELECT id, nombre, descripcion, tipo_analisis 
             FROM servicios_osint 
-            WHERE tipos_servicio_id = 4 AND estado_id = 1
+            WHERE tipos_servicio_id = 4 AND tipo_analisis = 'PASIVO' AND estado_id = 1;
         """)
         servicios = cursor.fetchall()
         cursor.close()
