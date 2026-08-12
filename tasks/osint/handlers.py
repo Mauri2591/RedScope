@@ -448,21 +448,24 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
         if not dominio:
             raise Exception("Dominio no configurado")
 
-        hallazgos = []
+        hallazgos_raw = []
         dominios = _parse_multiline_config(dominio)
 
         for dom in dominios:
             # 1. Búsqueda en GitHub via API pública
-            hallazgos.extend(_search_github(dom))
+            hallazgos_raw.extend(_search_github(dom))
 
             # 2. Intentar con trufflehog si está instalado
-            hallazgos.extend(_search_trufflehog(dom))
+            hallazgos_raw.extend(_search_trufflehog(dom))
+
+        # Deduplicar y agrupar por repositorio
+        hallazgos_dedup = _deduplicate_github_results(hallazgos_raw)
 
         return {
             "tipo": "escaneo_repositorios",
             "dominio": dominio,
-            "total": len(hallazgos),
-            "hallazgos": hallazgos
+            "total_hallazgos_unicos": len(hallazgos_dedup),
+            "hallazgos": hallazgos_dedup
         }
 
     _run_osint_job(ejecucion_id, job)
@@ -529,6 +532,50 @@ def _search_github(dominio):
         print(f"[github] Error: {e}")
 
     return hallazgos
+
+
+def _deduplicate_github_results(hallazgos_raw):
+    """Deduplica y agrupa hallazgos por repositorio"""
+    repos_dict = {}
+
+    for item in hallazgos_raw:
+        if item.get('tipo') != 'github_repo':
+            continue
+
+        repo = item.get('repo', '').replace('[', '').replace('](', '/').replace(')', '')
+        if not repo:
+            continue
+
+        if repo not in repos_dict:
+            repos_dict[repo] = {
+                'tipo': 'github_repo',
+                'repo': repo,
+                'url': f'https://github.com/{repo}',
+                'archivos': set(),
+                'queries': set()
+            }
+
+        # Agregar archivo si existe
+        if item.get('nombre'):
+            repos_dict[repo]['archivos'].add(item.get('nombre'))
+
+        # Agregar query
+        if item.get('query'):
+            repos_dict[repo]['queries'].add(item.get('query'))
+
+    # Convertir sets a listas ordenadas
+    resultado = []
+    for repo, data in sorted(repos_dict.items()):
+        resultado.append({
+            'tipo': data['tipo'],
+            'repo': repo,
+            'url': data['url'],
+            'queries_encontradas': len(data['queries']),
+            'queries': sorted(list(data['queries'])),
+            'archivos': sorted(list(data['archivos']))
+        })
+
+    return resultado
 
 
 def _search_trufflehog(dominio):
