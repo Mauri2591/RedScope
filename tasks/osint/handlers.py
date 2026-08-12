@@ -266,28 +266,51 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
     _run_osint_job(ejecucion_id, job)
 
 def enumeracion_servicios(ejecucion_id, proyecto_id):
-    """Enumeración de servicios con nmap - usa puertos de BD"""
+    """Enumeración de servicios con nmap - usa puertos de BD
+
+    Fallback cascade:
+    1. DOMINIO configurado
+    2. Dominios descubiertos desde mapeo_ips (reverse DNS)
+    3. Subdominios descubiertos
+    4. Fallar si no hay datos en ninguna fuente
+    """
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
-        dominio = config.get('DOMINIO', '').strip()
+        dominio_config = config.get('DOMINIO', '').strip()
 
-        if not dominio:
-            raise Exception("Dominio no configurado")
+        # 1. Obtener dominios del scope inicial (OPCIONAL)
+        dominios_scope = _parse_multiline_config(dominio_config) if dominio_config else []
+        if dominios_scope:
+            print(f"[enumeracion_servicios] Dominios del scope encontrados: {dominios_scope}")
+        else:
+            print(f"[enumeracion_servicios] Sin dominios configurados en DOMINIO")
+
+        # 2. Fallback: Obtener dominios descubiertos por reverse DNS (mapeo_ips)
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
+        if dominios_from_ips:
+            print(f"[enumeracion_servicios] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
+
+        # 3. Fallback: Obtener subdominios descubiertos
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        if subdominios_descubiertos:
+            print(f"[enumeracion_servicios] Subdominios descubiertos: {len(subdominios_descubiertos)}")
+
+        # 4. Combinar todas las fuentes de dominios
+        todos_los_dominios = list(set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
+
+        # 5. Validar que hay dominios para escanear
+        if not todos_los_dominios:
+            raise Exception("No hay dominios para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
 
         servicios = []
-        dominios = _parse_multiline_config(dominio)
-
-        if not dominios:
-            raise Exception("No se encontraron dominios válidos")
-
         puertos_dict = OsintEjecucion.top_100_common_ports()
         if not puertos_dict:
             puertos_dict = {'80': 'http', '443': 'https', '22': 'ssh', '3306': 'mysql'}
 
         puertos_str = ','.join(puertos_dict.keys())
-        print(f"[nmap] Escaneando {len(puertos_dict)} puertos comunes")
+        print(f"[nmap] Escaneando {len(puertos_dict)} puertos comunes en {len(todos_los_dominios)} dominios")
 
-        for dom in dominios:
+        for dom in todos_los_dominios:
             try:
                 result_ip = subprocess.run(
                     ['nslookup', dom],
@@ -328,7 +351,10 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
 
         return {
             "tipo": "enumeracion_servicios",
-            "dominio": dominio,
+            "dominios_scope": dominios_scope,
+            "dominios_from_ips": dominios_from_ips,
+            "subdominios_descubiertos": subdominios_descubiertos,
+            "total_dominios": len(todos_los_dominios),
             "total": len(servicios),
             "servicios": servicios
         }
@@ -497,7 +523,9 @@ def recon_cloud(ejecucion_id, proyecto_id):
                 bucket_names = _generate_bucket_candidates(dom)
                 bucket_names.extend(_find_buckets_wayback(dom))
                 bucket_names.extend(_find_buckets_from_ct(dom))
-                bucket_names.extend(_scan_with_wordlist(dom))
+                # DESACTIVADO: _scan_with_wordlist es muy lento (125+ llamadas a AWS por dominio)
+                # Generalmente los buckets vía wayback y CT logs son suficientes
+                # bucket_names.extend(_scan_with_wordlist(dom))
 
                 bucket_names = list(set(filter(None, bucket_names)))
                 print(f"[recon_cloud] {dom} → {len(bucket_names)} candidatos de buckets")
