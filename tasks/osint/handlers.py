@@ -199,22 +199,22 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
         config = Proyecto.get_osint_config(proyecto_id)
         dominio_scope = config.get('DOMINIO', '').strip() if config else ''
 
-        if not dominio_scope:
-            raise Exception("Dominio no configurado")
-
-        # 1. Obtener dominios del scope inicial
-        dominios_scope = _parse_multiline_config(dominio_scope)
-        if not dominios_scope:
-            raise Exception("No se encontraron dominios válidos en la configuración")
-
-        print(f"[discovery_subdominios] Dominios del scope: {dominios_scope}")
+        # 1. Obtener dominios del scope inicial (OPCIONAL)
+        dominios_scope = _parse_multiline_config(dominio_scope) if dominio_scope else []
+        if dominios_scope:
+            print(f"[discovery_subdominios] Dominios del scope: {dominios_scope}")
 
         # 2. Obtener dominios descubiertos por reverse DNS (mapeo_ips)
         dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
-        print(f"[discovery_subdominios] Dominios descubiertos de reverse DNS: {dominios_from_ips}")
+        if dominios_from_ips:
+            print(f"[discovery_subdominios] Dominios descubiertos de reverse DNS: {dominios_from_ips}")
 
         # 3. Combinar dominios (scope + reverse DNS)
         todos_los_dominios = list(set(dominios_scope + dominios_from_ips))
+
+        if not todos_los_dominios:
+            raise Exception("No hay dominios para escanear. Configura DOMINIO o ejecuta mapeo_ips primero")
+
         print(f"[discovery_subdominios] Total dominios a escanear: {len(todos_los_dominios)}")
 
         subdominios = set()
