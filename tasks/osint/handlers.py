@@ -355,6 +355,16 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
         # 3. Hacer reverse DNS para cada IP
         ips_success = []
+
+        # Crear mapeo de IP → dominios que la resolvieron
+        ip_to_dominios = {}
+        for dom, resolvers_data in resolution_metadata['dominios_resueltos'].items():
+            for ips_list in resolvers_data.values():
+                for ip in ips_list:
+                    if ip not in ip_to_dominios:
+                        ip_to_dominios[ip] = []
+                    ip_to_dominios[ip].append(dom)
+
         for ip in sorted(ips_a_analizar):
             try:
                 print(f"[mapeo_ips] Reverse DNS para {ip}...")
@@ -367,7 +377,8 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                 entry = {
                     'ip': ip,
                     'hostname': hostname,
-                    'status': status
+                    'status': status,
+                    'from_domains': ip_to_dominios.get(ip, [])
                 }
                 ips_analizadas.append(entry)
 
