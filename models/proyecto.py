@@ -1516,7 +1516,7 @@ class Proyecto:
         cursor.execute("""
             SELECT id, nombre, descripcion 
             FROM servicios_osint 
-            WHERE tipos_servicio_id = 3 AND estado_id = 1
+            WHERE tipos_servicio_id = 4 AND estado_id = 1
         """)
         servicios = cursor.fetchall()
         cursor.close()
