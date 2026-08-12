@@ -36,6 +36,17 @@ def _run_osint_job(ejecucion_id, fn):
 # HELPERS DNS MEJORADO (Multi-Resolver)
 # ══════════════════════════════════════════════════════════════════
 
+# IPs de resolvers DNS públicos a filtrar (no son del objetivo)
+PUBLIC_DNS_IPS = {
+    '8.8.8.8', '8.8.4.4',  # Google
+    '1.1.1.1', '1.0.0.1',  # Cloudflare
+    '9.9.9.9', '149.112.112.112',  # Quad9
+    '208.67.222.222', '208.67.220.220',  # OpenDNS
+    '4.4.4.4', '208.67.222.123', '208.67.220.123',  # Otros
+    '1.8.8.8', '64.6.64.6', '64.6.65.6',  # Verisign
+    '9.9.9.10',  # Quad9 sin filtro
+}
+
 def _resolve_domain_multi_resolver(domain):
     """
     Resuelve un dominio usando múltiples resolvers DNS.
@@ -96,10 +107,13 @@ def _resolve_domain_multi_resolver(domain):
     except Exception as e:
         print(f"[DNS] nslookup error: {e}")
 
-    # Consolidar IPs únicas
+    # Consolidar IPs únicas (filtrar IPs de resolvers DNS públicos)
     all_ips = set()
     for ips in ips_by_resolver.values():
         all_ips.update(ips)
+
+    # Remover IPs de servidores DNS públicos
+    all_ips = {ip for ip in all_ips if ip not in PUBLIC_DNS_IPS}
 
     return {
         'ips': sorted(list(all_ips)),
@@ -308,13 +322,15 @@ def mapeo_ips(ejecucion_id, proyecto_id):
             'ips_configuradas': []
         }
 
-        # 1. Agregar IPs configuradas directamente
+        # 1. Agregar IPs configuradas directamente (filtrar IPs de DNS públicos)
         ips_str = config.get('IPS', '').strip() if config else ''
         if ips_str:
             ips_configuradas = _parse_multiline_config(ips_str)
-            ips_a_analizar.update(ips_configuradas)
-            resolution_metadata['ips_configuradas'] = ips_configuradas
-            print(f"[mapeo_ips] IPs configuradas: {ips_configuradas}")
+            # Filtrar IPs de resolvers DNS públicos
+            ips_configuradas_filtradas = [ip for ip in ips_configuradas if ip not in PUBLIC_DNS_IPS]
+            ips_a_analizar.update(ips_configuradas_filtradas)
+            resolution_metadata['ips_configuradas'] = ips_configuradas_filtradas
+            print(f"[mapeo_ips] IPs configuradas: {ips_configuradas_filtradas}")
 
         # 2. Resolver dominios configurados usando múltiples resolvers
         dominio = config.get('DOMINIO', '').strip() if config else ''
