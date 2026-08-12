@@ -694,30 +694,31 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
         if dominios_from_ips:
             print(f"[escaneo_repositorios] Dominios de mapeo_ips: {dominios_from_ips}")
 
-        # 3. FALLBACK 2: Subdominios descubiertos (si DOMINIO y mapeo_ips vacíos)
+        # 3. Subdominios descubiertos (solo para información, NO para búsqueda)
         dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
         if dominios_descubiertos:
             print(f"[escaneo_repositorios] Subdominios descubiertos: {len(dominios_descubiertos)}")
 
-        # 4. Combinar todas las fuentes
-        todos_los_dominios = list(set(dominios_config + dominios_from_ips + dominios_descubiertos))
+        # 4. ⚠️ IMPORTANTE: Solo buscar dominios RAÍZ (config + mapeo_ips)
+        # NO buscar subdominios descubiertos (evita falsos positivos como imap, secure, jenkins)
+        dominios_para_buscar = list(set(dominios_config + dominios_from_ips))
 
-        if not todos_los_dominios:
-            raise Exception("No hay dominios para escanear (DOMINIO vacío, mapeo_ips sin resultados, subdominios no descubiertos)")
+        if not dominios_para_buscar:
+            raise Exception("No hay dominios raíz para escanear (DOMINIO vacío, mapeo_ips sin resultados)")
 
-        print(f"[escaneo_repositorios] Dominios scope: {len(dominios_config)}, De mapeo_ips: {len(dominios_from_ips)}, Subdominios descubiertos: {len(dominios_descubiertos)}")
-        print(f"[escaneo_repositorios] Total dominios a buscar: {len(todos_los_dominios)}")
+        print(f"[escaneo_repositorios] Dominios raíz a buscar: {len(dominios_para_buscar)}")
+        print(f"[escaneo_repositorios] Subdominios descubiertos (solo info): {len(dominios_descubiertos)}")
 
         hallazgos_raw = []
-        for dom in todos_los_dominios:
-            # 1. Búsqueda en GitHub via API pública
+        for dom in dominios_para_buscar:
+            # 1. Búsqueda en GitHub via API pública (SOLO DOMINIOS RAÍZ)
             hallazgos_raw.extend(_search_github(dom))
 
-            # 2. Intentar con trufflehog si está instalado
+            # 2. Intentar con trufflehog si está instalado (SOLO DOMINIOS RAÍZ)
             hallazgos_raw.extend(_search_trufflehog(dom))
 
         # Deduplicar y agrupar por repositorio (con filtro de relevancia)
-        hallazgos_dedup = _deduplicate_github_results(hallazgos_raw, todos_los_dominios)
+        hallazgos_dedup = _deduplicate_github_results(hallazgos_raw, dominios_para_buscar)
 
         return {
             "tipo": "escaneo_repositorios",
@@ -725,7 +726,7 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
             "total_dominios_scope": len(dominios_config),
             "total_dominios_from_ips": len(dominios_from_ips),
             "total_subdominios_descubiertos": len(dominios_descubiertos),
-            "total_dominios_buscados": len(todos_los_dominios),
+            "total_dominios_raiz_buscados": len(dominios_para_buscar),
             "total_hallazgos_unicos": len(hallazgos_dedup),
             "hallazgos": hallazgos_dedup
         }
@@ -754,40 +755,21 @@ def _search_github(dominio):
         else:
             domain_base = dominio
 
-        # Detectar si es un subdominio (ej: smail.ater.gob.ar tiene 4 partes)
-        domain_base_parts = domain_base.split('.')
-        is_subdomain = len(domain_base_parts) > 3  # Más de 3 partes = subdominio
+        # ✅ SIMPLIFICADO: Solo buscar palabra clave del dominio raíz
+        # Para "ater.gob.ar" → buscar "ater"
+        # Los subdominios NO se buscan individuales (evita falsos positivos)
 
-        # ✅ ARREGLO 2: Búsquedas inteligentes evitando falsos positivos
-        searches = []
+        domain_parts = domain_base.split('.')
+        keyword = domain_parts[0]  # 'ater' de 'ater.gob.ar'
 
-        # 1. Búsquedas exactas y de palabras clave del dominio raíz
-        if not is_subdomain:
-            # Para dominio raíz: ater.gob.ar
-            org_name = domain_base_parts[0]  # 'ater'
-
-            searches.extend([
-                f'"{domain_base}"',        # "ater.gob.ar"
-                f'org:{org_name}',         # org:ater (evita falsos positivos)
-                f'"{org_name}.ar"',        # "ater.ar"
-                org_name,                  # ater (palabra clave amplia)
-                f'{domain_base} secret',
-                f'{domain_base} password',
-                f'{domain_base} api_key',
-            ])
-        else:
-            # Para subdominios: smail.ater.gob.ar → NO buscar org:smail
-            # Solo buscar el subdominio exacto y variantes
-            subdomain_name = domain_base_parts[0]  # 'smail'
-            root_domain = '.'.join(domain_base_parts[1:])  # 'ater.gob.ar'
-
-            searches.extend([
-                f'"{domain_base}"',        # "smail.ater.gob.ar" (exacto)
-                f'{domain_base} secret',
-                f'{domain_base} password',
-                f'{domain_base} api_key',
-                f'"{subdomain_name}"',     # "smail" (palabra clave del subdominio)
-            ])
+        searches = [
+            f'"{keyword}"',                    # "ater" (búsqueda exacta)
+            f'org:{keyword}',                  # org:ater (organización)
+            f'{keyword} secret',               # ater secret
+            f'{keyword} password',             # ater password
+            f'{keyword} api_key',              # ater api_key
+            f'{keyword} credentials',          # ater credentials
+        ]
 
         for search_query in searches:
             try:
