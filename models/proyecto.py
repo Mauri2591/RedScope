@@ -1509,7 +1509,7 @@ class Proyecto:
         return {row['nombre']: row['valor'] for row in rows}
     
     @staticmethod
-    def get_servicios_osint():
+    def get_servicios_osint_pasivo():
         """Retorna servicios OSINT disponibles"""
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
