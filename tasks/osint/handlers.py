@@ -731,10 +731,24 @@ def _check_bucket_anonymous_access(bucket_name):
         return 'error'
 
 def _verify_bucket(bucket_name, dominio):
-    """Verifica si un bucket existe y obtiene info + acceso anónimo"""
+    """Verifica si un bucket existe y obtiene info + acceso anónimo
+
+    Prioridad: Primero verifica via HTTP (sin credenciales), luego AWS CLI
+    Solo reporta si el bucket realmente existe (HTTP != 404)
+    """
     resultado = []
 
     try:
+        # 1. PRIMERO: Verificar acceso anónimo (sin credenciales)
+        # Esto nos dice si el bucket existe realmente
+        acceso_anonimo = _check_bucket_anonymous_access(bucket_name)
+
+        # 2. Si HTTP devuelve 404, el bucket NO existe → No reportar
+        if acceso_anonimo == 'no_existe':
+            print(f"[s3-verify] {bucket_name} - No existe (HTTP 404) → IGNORAR")
+            return resultado
+
+        # 3. SEGUNDO: Verificar con AWS CLI (requiere credenciales)
         result = subprocess.run(
             ['aws', 's3', 'ls', f"s3://{bucket_name}", '--max-items', '1'],
             capture_output=True,
@@ -742,10 +756,20 @@ def _verify_bucket(bucket_name, dominio):
             timeout=5
         )
 
-        # Verificar acceso anónimo (sin credenciales)
-        acceso_anonimo = _check_bucket_anonymous_access(bucket_name)
-
-        if result.returncode == 0:
+        # 4. Determinar nivel de acceso
+        if acceso_anonimo == 'anónimo':
+            # ¡BUCKET ABIERTO AL PÚBLICO!
+            resultado.append({
+                'tipo': 's3_bucket',
+                'nombre': bucket_name,
+                'dominio': dominio,
+                'acceso': 'anónimo_abierto',  # ← CRÍTICO: ACCESO PÚBLICO
+                'acceso_anonimo': acceso_anonimo,
+                'estado': 'existe',
+                'criticidad': 'CRÍTICA'
+            })
+        elif result.returncode == 0:
+            # Acceso con credenciales AWS
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
@@ -755,6 +779,7 @@ def _verify_bucket(bucket_name, dominio):
                 'estado': 'existe'
             })
         elif 'NoSuchBucket' not in result.stderr:
+            # Existe pero está privado
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
