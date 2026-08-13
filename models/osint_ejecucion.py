@@ -577,3 +577,31 @@ class OsintEjecucion:
                 print(f"[OsintEjecucion] ADVERTENCIA: Servicio '{nombre_servicio}' no tiene handler asignado")
 
         return handlers_map
+
+    @staticmethod
+    def get_servicio_id_by_handler_name(handler_name):
+        """Obtiene el ID del servicio OSINT a partir del nombre del handler
+
+        CRÍTICO: Usa esto antes de crear una ejecución para pasar el servicio_osint_id correcto
+
+        Args:
+            handler_name: Nombre de la función handler (ej: 'escaneo_repositorios', 'analisis_dns')
+
+        Retorna:
+            int: ID del servicio, o None si no existe
+
+        Ejemplo:
+            # Para crear una ejecución OSINT:
+            servicio_id = OsintEjecucion.get_servicio_id_by_handler_name('escaneo_repositorios')
+            # Retorna: 5
+            ejecucion_id = OsintEjecucion.crear(proyecto_id, servicio_id, usuario_id)
+        """
+        handlers_map = OsintEjecucion.get_handlers_map()
+
+        # Invertir el mapeo: handler_name -> servicio_id
+        for servicio_id, handler in handlers_map.items():
+            if handler == handler_name:
+                return servicio_id
+
+        print(f"[OsintEjecucion] ERROR: Handler '{handler_name}' no encontrado en servicios")
+        return None
