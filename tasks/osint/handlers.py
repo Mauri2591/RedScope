@@ -906,17 +906,39 @@ def _search_github(dominio):
             f'filename:.postman_collection.json {keyword}',# Postman collections
             f'filename:docker-compose.yml {keyword}',      # docker-compose
 
-            # 2. Búsquedas generales
+            # 2. Búsquedas generales - Credenciales y secretos
             f'{keyword} API_KEY',
             f'{keyword} SECRET',
             f'{keyword} PASSWORD',
             f'{keyword} TOKEN',
             f'{keyword} CREDENTIALS',
+            f'{keyword} DATABASE',
+            f'{keyword} DB_PASSWORD',
+            f'{keyword} PRIVATE_KEY',
+            f'{keyword} ACCESS_KEY',
+
+            # 2b. Búsquedas por ambiente
+            f'{keyword} prod',
+            f'{keyword} production',
+            f'{keyword} staging',
+            f'{keyword} dev',
+            f'{keyword} development',
+            f'{keyword} test',
+            f'{keyword} qa',
+
+            # 2c. Búsquedas por tipo de datos sensibles
+            f'{keyword} backup',
+            f'{keyword} export',
+            f'{keyword} dump',
+            f'{keyword} private',
+            f'{keyword} confidential',
 
             # 3. Variantes comunes del nombre
             f'"{keyword}apps"',                            # aterapps
             f'"{keyword}-api"',                            # ater-api
             f'"customer-{keyword}"',                       # customer-ater
+            f'{keyword}-api',                              # ater-api (sin comillas)
+            f'customer-{keyword}',                         # customer-ater (sin comillas)
 
             # 4. Búsquedas por dominio COMPLETO + palabras sensibles
             f'"{domain_base}"',                            # "ater.gob.ar"
