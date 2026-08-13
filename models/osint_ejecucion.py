@@ -467,3 +467,113 @@ class OsintEjecucion:
         finally:
             cursor.close()
             conn.close()
+
+    @staticmethod
+    def get_servicios_map():
+        """Obtiene TODOS los servicios OSINT de la BD como dict {id: nombre}
+
+        Retorna:
+            dict: {1: 'Discovery Subdominio', 2: 'Enumeracion de Servicios', ...}
+
+        Ejemplo:
+            servicios_map = OsintEjecucion.get_servicios_map()
+            nombre_servicio = servicios_map[6]  # 'Analisis de DNS'
+        """
+        servicios_map = {}
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("""
+                SELECT id, nombre FROM servicios_osint
+                WHERE estado_id = 1
+                ORDER BY id
+            """)
+
+            for row in cursor.fetchall():
+                servicios_map[row['id']] = row['nombre']
+
+            print(f"[OsintEjecucion] Servicios cargados desde BD: {len(servicios_map)} servicios")
+
+        except Exception as e:
+            print(f"[OsintEjecucion] Error obteniendo servicios: {e}")
+        finally:
+            cursor.close()
+            conn.close()
+
+        return servicios_map
+
+    @staticmethod
+    def get_servicio_id_by_name(nombre_servicio):
+        """Obtiene el ID de un servicio OSINT por su nombre
+
+        Args:
+            nombre_servicio: Nombre del servicio (ej: 'Discovery Subdominio', 'Analisis de DNS')
+
+        Retorna:
+            int: ID del servicio, o None si no existe
+
+        Ejemplo:
+            servicio_id = OsintEjecucion.get_servicio_id_by_name('Analisis de DNS')
+            # Retorna: 6
+        """
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("""
+                SELECT id FROM servicios_osint
+                WHERE nombre = %s AND estado_id = 1
+                LIMIT 1
+            """, (nombre_servicio,))
+
+            result = cursor.fetchone()
+            return result['id'] if result else None
+
+        except Exception as e:
+            print(f"[OsintEjecucion] Error obteniendo ID de servicio '{nombre_servicio}': {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+
+    @staticmethod
+    def get_handlers_map():
+        """Obtiene mapeo dinámico de IDs de servicios a nombres de handlers
+
+        MEJOR QUE HARDCODEAR: Obtiene IDs directamente de la BD
+
+        Retorna:
+            dict: {1: 'discovery_subdominios', 2: 'enumeracion_servicios', ...}
+
+        Ejemplo:
+            handlers_map = OsintEjecucion.get_handlers_map()
+            if 6 in handlers_map:
+                handler_name = handlers_map[6]  # 'analisis_dns'
+        """
+        handlers_map = {}
+
+        # Mapeo de nombre en BD -> nombre de función handler
+        nombre_a_handler = {
+            'Discovery Subdominio': 'discovery_subdominios',
+            'Enumeracion de Servicios': 'enumeracion_servicios',
+            'Mapeo de IPs': 'mapeo_ips',
+            'Recon Cloud': 'recon_cloud',
+            'Escaneo de Repositorios': 'escaneo_repositorios',
+            'Analisis de DNS': 'analisis_dns',
+            'Busqueda de Endpoints': 'busqueda_endpoints',
+            'Google Dorking': 'google_dorking',
+            'URLs Historicas': 'urls_historicas'
+        }
+
+        servicios_map = OsintEjecucion.get_servicios_map()
+
+        for servicio_id, nombre_servicio in servicios_map.items():
+            # Convertir nombre a handler function name
+            handler_name = nombre_a_handler.get(nombre_servicio)
+            if handler_name:
+                handlers_map[servicio_id] = handler_name
+            else:
+                print(f"[OsintEjecucion] ADVERTENCIA: Servicio '{nombre_servicio}' no tiene handler asignado")
+
+        return handlers_map
