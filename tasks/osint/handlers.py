@@ -37,7 +37,6 @@ def _find_gau_path():
         '/root/go/bin/gau',
         os.path.expanduser('~/.local/go/bin/gau'),
         '/usr/local/go/bin/gau',
-        '/home/eh2023/go/bin/gau',  # ← AGREGAR ESTA LÍNEA
     ]
 
     for path in possible_paths:
@@ -1464,38 +1463,39 @@ def _get_valid_ips_from_mapeo(proyecto_id):
         return []
 
 def _search_gau(target):
-    """Busca URLs históricas usando GAU (múltiples fuentes)"""
+    """Busca URLs históricas usando GAU (múltiples fuentes)
+
+    Target puede ser:
+    - Un dominio (ej: "example.com")
+    - Una IP (ej: "192.168.1.1")
+    """
     urls = set()
     try:
         print(f"[gau] Buscando URLs históricas de {target}...")
 
         # Busca el comando gau
         gau_path = _find_gau_path()
-        print(f"[gau] Ruta encontrada: {gau_path}")  # ← AGREGAR ESTO
-        
         if not gau_path:
             print(f"[gau] No encontrado. Intenta: go install github.com/lc/gau/v2/cmd/gau@latest")
             return urls
 
-        print(f"[gau] Ejecutando: {gau_path} --subs {target}")  # ← AGREGAR ESTO
-        
+        # Ejecuta con filtros para evitar descargar archivos multimedia
+        # Nota: no usamos --subs porque causa problemas con algunos dominios
         result = subprocess.run(
-            [gau_path, '--subs', target],
+            [gau_path, '--blacklist', 'jpg,jpeg,png,gif,svg,css,js,woff,woff2,ttf,eot', target],
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=300  # 5 minutos - gau puede tardar para dominios grandes
         )
 
-        print(f"[gau] Return code: {result.returncode}")  # ← AGREGAR ESTO
-        print(f"[gau] Stdout: {result.stdout[:500]}")  # ← AGREGAR ESTO
-        print(f"[gau] Stderr: {result.stderr[:500]}")  # ← AGREGAR ESTO
-        
         if result.stdout:
             urls_found = result.stdout.strip().split('\n')
             urls.update([url for url in urls_found if url])
             print(f"[gau] Encontradas {len(urls_found)} URLs históricas para {target}")
+        else:
+            print(f"[gau] No se encontraron URLs para {target}")
     except subprocess.TimeoutExpired:
-        print(f"[gau] Timeout para {target}")
+        print(f"[gau] Timeout para {target} (dominios muy grandes pueden tardar >5 min)")
     except Exception as e:
         print(f"[gau] Error en {target}: {e}")
 
