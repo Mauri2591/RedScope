@@ -217,23 +217,24 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
     """Descubrimiento de subdominios con subfinder
 
     Busca subdominios de:
-    1. DOMINIO configurado en proyecto_osint_config
-    2. Dominios descubiertos por reverse DNS en mapeo_ips (fallback)
+    1. DOMINIO + SUBDOMINIO + SERVICIOS del scope
+    2. Dominios de mapeo_ips (fallback)
 
-    No hace discovery doble si ya existen subdominios.
+    Retorna SOLO subdominios descubiertos.
     """
     def job():
-        # 1. Obtener DOMINIO del scope (proyecto_osint_config directamente)
-        dominios_scope = OsintEjecucion.get_dominio_from_config(proyecto_id)
+        # 1. Obtener scope: DOMINIO + SUBDOMINIO + SERVICIOS
+        scope = OsintEjecucion.get_scope_completo(proyecto_id)
+        todos_los_dominios = scope['dominio'] + scope['subdominio'] + scope['servicios']
 
         # 2. Fallback: Obtener dominios de mapeo_ips
-        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id) if not dominios_scope else []
-
-        # Combinar
-        todos_los_dominios = list(set(dominios_scope + dominios_from_ips))
+        dominios_from_ips = []
+        if not todos_los_dominios:
+            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
+            todos_los_dominios = dominios_from_ips
 
         if not todos_los_dominios:
-            raise Exception("No hay dominios configurados (DOMINIO vacío en proyecto_osint_config y mapeo_ips sin resultados)")
+            raise Exception("No hay dominios configurados (scope vacío y mapeo_ips sin resultados)")
 
         subdominios = set()
         print(f"[discovery_subdominios] Escaneando {len(todos_los_dominios)} dominios con subfinder")
@@ -243,8 +244,7 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
                 print(f"[subfinder] Escaneando {dom}...")
                 OsintEjecucion.update_resultado(ejecucion_id, {
                     "tipo": "discovery_subdominios",
-                    "dominios_scope": dominios_scope,
-                    "dominios_from_ips": dominios_from_ips,
+                    "dominios_scope": scope['dominio'] + scope['subdominio'] + scope['servicios'],
                     "total_dominios_escaneados": len(todos_los_dominios),
                     "total_subdominios": len(subdominios),
                     "subdominios": sorted(list(filter(None, subdominios))),
@@ -270,9 +270,8 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
 
         return {
             "tipo": "discovery_subdominios",
-            "dominios_scope": dominios_scope,
-            "dominios_from_ips": dominios_from_ips,
-            "total_dominios_buscados": len(todos_los_dominios),
+            "dominios_scope": scope['dominio'] + scope['subdominio'] + scope['servicios'],
+            "total_dominios_escaneados": len(todos_los_dominios),
             "total_subdominios": len(subdominios),
             "subdominios": subdominios
         }
@@ -1074,37 +1073,45 @@ def _search_trufflehog(dominio):
 def analisis_dns(ejecucion_id, proyecto_id):
     """Análisis de registros DNS con dig
 
-    Fallback en BD:
-    1. DOMINIO de proyecto_osint_config (config_tipo_id=1)
-    2. Subdominios de osint_ejecuciones (discovery_subdominios)
-    3. Dominios de mapeo_ips (si falla lo anterior)
-    4. Error si no hay nada
+    Busca dominios en este orden (fallback exclusivo):
+    1. DOMINIO + SUBDOMINIO + SERVICIOS del scope
+    2. Si no hay scope → subdominios descubiertos (discovery_subdominios)
+    3. Si tampoco → dominios de mapeo_ips
+
+    Retorna SOLO los registros DNS, sin listas innecesarias.
     """
     def job():
-        # 1. Obtener DOMINIO del scope inicial (proyecto_osint_config)
-        dominios_scope = OsintEjecucion.get_dominio_from_config(proyecto_id)
+        # 1. Obtener TODO el scope: DOMINIO + SUBDOMINIO + SERVICIOS
+        scope = OsintEjecucion.get_scope_completo(proyecto_id)
+        todos_los_dominios = scope['dominio'] + scope['subdominio'] + scope['servicios']
 
-        # 2. Fallback 1: Obtener subdominios descubiertos
-        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        # Metadata de dónde vinieron los dominios
+        fuente_scope = "DOMINIO" if scope['dominio'] else "SUBDOMINIO" if scope['subdominio'] else "SERVICIOS" if scope['servicios'] else None
 
-        # 3. Fallback 2: Obtener dominios de mapeo_ips
-        dominios_from_ips = []
-        if not dominios_scope and not subdominios_descubiertos:
+        # 2. Fallback 1: Si no hay scope, usar subdominios descubiertos
+        if not todos_los_dominios:
+            subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+            if subdominios_descubiertos:
+                todos_los_dominios = subdominios_descubiertos
+                fuente_scope = "discovery_subdominios"
+
+        # 3. Fallback 2: Si tampoco, usar dominios de mapeo_ips
+        if not todos_los_dominios:
             dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
-
-        # Combinar todas las fuentes
-        todos_los_dominios = list(set(dominios_scope + subdominios_descubiertos + dominios_from_ips))
+            if dominios_from_ips:
+                todos_los_dominios = dominios_from_ips
+                fuente_scope = "mapeo_ips"
 
         if not todos_los_dominios:
             raise Exception(
                 "No hay dominios para analizar. "
-                "Configurar DOMINIO en proyecto_osint_config o ejecutar discovery_subdominios"
+                "Configurar DOMINIO/SUBDOMINIO/SERVICIOS en proyecto_osint_config o ejecutar discovery_subdominios"
             )
 
         registros = {}
         tipos = ['A', 'MX', 'NS', 'TXT', 'SOA', 'CNAME']
 
-        print(f"[analisis_dns] Analizando DNS en {len(todos_los_dominios)} dominios")
+        print(f"[analisis_dns] Analizando {len(todos_los_dominios)} dominios (fuente: {fuente_scope})")
 
         for dom in todos_los_dominios:
             registros[dom] = {}
@@ -1123,9 +1130,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
 
         return {
             "tipo": "analisis_dns",
-            "dominios_scope": dominios_scope,
-            "subdominios_descubiertos": subdominios_descubiertos,
-            "dominios_from_ips": dominios_from_ips,
+            "fuente_dominios": fuente_scope,
             "total_dominios_analizados": len(todos_los_dominios),
             "registros": registros
         }

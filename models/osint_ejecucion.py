@@ -318,43 +318,66 @@ class OsintEjecucion:
         return dominios
 
     @staticmethod
-    def get_dominio_from_config(proyecto_id):
-        """Obtiene DOMINIO inicial del proyecto desde proyecto_osint_config (config_tipo_id=1)
+    def get_scope_completo(proyecto_id):
+        """Obtiene TODO el scope del proyecto: DOMINIO + SUBDOMINIO + SERVICIOS (config_tipo_id 1, 2, 3)
 
-        Retorna lista de dominios configurados en el scope inicial del proyecto.
-        Si no hay dominios configurados, retorna lista vacía.
+        Retorna dict con:
+        - dominio: lista de dominios principales
+        - subdominio: lista de subdominios específicos
+        - servicios: lista de servicios específicos
+
+        Si no hay scope configurado, retorna dict vacío.
         """
-        dominios = []
+        scope = {
+            'dominio': [],
+            'subdominio': [],
+            'servicios': []
+        }
+
         try:
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
 
+            # Obtener DOMINIO (config_tipo_id=1)
             cursor.execute("""
                 SELECT valor FROM proyecto_osint_config
-                WHERE proyecto_id = %s
-                AND config_tipo_id = 1
-                AND estado_id = 1
-                LIMIT 1
+                WHERE proyecto_id = %s AND config_tipo_id = 1 AND estado_id = 1
             """, (proyecto_id,))
-
             result = cursor.fetchone()
-
             if result and result.get('valor'):
-                # Parsear multilinea
-                valor = result['valor'].strip()
-                if valor:
-                    dominios = [d.strip() for d in valor.replace('\r\n', '\n').split('\n') if d.strip()]
-                    print(f"[OsintEjecucion] DOMINIO inicial encontrado: {dominios}")
+                scope['dominio'] = [d.strip() for d in result['valor'].replace('\r\n', '\n').split('\n') if d.strip()]
+
+            # Obtener SUBDOMINIO (config_tipo_id=2)
+            cursor.execute("""
+                SELECT valor FROM proyecto_osint_config
+                WHERE proyecto_id = %s AND config_tipo_id = 2 AND estado_id = 1
+            """, (proyecto_id,))
+            result = cursor.fetchone()
+            if result and result.get('valor'):
+                scope['subdominio'] = [d.strip() for d in result['valor'].replace('\r\n', '\n').split('\n') if d.strip()]
+
+            # Obtener SERVICIOS (config_tipo_id=3)
+            cursor.execute("""
+                SELECT valor FROM proyecto_osint_config
+                WHERE proyecto_id = %s AND config_tipo_id = 3 AND estado_id = 1
+            """, (proyecto_id,))
+            result = cursor.fetchone()
+            if result and result.get('valor'):
+                scope['servicios'] = [d.strip() for d in result['valor'].replace('\r\n', '\n').split('\n') if d.strip()]
+
+            total_scope = len(scope['dominio']) + len(scope['subdominio']) + len(scope['servicios'])
+            if total_scope > 0:
+                print(f"[OsintEjecucion] Scope encontrado - DOMINIO: {len(scope['dominio'])}, SUBDOMINIO: {len(scope['subdominio'])}, SERVICIOS: {len(scope['servicios'])}")
             else:
-                print(f"[OsintEjecucion] Sin DOMINIO configurado en proyecto {proyecto_id}")
+                print(f"[OsintEjecucion] Sin scope configurado en proyecto {proyecto_id}")
 
         except Exception as e:
-            print(f"[OsintEjecucion] Error obteniendo DOMINIO: {e}")
+            print(f"[OsintEjecucion] Error obteniendo scope: {e}")
         finally:
             cursor.close()
             conn.close()
 
-        return dominios
+        return scope
 
     @staticmethod
     def get_latest_resultado(proyecto_id, servicio_nombre):
