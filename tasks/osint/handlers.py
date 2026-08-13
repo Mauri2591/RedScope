@@ -917,8 +917,13 @@ def _search_github(dominio):
             f'"{keyword}-api"',                            # ater-api
             f'"customer-{keyword}"',                       # customer-ater
 
-            # 4. Búsquedas por dominio
+            # 4. Búsquedas por dominio COMPLETO + palabras sensibles
             f'"{domain_base}"',                            # "ater.gob.ar"
+            f'"{domain_base}" secret',                     # "ater.gob.ar" secret
+            f'"{domain_base}" password',                   # "ater.gob.ar" password
+            f'"{domain_base}" token',                      # "ater.gob.ar" token
+            f'"{domain_base}" api',                        # "ater.gob.ar" api
+            f'"{domain_base}" credentials',                # "ater.gob.ar" credentials
         ]
 
         for search_query in searches:
