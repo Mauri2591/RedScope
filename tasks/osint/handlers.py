@@ -1073,10 +1073,10 @@ def _search_trufflehog(dominio):
 def analisis_dns(ejecucion_id, proyecto_id):
     """Análisis de registros DNS con dig
 
-    Busca dominios en este orden (fallback exclusivo):
+    Busca dominios en este orden (fallback INCLUSIVO):
     1. DOMINIO + SUBDOMINIO + SERVICIOS del scope
-    2. Si no hay scope → subdominios descubiertos (discovery_subdominios)
-    3. Si tampoco → dominios de mapeo_ips
+    2. SIEMPRE agregar subdominios descubiertos si existen (discovery_subdominios)
+    3. Si no hay nada, fallback a dominios de mapeo_ips
 
     Retorna SOLO los registros DNS, sin listas innecesarias.
     """
@@ -1085,22 +1085,14 @@ def analisis_dns(ejecucion_id, proyecto_id):
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
         todos_los_dominios = scope['dominio'] + scope['subdominio'] + scope['servicios']
 
-        # Metadata de dónde vinieron los dominios
-        fuente_scope = "DOMINIO" if scope['dominio'] else "SUBDOMINIO" if scope['subdominio'] else "SERVICIOS" if scope['servicios'] else None
+        # 2. SIEMPRE obtener subdominios descubiertos si existen (lógica INCLUSIVA)
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        todos_los_dominios.extend(subdominios_descubiertos)
 
-        # 2. Fallback 1: Si no hay scope, usar subdominios descubiertos
-        if not todos_los_dominios:
-            subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-            if subdominios_descubiertos:
-                todos_los_dominios = subdominios_descubiertos
-                fuente_scope = "discovery_subdominios"
-
-        # 3. Fallback 2: Si tampoco, usar dominios de mapeo_ips
+        # 3. Fallback: Si no hay nada, usar dominios de mapeo_ips
         if not todos_los_dominios:
             dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
-            if dominios_from_ips:
-                todos_los_dominios = dominios_from_ips
-                fuente_scope = "mapeo_ips"
+            todos_los_dominios.extend(dominios_from_ips)
 
         if not todos_los_dominios:
             raise Exception(
@@ -1108,10 +1100,15 @@ def analisis_dns(ejecucion_id, proyecto_id):
                 "Configurar DOMINIO/SUBDOMINIO/SERVICIOS en proyecto_osint_config o ejecutar discovery_subdominios"
             )
 
+        # Deduplicar y ordenar
+        todos_los_dominios = sorted(list(set(todos_los_dominios)))
+
         registros = {}
         tipos = ['A', 'MX', 'NS', 'TXT', 'SOA', 'CNAME']
 
-        print(f"[analisis_dns] Analizando {len(todos_los_dominios)} dominios (fuente: {fuente_scope})")
+        print(f"[analisis_dns] Analizando {len(todos_los_dominios)} dominios")
+        print(f"  - Scope: {len(scope['dominio']) + len(scope['subdominio']) + len(scope['servicios'])}")
+        print(f"  - Discovery subdominios: {len(subdominios_descubiertos)}")
 
         for dom in todos_los_dominios:
             registros[dom] = {}
@@ -1130,8 +1127,9 @@ def analisis_dns(ejecucion_id, proyecto_id):
 
         return {
             "tipo": "analisis_dns",
-            "fuente_dominios": fuente_scope,
             "total_dominios_analizados": len(todos_los_dominios),
+            "dominios_scope": len(scope['dominio']) + len(scope['subdominio']) + len(scope['servicios']),
+            "subdominios_descubiertos": len(subdominios_descubiertos),
             "registros": registros
         }
 
@@ -1141,29 +1139,35 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
     """Búsqueda de endpoints - múltiples estrategias (waybackurls, fuzzing, GitHub)
 
     Busca en:
-    1. DOMINIO configurado
-    2. Subdominios descubiertos (discovery_subdominios)
-    3. Dominios de mapeo_ips (fallback)
+    1. DOMINIO configurado + subdominios descubiertos (lógica INCLUSIVA)
+    2. Fallback: dominios de mapeo_ips si no hay nada
     """
     def job():
         # 1. DOMINIO del scope
         dominios_scope = OsintEjecucion.get_dominio_from_config(proyecto_id)
 
-        # 2. Subdominios descubiertos
+        # 2. SIEMPRE agregar subdominios descubiertos (lógica INCLUSIVA)
         subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
 
-        # 3. Fallback: dominios de mapeo_ips
-        dominios_from_ips = []
-        if not dominios_scope and not subdominios_descubiertos:
-            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
+        todos_los_dominios = dominios_scope + subdominios_descubiertos
 
-        todos_los_dominios = list(set(dominios_scope + subdominios_descubiertos + dominios_from_ips))
+        # 3. Fallback: dominios de mapeo_ips si no hay nada
+        if not todos_los_dominios:
+            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
+            todos_los_dominios = dominios_from_ips
+        else:
+            dominios_from_ips = []
+
+        # Deduplicar
+        todos_los_dominios = sorted(list(set(todos_los_dominios)))
 
         if not todos_los_dominios:
             raise Exception("No hay dominios para buscar endpoints")
 
         endpoints = set()
         print(f"[busqueda_endpoints] Buscando endpoints en {len(todos_los_dominios)} dominios...")
+        print(f"  - Dominios scope: {len(dominios_scope)}")
+        print(f"  - Subdominios descubiertos: {len(subdominios_descubiertos)}")
 
         for dom in todos_los_dominios:
             endpoints.update(_search_waybackurls(dom))
@@ -1174,10 +1178,9 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
 
         return {
             "tipo": "busqueda_endpoints",
-            "dominios_scope": dominios_scope,
-            "subdominios_descubiertos": subdominios_descubiertos,
-            "dominios_from_ips": dominios_from_ips,
             "total_dominios": len(todos_los_dominios),
+            "dominios_scope": len(dominios_scope),
+            "subdominios_descubiertos": len(subdominios_descubiertos),
             "total": len(endpoints),
             "endpoints": endpoints
         }

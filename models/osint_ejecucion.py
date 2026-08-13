@@ -380,6 +380,34 @@ class OsintEjecucion:
         return scope
 
     @staticmethod
+    def get_dominio_from_config(proyecto_id):
+        """Obtiene SOLO los dominios principales del scope (config_tipo_id=1)
+
+        Retorna lista de dominios, o lista vacía si no hay configurados
+        """
+        dominios = []
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+
+            # Obtener DOMINIO (config_tipo_id=1)
+            cursor.execute("""
+                SELECT valor FROM proyecto_osint_config
+                WHERE proyecto_id = %s AND config_tipo_id = 1 AND estado_id = 1
+            """, (proyecto_id,))
+            result = cursor.fetchone()
+            if result and result.get('valor'):
+                dominios = [d.strip() for d in result['valor'].replace('\r\n', '\n').split('\n') if d.strip()]
+
+        except Exception as e:
+            print(f"[OsintEjecucion] Error obteniendo dominios: {e}")
+        finally:
+            cursor.close()
+            conn.close()
+
+        return dominios
+
+    @staticmethod
     def get_latest_resultado(proyecto_id, servicio_nombre):
         """Obtiene el resultado de la última ejecución de un servicio OSINT
 
