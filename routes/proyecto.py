@@ -1260,7 +1260,8 @@ def run_osint():
         5: 'escaneo_repositorios',
         6: 'analisis_dns',
         7: 'busqueda_endpoints',
-        8: 'google_dorking'
+        8: 'google_dorking',
+        9: 'urls_historicas'
     }
 
     handler_name = handlers_map.get(servicio_osint_id)

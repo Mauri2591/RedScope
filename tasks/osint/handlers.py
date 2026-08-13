@@ -1339,7 +1339,7 @@ def _search_github_endpoints(dominio):
 
     return endpoints
 
-def busqueda_urls_historicas(ejecucion_id, proyecto_id):
+def urls_historicas(ejecucion_id, proyecto_id):
     """Búsqueda de URLs históricas con GAU - múltiples fuentes públicas
 
     Fallback cascade:
@@ -1392,7 +1392,7 @@ def busqueda_urls_historicas(ejecucion_id, proyecto_id):
         urls = sorted(list(filter(None, urls)))
 
         return {
-            "tipo": "busqueda_urls_historicas",
+            "tipo": "urls_historicas",
             "dominios_scope": dominios_scope,
             "dominios_from_ips": dominios_from_ips,
             "subdominios_descubiertos": subdominios_descubiertos,
