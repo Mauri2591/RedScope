@@ -1078,13 +1078,33 @@ def _deduplicate_github_results(hallazgos_raw, dominio=''):
         if item.get('query'):
             repos_dict[repo]['queries'].add(item.get('query'))
 
-    # Convertir sets a listas ordenadas
+    # Convertir sets a listas ordenadas + Clasificar por status
     resultado = []
     for repo, data in sorted(repos_dict.items()):
+        # Determinar status del repo
+        repo_lower = repo.lower()
+
+        # Variantes válidas exactas
+        valid_variants = ['aterapps', 'ater-api', 'customer-ater', 'ater.gob.ar']
+        is_valid = any(var in repo_lower for var in valid_variants)
+
+        # Palabras que contienen "ater" pero no son ATER
+        false_positives = ['aternos', 'water', 'crater', 'eater', 'eatery', 'beat', 'theatre']
+        is_false_positive = any(fp in repo_lower for fp in false_positives)
+
+        # Clasificar
+        if is_valid:
+            status = 'valid'
+        elif is_false_positive:
+            status = 'false_positive'
+        else:
+            status = 'suspected'
+
         resultado.append({
             'tipo': data['tipo'],
             'repo': repo,
             'url': data['url'],
+            'status': status,  # ← NUEVO: valid, suspected, false_positive
             'queries_encontradas': len(data['queries']),
             'queries': sorted(list(data['queries'])),
             'archivos': sorted(list(data['archivos']))
