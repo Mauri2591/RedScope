@@ -827,14 +827,14 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
         if dominios_from_ips:
             print(f"[escaneo_repositorios] Dominios de mapeo_ips: {dominios_from_ips}")
 
-        # 3. Subdominios descubiertos (solo para información, NO para búsqueda)
+        # 3. SIEMPRE incluir subdominios descubiertos (lógica INCLUSIVA)
         dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
         if dominios_descubiertos:
             print(f"[escaneo_repositorios] Subdominios descubiertos: {len(dominios_descubiertos)}")
 
-        # 4. ⚠️ IMPORTANTE: Solo buscar dominios RAÍZ (config + mapeo_ips)
-        # NO buscar subdominios descubiertos (evita falsos positivos como imap, secure, jenkins)
-        dominios_para_buscar = list(set(dominios_config + dominios_from_ips))
+        # 4. LÓGICA INCLUSIVA: scope + discovery + fallback mapeo_ips
+        dominios_para_buscar = dominios_config + dominios_descubiertos + dominios_from_ips
+        dominios_para_buscar = list(set(dominios_para_buscar))  # Deduplicar
 
         if not dominios_para_buscar:
             raise Exception("No hay dominios raíz para escanear (DOMINIO vacío, mapeo_ips sin resultados)")
