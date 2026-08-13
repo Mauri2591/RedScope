@@ -22,6 +22,34 @@ def _parse_multiline_config(value):
         return []
     return [item.strip() for item in value.replace('\r\n', '\n').split('\n') if item.strip()]
 
+def _find_gau_path():
+    """Busca el ejecutable 'gau' en múltiples ubicaciones"""
+    import shutil
+
+    # 1. Primero intenta encontrar en PATH
+    gau_path = shutil.which('gau')
+    if gau_path:
+        return gau_path
+
+    # 2. Intenta Go bin paths comunes
+    possible_paths = [
+        os.path.expanduser('~/go/bin/gau'),
+        '/root/go/bin/gau',
+        os.path.expanduser('~/.local/go/bin/gau'),
+        '/usr/local/go/bin/gau',
+    ]
+
+    for path in possible_paths:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+
+    # 3. Intenta desde variable de ambiente
+    gau_env = os.environ.get('GAU_PATH')
+    if gau_env and os.path.isfile(gau_env) and os.access(gau_env, os.X_OK):
+        return gau_env
+
+    return None
+
 def _run_osint_job(ejecucion_id, fn):
     """Wrapper para todos los jobs OSINT."""
     try:
@@ -1375,28 +1403,44 @@ def urls_historicas(ejecucion_id, proyecto_id):
         if subdominios_descubiertos:
             print(f"[gau] Subdominios descubiertos: {len(subdominios_descubiertos)}")
 
-        # 4. Combinar todas las fuentes de dominios
+        # 4. Obtener IPs válidas desde mapeo_ips
+        ips_validas = _get_valid_ips_from_mapeo(proyecto_id)
+        if ips_validas:
+            print(f"[gau] IPs válidas desde mapeo_ips: {ips_validas}")
+
+        # 5. Combinar todas las fuentes de dominios
         todos_los_dominios = list(set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
 
-        # 5. Validar que hay dominios para escanear
-        if not todos_los_dominios:
-            raise Exception("No hay dominios para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
+        # 6. Validar que hay algo para escanear
+        if not todos_los_dominios and not ips_validas:
+            raise Exception("No hay dominios ni IPs para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
 
         urls = set()
-        print(f"[gau] Buscando URLs históricas en {len(todos_los_dominios)} dominios...")
 
-        for dom in todos_los_dominios:
-            print(f"[gau] Escaneando {dom}...")
-            urls.update(_search_gau(dom))
+        # 7. Buscar URLs de dominios
+        if todos_los_dominios:
+            print(f"[gau] Buscando URLs históricas en {len(todos_los_dominios)} dominios...")
+            for dom in todos_los_dominios:
+                print(f"[gau] Escaneando dominio: {dom}...")
+                urls.update(_search_gau(dom))
+
+        # 8. Buscar URLs de IPs válidas
+        if ips_validas:
+            print(f"[gau] Buscando URLs históricas en {len(ips_validas)} IPs...")
+            for ip in ips_validas:
+                print(f"[gau] Escaneando IP: {ip}...")
+                urls.update(_search_gau(ip))
 
         urls = sorted(list(filter(None, urls)))
 
         return {
-            "tipo": "urls_historicas",
+            "tipo": "busqueda_urls_historicas",
             "dominios_scope": dominios_scope,
             "dominios_from_ips": dominios_from_ips,
             "subdominios_descubiertos": subdominios_descubiertos,
+            "ips_validas": ips_validas,
             "total_dominios": len(todos_los_dominios),
+            "total_ips": len(ips_validas),
             "total": len(urls),
             "urls": urls
         }
@@ -1404,14 +1448,39 @@ def urls_historicas(ejecucion_id, proyecto_id):
     _run_osint_job(ejecucion_id, job)
 
 
-def _search_gau(dominio):
-    """Busca URLs históricas usando GAU (múltiples fuentes)"""
+def _get_valid_ips_from_mapeo(proyecto_id):
+    """Obtiene IPs válidas (es_valido=true) del resultado de mapeo_ips"""
+    try:
+        resultado = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        if not resultado:
+            return []
+
+        ips_success = resultado.get('ips_success', [])
+        ips = [ip_data['ip'] for ip_data in ips_success if ip_data.get('es_valido')]
+        return ips
+    except Exception as e:
+        print(f"[mapeo_ips] Error obteniendo IPs válidas: {e}")
+        return []
+
+def _search_gau(target):
+    """Busca URLs históricas usando GAU (múltiples fuentes)
+
+    Target puede ser:
+    - Un dominio (ej: "example.com")
+    - Una IP (ej: "192.168.1.1")
+    """
     urls = set()
     try:
-        print(f"[gau] Buscando URLs históricas de {dominio}...")
+        print(f"[gau] Buscando URLs históricas de {target}...")
+
+        # Busca el comando gau
+        gau_path = _find_gau_path()
+        if not gau_path:
+            print(f"[gau] No encontrado. Intenta: go install github.com/lc/gau/v2/cmd/gau@latest")
+            return urls
 
         result = subprocess.run(
-            ['gau', '--subs', dominio],
+            [gau_path, '--subs', target],
             capture_output=True,
             text=True,
             timeout=30
@@ -1420,13 +1489,11 @@ def _search_gau(dominio):
         if result.stdout:
             urls_found = result.stdout.strip().split('\n')
             urls.update([url for url in urls_found if url])
-            print(f"[gau] Encontradas {len(urls_found)} URLs históricas")
-    except FileNotFoundError:
-        print(f"[gau] No instalado (instalar: go install github.com/lc/gau/v2/cmd/gau@latest)")
+            print(f"[gau] Encontradas {len(urls_found)} URLs históricas para {target}")
     except subprocess.TimeoutExpired:
-        print(f"[gau] Timeout")
+        print(f"[gau] Timeout para {target}")
     except Exception as e:
-        print(f"[gau] Error: {e}")
+        print(f"[gau] Error en {target}: {e}")
 
     return urls
 
