@@ -1251,18 +1251,8 @@ def run_osint():
     except (ValueError, TypeError):
         return jsonify({"success": False, "message": "servicio_osint_id inválido"}), 400
 
-    # Mapeo: ID -> nombre de función handler
-    handlers_map = {
-        1: 'discovery_subdominios',
-        2: 'enumeracion_servicios',
-        3: 'mapeo_ips',
-        4: 'recon_cloud',
-        5: 'escaneo_repositorios',
-        6: 'analisis_dns',
-        7: 'busqueda_endpoints',
-        8: 'google_dorking',
-        9: 'urls_historicas'
-    }
+    # Mapeo: ID -> nombre de función handler (DINÁMICO desde BD, no hardcodeado)
+    handlers_map = OsintEjecucion.get_handlers_map()
 
     handler_name = handlers_map.get(servicio_osint_id)
     if not handler_name:
