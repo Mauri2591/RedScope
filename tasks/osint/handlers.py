@@ -1464,22 +1464,21 @@ def _get_valid_ips_from_mapeo(proyecto_id):
         return []
 
 def _search_gau(target):
-    """Busca URLs históricas usando GAU (múltiples fuentes)
-
-    Target puede ser:
-    - Un dominio (ej: "example.com")
-    - Una IP (ej: "192.168.1.1")
-    """
+    """Busca URLs históricas usando GAU (múltiples fuentes)"""
     urls = set()
     try:
         print(f"[gau] Buscando URLs históricas de {target}...")
 
         # Busca el comando gau
         gau_path = _find_gau_path()
+        print(f"[gau] Ruta encontrada: {gau_path}")  # ← AGREGAR ESTO
+        
         if not gau_path:
             print(f"[gau] No encontrado. Intenta: go install github.com/lc/gau/v2/cmd/gau@latest")
             return urls
 
+        print(f"[gau] Ejecutando: {gau_path} --subs {target}")  # ← AGREGAR ESTO
+        
         result = subprocess.run(
             [gau_path, '--subs', target],
             capture_output=True,
@@ -1487,6 +1486,10 @@ def _search_gau(target):
             timeout=30
         )
 
+        print(f"[gau] Return code: {result.returncode}")  # ← AGREGAR ESTO
+        print(f"[gau] Stdout: {result.stdout[:500]}")  # ← AGREGAR ESTO
+        print(f"[gau] Stderr: {result.stderr[:500]}")  # ← AGREGAR ESTO
+        
         if result.stdout:
             urls_found = result.stdout.strip().split('\n')
             urls.update([url for url in urls_found if url])
