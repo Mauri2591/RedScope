@@ -37,6 +37,7 @@ def _find_gau_path():
         '/root/go/bin/gau',
         os.path.expanduser('~/.local/go/bin/gau'),
         '/usr/local/go/bin/gau',
+        '/home/eh2023/go/bin/gau',  # ← AGREGAR ESTA LÍNEA
     ]
 
     for path in possible_paths:
