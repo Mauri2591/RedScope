@@ -316,3 +316,103 @@ class OsintEjecucion:
             conn.close()
 
         return dominios
+
+    @staticmethod
+    def get_dominio_from_config(proyecto_id):
+        """Obtiene DOMINIO inicial del proyecto desde proyecto_osint_config (config_tipo_id=1)
+
+        Retorna lista de dominios configurados en el scope inicial del proyecto.
+        Si no hay dominios configurados, retorna lista vacía.
+        """
+        dominios = []
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("""
+                SELECT valor FROM proyecto_osint_config
+                WHERE proyecto_id = %s
+                AND config_tipo_id = 1
+                AND estado_id = 1
+                LIMIT 1
+            """, (proyecto_id,))
+
+            result = cursor.fetchone()
+
+            if result and result.get('valor'):
+                # Parsear multilinea
+                valor = result['valor'].strip()
+                if valor:
+                    dominios = [d.strip() for d in valor.replace('\r\n', '\n').split('\n') if d.strip()]
+                    print(f"[OsintEjecucion] DOMINIO inicial encontrado: {dominios}")
+            else:
+                print(f"[OsintEjecucion] Sin DOMINIO configurado en proyecto {proyecto_id}")
+
+        except Exception as e:
+            print(f"[OsintEjecucion] Error obteniendo DOMINIO: {e}")
+        finally:
+            cursor.close()
+            conn.close()
+
+        return dominios
+
+    @staticmethod
+    def get_latest_resultado(proyecto_id, servicio_nombre):
+        """Obtiene el resultado de la última ejecución de un servicio OSINT
+
+        Args:
+            proyecto_id: ID del proyecto
+            servicio_nombre: nombre del servicio (ej: 'discovery_subdominios', 'mapeo_ips')
+
+        Retorna dict con el resultado parseado, o None si no existe
+        """
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+
+            # Obtener ID del servicio por nombre
+            cursor.execute("""
+                SELECT id FROM servicios_osint
+                WHERE nombre = %s AND estado_id = 1
+                LIMIT 1
+            """, (servicio_nombre,))
+
+            servicio_row = cursor.fetchone()
+            if not servicio_row:
+                print(f"[OsintEjecucion] Servicio '{servicio_nombre}' no encontrado")
+                cursor.close()
+                conn.close()
+                return None
+
+            servicio_id = servicio_row['id']
+
+            # Obtener último resultado COMPLETED
+            cursor.execute("""
+                SELECT resultado FROM osint_ejecuciones
+                WHERE proyecto_id = %s
+                AND servicio_osint_id = %s
+                AND estado = 'COMPLETED'
+                AND estado_id = 1
+                ORDER BY fecha_fin DESC
+                LIMIT 1
+            """, (proyecto_id, servicio_id))
+
+            result = cursor.fetchone()
+
+            if result and result.get('resultado'):
+                try:
+                    resultado_json = json.loads(result['resultado'])
+                    return resultado_json
+                except json.JSONDecodeError as e:
+                    print(f"[OsintEjecucion] Error parseando resultado de {servicio_nombre}: {e}")
+                    return None
+            else:
+                print(f"[OsintEjecucion] Sin resultados de {servicio_nombre} para proyecto {proyecto_id}")
+                return None
+
+        except Exception as e:
+            print(f"[OsintEjecucion] Error obteniendo resultado de {servicio_nombre}: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()

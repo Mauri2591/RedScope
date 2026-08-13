@@ -214,44 +214,30 @@ def _reverse_dns_multi_resolver(ip):
 # ══════════════════════════════════════════════════════════════════
 
 def discovery_subdominios(ejecucion_id, proyecto_id):
-    """
-    Descubrimiento de subdominios con subfinder - ITERATIVO
+    """Descubrimiento de subdominios con subfinder
 
     Busca subdominios de:
-    1. Dominios del scope inicial (DOMINIO configurado)
-    2. Dominios descubiertos por reverse DNS en mapeo_ips
+    1. DOMINIO configurado en proyecto_osint_config
+    2. Dominios descubiertos por reverse DNS en mapeo_ips (fallback)
 
-    Esto permite descubrimiento más profundo sin depender solo del scope inicial
+    No hace discovery doble si ya existen subdominios.
     """
     def job():
-        config = Proyecto.get_osint_config(proyecto_id)
-        dominio_scope = config.get('DOMINIO', '').strip() if config else ''
+        # 1. Obtener DOMINIO del scope (proyecto_osint_config directamente)
+        dominios_scope = OsintEjecucion.get_dominio_from_config(proyecto_id)
 
-        # 1. Obtener dominios del scope inicial (OPCIONAL)
-        dominios_scope = _parse_multiline_config(dominio_scope) if dominio_scope else []
-        if dominios_scope:
-            print(f"[discovery_subdominios] Dominios del scope: {dominios_scope}")
-        else:
-            print(f"[discovery_subdominios] Sin dominios configurados en DOMINIO, buscando en mapeo_ips...")
+        # 2. Fallback: Obtener dominios de mapeo_ips
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id) if not dominios_scope else []
 
-        # 2. Obtener dominios descubiertos por reverse DNS (mapeo_ips)
-        # Se usan como fallback si DOMINIO no está configurado
-        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
-        if dominios_from_ips:
-            print(f"[discovery_subdominios] Dominios descubiertos por reverse DNS: {dominios_from_ips}")
-
-        # 3. Combinar dominios del scope + dominios descubiertos
+        # Combinar
         todos_los_dominios = list(set(dominios_scope + dominios_from_ips))
 
-        # 4. Validar que hay dominios para escanear
         if not todos_los_dominios:
-            raise Exception("No hay dominios para escanear (DOMINIO no configurado y mapeo_ips sin resultados)")
-
-        print(f"[discovery_subdominios] Total dominios a escanear con subfinder: {len(todos_los_dominios)}")
+            raise Exception("No hay dominios configurados (DOMINIO vacío en proyecto_osint_config y mapeo_ips sin resultados)")
 
         subdominios = set()
+        print(f"[discovery_subdominios] Escaneando {len(todos_los_dominios)} dominios con subfinder")
 
-        # 5. Ejecutar subfinder para cada dominio
         for dom in sorted(todos_los_dominios):
             try:
                 print(f"[subfinder] Escaneando {dom}...")
@@ -259,7 +245,7 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
                     "tipo": "discovery_subdominios",
                     "dominios_scope": dominios_scope,
                     "dominios_from_ips": dominios_from_ips,
-                    "total_dominios_buscados": len(todos_los_dominios),
+                    "total_dominios_escaneados": len(todos_los_dominios),
                     "total_subdominios": len(subdominios),
                     "subdominios": sorted(list(filter(None, subdominios))),
                     "estado": f"Escaneando {dom}..."
@@ -274,7 +260,7 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
                 if result.stdout:
                     nuevos = result.stdout.strip().split('\n')
                     subdominios.update(nuevos)
-                    print(f"[subfinder] {dom} → {len(nuevos)} subdominios encontrados")
+                    print(f"[subfinder] {dom} → {len(nuevos)} subdominios")
             except subprocess.TimeoutExpired:
                 print(f"[subfinder] Timeout para {dom}")
             except Exception as e:
@@ -1088,47 +1074,40 @@ def _search_trufflehog(dominio):
 def analisis_dns(ejecucion_id, proyecto_id):
     """Análisis de registros DNS con dig
 
-    Fallback cascade:
-    1. DOMINIO configurado
-    2. Dominios descubiertos desde mapeo_ips (reverse DNS)
-    3. Subdominios descubiertos
-    4. Fallar si no hay datos en ninguna fuente
+    Fallback en BD:
+    1. DOMINIO de proyecto_osint_config (config_tipo_id=1)
+    2. Subdominios de osint_ejecuciones (discovery_subdominios)
+    3. Dominios de mapeo_ips (si falla lo anterior)
+    4. Error si no hay nada
     """
     def job():
-        config = Proyecto.get_osint_config(proyecto_id)
-        dominio_config = config.get('DOMINIO', '').strip()
+        # 1. Obtener DOMINIO del scope inicial (proyecto_osint_config)
+        dominios_scope = OsintEjecucion.get_dominio_from_config(proyecto_id)
 
-        # 1. Obtener dominios del scope inicial (OPCIONAL)
-        dominios_scope = _parse_multiline_config(dominio_config) if dominio_config else []
-        if dominios_scope:
-            print(f"[analisis_dns] Dominios del scope encontrados: {dominios_scope}")
-        else:
-            print(f"[analisis_dns] Sin dominios configurados en DOMINIO")
-
-        # 2. Fallback: Obtener dominios descubiertos por reverse DNS (mapeo_ips)
-        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
-        if dominios_from_ips:
-            print(f"[analisis_dns] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
-
-        # 3. Fallback: Obtener subdominios descubiertos
+        # 2. Fallback 1: Obtener subdominios descubiertos
         subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-        if subdominios_descubiertos:
-            print(f"[analisis_dns] Subdominios descubiertos: {len(subdominios_descubiertos)}")
 
-        # 4. Combinar todas las fuentes de dominios
-        todos_los_dominios = list(set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
+        # 3. Fallback 2: Obtener dominios de mapeo_ips
+        dominios_from_ips = []
+        if not dominios_scope and not subdominios_descubiertos:
+            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
 
-        # 5. Validar que hay dominios para escanear
+        # Combinar todas las fuentes
+        todos_los_dominios = list(set(dominios_scope + subdominios_descubiertos + dominios_from_ips))
+
         if not todos_los_dominios:
-            raise Exception("No hay dominios para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
+            raise Exception(
+                "No hay dominios para analizar. "
+                "Configurar DOMINIO en proyecto_osint_config o ejecutar discovery_subdominios"
+            )
 
         registros = {}
         tipos = ['A', 'MX', 'NS', 'TXT', 'SOA', 'CNAME']
-        print(f"[dig] Analizando {len(todos_los_dominios)} dominios - tipos: {tipos}")
+
+        print(f"[analisis_dns] Analizando DNS en {len(todos_los_dominios)} dominios")
 
         for dom in todos_los_dominios:
             registros[dom] = {}
-
             for tipo in tipos:
                 try:
                     result = subprocess.run(
@@ -1140,14 +1119,14 @@ def analisis_dns(ejecucion_id, proyecto_id):
                     if result.stdout.strip():
                         registros[dom][tipo] = result.stdout.strip().split('\n')
                 except Exception as e:
-                    print(f"[dig] Error consultando {tipo} para {dom}: {e}")
+                    print(f"[dig] Error: {tipo} en {dom}: {e}")
 
         return {
             "tipo": "analisis_dns",
             "dominios_scope": dominios_scope,
-            "dominios_from_ips": dominios_from_ips,
             "subdominios_descubiertos": subdominios_descubiertos,
-            "total_dominios": len(todos_los_dominios),
+            "dominios_from_ips": dominios_from_ips,
+            "total_dominios_analizados": len(todos_los_dominios),
             "registros": registros
         }
 
@@ -1156,53 +1135,34 @@ def analisis_dns(ejecucion_id, proyecto_id):
 def busqueda_endpoints(ejecucion_id, proyecto_id):
     """Búsqueda de endpoints - múltiples estrategias (waybackurls, fuzzing, GitHub)
 
-    Fallback cascade:
+    Busca en:
     1. DOMINIO configurado
-    2. Dominios descubiertos desde mapeo_ips (reverse DNS)
-    3. Subdominios descubiertos
-    4. Fallar si no hay datos en ninguna fuente
+    2. Subdominios descubiertos (discovery_subdominios)
+    3. Dominios de mapeo_ips (fallback)
     """
     def job():
-        config = Proyecto.get_osint_config(proyecto_id)
-        dominio_config = config.get('DOMINIO', '').strip()
+        # 1. DOMINIO del scope
+        dominios_scope = OsintEjecucion.get_dominio_from_config(proyecto_id)
 
-        # 1. Obtener dominios del scope inicial (OPCIONAL)
-        dominios_scope = _parse_multiline_config(dominio_config) if dominio_config else []
-        if dominios_scope:
-            print(f"[busqueda_endpoints] Dominios del scope encontrados: {dominios_scope}")
-        else:
-            print(f"[busqueda_endpoints] Sin dominios configurados en DOMINIO")
-
-        # 2. Fallback: Obtener dominios descubiertos por reverse DNS (mapeo_ips)
-        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
-        if dominios_from_ips:
-            print(f"[busqueda_endpoints] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
-
-        # 3. Fallback: Obtener subdominios descubiertos
+        # 2. Subdominios descubiertos
         subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-        if subdominios_descubiertos:
-            print(f"[busqueda_endpoints] Subdominios descubiertos: {len(subdominios_descubiertos)}")
 
-        # 4. Combinar todas las fuentes de dominios
-        todos_los_dominios = list(set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
+        # 3. Fallback: dominios de mapeo_ips
+        dominios_from_ips = []
+        if not dominios_scope and not subdominios_descubiertos:
+            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
 
-        # 5. Validar que hay dominios para escanear
+        todos_los_dominios = list(set(dominios_scope + subdominios_descubiertos + dominios_from_ips))
+
         if not todos_los_dominios:
-            raise Exception("No hay dominios para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
+            raise Exception("No hay dominios para buscar endpoints")
 
         endpoints = set()
         print(f"[busqueda_endpoints] Buscando endpoints en {len(todos_los_dominios)} dominios...")
 
         for dom in todos_los_dominios:
-            print(f"[busqueda_endpoints] Escaneando {dom}...")
-
-            # 1. Wayback Machine (URLs históricas)
             endpoints.update(_search_waybackurls(dom))
-
-            # 2. Fuzzing de directorios comunes
             endpoints.update(_fuzz_common_endpoints(dom))
-
-            # 3. Búsqueda en GitHub (código que referencia endpoints)
             endpoints.update(_search_github_endpoints(dom))
 
         endpoints = sorted(list(filter(None, endpoints)))
@@ -1210,8 +1170,8 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
         return {
             "tipo": "busqueda_endpoints",
             "dominios_scope": dominios_scope,
-            "dominios_from_ips": dominios_from_ips,
             "subdominios_descubiertos": subdominios_descubiertos,
+            "dominios_from_ips": dominios_from_ips,
             "total_dominios": len(todos_los_dominios),
             "total": len(endpoints),
             "endpoints": endpoints
