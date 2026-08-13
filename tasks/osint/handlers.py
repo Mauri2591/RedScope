@@ -1483,7 +1483,7 @@ def _search_gau(target):
             [gau_path, '--subs', target],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=120
         )
 
         print(f"[gau] Return code: {result.returncode}")  # ← AGREGAR ESTO
