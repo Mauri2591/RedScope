@@ -1224,13 +1224,17 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
 
         endpoints = sorted(list(filter(None, endpoints)))
 
+        # FILTRAR: Solo endpoints con status 200
+        endpoints_200 = [ep for ep in endpoints if '[200]' in ep]
+
         return {
             "tipo": "busqueda_endpoints",
             "total_dominios": len(todos_los_dominios),
             "dominios_scope": len(dominios_scope),
             "subdominios_descubiertos": len(subdominios_descubiertos),
-            "total": len(endpoints),
-            "endpoints": endpoints
+            "total_encontrados": len(endpoints),
+            "total_status_200": len(endpoints_200),
+            "endpoints": endpoints_200  # ← Solo endpoints con status 200
         }
 
     _run_osint_job(ejecucion_id, job)
