@@ -709,9 +709,37 @@ def recon_cloud(ejecucion_id, proyecto_id):
         print(f"[recon_cloud] Total dominios a escanear: {len(todos_los_dominios)}")
 
         recursos = []
+
+        # ⭐ NUEVO: Extraer subdominios descubiertos para probarlos como nombres de buckets
+        subdominios_lista = []
+        if 'subdominios_descubiertos' in dominio_scope or subdominios_descubiertos:
+            subdominios_lista = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+            # Extraer la parte del subdominio (antes del .flaws.cloud)
+            # ej: level2-c8b217a33fcf1f839f6f1f73a00a9ae7.flaws.cloud → level2-c8b217a33fcf1f839f6f1f73a00a9ae7
+            subdominios_como_buckets = []
+            for sub in subdominios_lista:
+                parts = sub.split('.')
+                if parts:
+                    subdominios_como_buckets.append(parts[0])  # Tomar solo la parte del subdominio
+
+            if subdominios_como_buckets:
+                print(f"[recon_cloud] ⭐ NUEVO: Probando {len(subdominios_como_buckets)} subdominios como nombres de buckets")
+                print(f"[recon_cloud] Subdominios a probar: {subdominios_como_buckets[:5]}...")  # Mostrar primeros 5
+
         for dom in todos_los_dominios:
             try:
                 print(f"[recon_cloud] Escaneando buckets S3 para {dom}...")
+
+                # ═══════════════════════════════════════════════════════
+                # TIER 0: NUEVO - Subdominios descubiertos como buckets directos
+                # ═══════════════════════════════════════════════════════
+                print(f"[recon_cloud] TIER 0: Probando subdominios descubiertos como nombres de buckets...")
+                if subdominios_como_buckets and dom == todos_los_dominios[0]:  # Solo en el dominio principal
+                    for bucket_candidate in subdominios_como_buckets:
+                        resultado = _verify_bucket(bucket_candidate, dom)
+                        if resultado:
+                            recursos.extend(resultado)
+                            print(f"[recon_cloud] ✓ TIER 0: Encontrado via subdominio: {bucket_candidate}")
 
                 # ═══════════════════════════════════════════════════════
                 # TIER 1: Buckets REALES (encontrados en CT logs/Wayback)
@@ -819,6 +847,13 @@ def _generate_bucket_candidates(dominio, tier='all'):
     # TIER 2: Específicos del dominio (MÁS PROBABLE) - EXPANDIDO PARA AUTONOMÍA
     # ══════════════════════════════════════════════════════════════
     tier2 = [
+        # ⭐ CANDIDATOS BÁSICOS PRIMERO (nombres simples que son MÁS comunes)
+        domain_name,  # ater (nombre exacto del domain)
+        dominio.lower(),  # ater.gob.ar sin caracteres especiales
+        dominio.lower().replace('.', '-'),  # ater-gob-ar (dominio completo con guiones)
+        dominio.lower().replace('.', ''),  # atergob ar (dominio sin separadores)
+        full_base_dash,  # ser3-ater (subdominio + domain con guion)
+
         # Combinaciones subdominio + domain
         f"{full_base_dash}-bucket",  # ser3-ater-bucket
         f"{full_base_dash}-backup",  # ser3-ater-backup
@@ -1284,14 +1319,20 @@ def _verify_bucket(bucket_name, dominio):
         if acceso_anonimo == 'anónimo':
             # ¡BUCKET ABIERTO AL PÚBLICO!
 
-            # FILTRO CRÍTICO: Solo reportar si confianza >= 50%
-            # Evita falsos positivos masivos
-            if correlation['confianza'] < 50:
-                print(f"[s3-verify] ⚠️  {bucket_name} abierto pero BAJA CORRELACIÓN ({correlation['confianza']}%) → IGNORAR")
-                return resultado
+            # ⭐ MEJORADO: HTTP 200 anónimo es evidencia REAL de que el bucket es accesible
+            # Reducir threshold a 30% para buckets públicos (menos estricto)
+            # Si alguien puede acceder sin credenciales, ES un hallazgo, aunque la correlación sea débil
+            if correlation['confianza'] < 30:
+                print(f"[s3-verify] ⚠️  {bucket_name} abierto pero CORRELACIÓN MUY BAJA ({correlation['confianza']}%) → REPORTAR COMO HALLAZGO DÉBIL")
+                # Igual lo reportamos pero con severidad más baja
+                # porque HTTP 200 anónimo es real
+            elif correlation['confianza'] < 50:
+                print(f"[s3-verify] ⚠️  {bucket_name} abierto con BAJA CORRELACIÓN ({correlation['confianza']}%) → REPORTAR CON SEVERIDAD MEDIA")
 
             # Obtener severidad dinámica desde BD basada en confianza
-            severidad_obj = _get_severidad_por_confianza(correlation['confianza'])
+            # ⭐ MEJORADO: Si correlación < 50%, usar nivel más bajo pero igual reportar
+            confianza_ajustada = max(correlation['confianza'], 30)  # Mínimo 30% para buckets públicos
+            severidad_obj = _get_severidad_por_confianza(confianza_ajustada)
             severidad_nombre = severidad_obj.get('nombre') if severidad_obj else 'UNKNOWN'
             severidad_id = severidad_obj.get('id') if severidad_obj else None
 
@@ -1303,7 +1344,7 @@ def _verify_bucket(bucket_name, dominio):
             else:
                 confianza_label = 'BAJA'
 
-            print(f"[s3-verify] ✅ REPORTAR: {bucket_name} (acceso=abierto, confianza={correlation['confianza']}%)")
+            print(f"[s3-verify] ✅ REPORTAR: {bucket_name} (acceso=abierto, confianza={correlation['confianza']}%, severidad={severidad_nombre})")
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
