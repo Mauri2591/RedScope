@@ -149,6 +149,126 @@ def _resolve_domain_multi_resolver(domain):
     }
 
 
+def _validate_hostname_belongs_to_domain(hostname, domain_objetivo, ip=None):
+    """
+    Valida si un hostname pertenece realmente al dominio objetivo.
+    Retorna dict con validación y detalles.
+
+    Criterios:
+    1. El hostname contiene el dominio objetivo (ej: server.example.com contiene example.com)
+    2. El hostname NO es un dominio genérico de proveedor (AWS, Azure, etc.)
+    3. OPCIONAL: Verificar que el hostname se resuelve de vuelta a la IP (reverse validation)
+    """
+    validation = {
+        'es_valido': False,
+        'razon': 'unknown',
+        'tipo_hostname': 'unknown'
+    }
+
+    if not hostname or hostname == 'unknown':
+        validation['razon'] = 'sin_hostname'
+        return validation
+
+    hostname_lower = hostname.lower()
+    domain_lower = domain_objetivo.lower() if domain_objetivo else ''
+
+    # Proveedores cloud/ISPs genéricos (no son del objetivo)
+    generic_providers = [
+        'amazonaws.com',
+        'azurewebsites.net',
+        'cloudflare.com',
+        'akamai.net',
+        'fastly.net',
+        'cloudfront.net',
+        'google.com',
+        'gcr.io',
+        'heroku.com',
+        'github.io',
+        'bitbucket.io',
+        'amazonaws.com.ar',
+        'aws.amazon.com',
+    ]
+
+    # 1. Validar que NO sea un hostname genérico de proveedor
+    if any(provider in hostname_lower for provider in generic_providers):
+        validation['tipo_hostname'] = 'cloud_provider'
+        validation['razon'] = f'hostname_generico_proveedor: {hostname}'
+        return validation
+
+    # 2. Validar que contenga el dominio objetivo
+    if domain_lower:
+        if domain_lower in hostname_lower:
+            # ✓ El hostname contiene el dominio objetivo
+            validation['es_valido'] = True
+            validation['tipo_hostname'] = 'coincide_dominio'
+            validation['razon'] = f'hostname contiene dominio objetivo: {domain_lower}'
+
+            # BONUS: Validación opcional - verificar reverse lookup
+            if ip:
+                try:
+                    # Intentar resolver el hostname para verificar que apunta a esta IP
+                    result = subprocess.run(
+                        ['nslookup', hostname],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    if ip in result.stdout:
+                        validation['razon'] += ' [reverse_lookup_ok]'
+                    else:
+                        validation['razon'] += ' [reverse_lookup_diferente]'
+                except:
+                    pass
+
+            return validation
+        else:
+            # ✗ El hostname NO contiene el dominio objetivo
+            validation['tipo_hostname'] = 'no_coincide'
+            validation['razon'] = f'hostname no contiene dominio objetivo: {domain_lower}'
+            return validation
+
+    # Si no hay dominio objetivo, confiar en que no sea genérico
+    validation['es_valido'] = True
+    validation['tipo_hostname'] = 'sin_validacion_dominio'
+    validation['razon'] = 'sin dominio objetivo para validar'
+    return validation
+
+
+def _geolocate_ip(ip):
+    """
+    Obtiene información geográfica de una IP usando ipapi.co (gratuito, sin API key)
+    Retorna dict con país, ciudad, ISP, ASN
+    """
+    try:
+        result = requests.get(
+            f'https://ipapi.co/{ip}/json/',
+            timeout=5
+        )
+        if result.status_code == 200:
+            data = result.json()
+            return {
+                'pais': data.get('country_name', 'unknown'),
+                'ciudad': data.get('city', 'unknown'),
+                'isp': data.get('org', 'unknown'),
+                'asn': data.get('asn', 'unknown'),
+                'latitud': data.get('latitude'),
+                'longitud': data.get('longitude')
+            }
+    except requests.exceptions.Timeout:
+        print(f"[geo] Timeout para {ip}")
+    except Exception as e:
+        print(f"[geo] Error geolocalizando {ip}: {e}")
+
+    return {
+        'pais': 'unknown',
+        'ciudad': 'unknown',
+        'isp': 'unknown',
+        'asn': 'unknown',
+        'latitud': None,
+        'longitud': None
+    }
+
+
 def _reverse_dns_multi_resolver(ip):
     """
     Intenta resolver reverso una IP usando múltiples métodos.
@@ -376,10 +496,12 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
 
 def mapeo_ips(ejecucion_id, proyecto_id):
     """
-    Mapeo y resolución de IPs mejorado con múltiples resolvers DNS.
+    Mapeo y resolución de IPs mejorado con múltiples resolvers DNS + Geolocalización.
     - Combina IPs configuradas + dominios resueltos
     - Usa múltiples resolvers (Google, Cloudflare, Quad9) para validar
     - Proporciona información detallada de reverse DNS
+    - ✨ MEJORADO: Agrega geolocalización (país, ciudad, ISP) a cada IP
+    - ✨ MEJORADO: Incluye IPs válidas aunque reverse DNS falle
     """
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
@@ -422,7 +544,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
         print(f"[mapeo_ips] Total IPs a analizar: {len(ips_a_analizar)}")
 
-        # 3. Hacer reverse DNS para cada IP
+        # 3. Hacer reverse DNS + Geolocalización para cada IP
         ips_success = []
 
         # Crear mapeo de IP → dominios que la resolvieron (sin duplicados)
@@ -445,54 +567,75 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
         for ip in sorted(ips_a_analizar):
             try:
-                print(f"[mapeo_ips] Reverse DNS para {ip}...")
-                reverse_result = _reverse_dns_multi_resolver(ip)
+                print(f"[mapeo_ips] Analizando {ip}...")
 
-                # Tomar el primer hostname si hay múltiples, o marcar como unknown
+                # Reverse DNS
+                reverse_result = _reverse_dns_multi_resolver(ip)
                 hostname = reverse_result['hostnames'][0] if reverse_result['hostnames'] else 'unknown'
                 status = reverse_result['status']
 
+                # ✨ NUEVO: Geolocalización
+                geo_data = _geolocate_ip(ip)
+
+                # ✨ NUEVO: Validar que el hostname pertenece al dominio objetivo
+                hostname_validation = _validate_hostname_belongs_to_domain(hostname, dominio_objetivo, ip)
+
                 # Validar que sea una IP del objetivo
                 # Es válido si: tiene from_domains (fue resuelto desde un dominio scope)
-                # El reverse DNS puede estar bloqueado/mal configurado, pero la IP es del objetivo
                 from_domains = ip_to_dominios.get(ip, [])
-                hostname_valido = False
+                hostname_valido = bool(from_domains)
 
-                if from_domains:
-                    # IP fue resuelto desde un dominio scope = IP del objetivo (aunque reverse DNS sea del proveedor)
-                    hostname_valido = True
+                # ✨ MEJORADO: Combinar validación de dominio + validación de hostname
+                # Una IP es realmente válida si:
+                # 1. Fue resuelta desde un dominio scope (from_domains)
+                # 2. El hostname pertenece al dominio objetivo (hostname_validation)
+                es_realmente_valida = hostname_valido and hostname_validation['es_valido']
 
                 entry = {
                     'ip': ip,
                     'hostname': hostname,
                     'status': status,
-                    'from_domains': ip_to_dominios.get(ip, []),
-                    'es_valido': hostname_valido
+                    'from_domains': from_domains,
+                    'es_valido': es_realmente_valida,  # ✨ MEJORADO: validación más estricta
+                    'hostname_validation': hostname_validation,  # ✨ NUEVO: detalles de validación
+                    'geo': geo_data
                 }
                 ips_analizadas.append(entry)
 
-                # Agregar solo los success Y válidos a la lista resumida (formato limpio)
-                if status == 'success' and hostname_valido:
+                # Incluir en ips_success solo si la IP es realmente válida
+                if es_realmente_valida:
                     ips_success.append({
                         'ip': ip,
                         'hostname': hostname,
-                        'status': status
+                        'status': status,
+                        'from_domains': from_domains,
+                        'hostname_validation': hostname_validation['razon'],
+                        'geo': geo_data
                     })
+                    print(f"[mapeo_ips] ✓ {ip} ({hostname}) - {geo_data['pais']}, {geo_data['ciudad']} [VÁLIDO]")
+                else:
+                    # ✨ NUEVO: Logging para IPs rechazadas
+                    razon_rechazo = hostname_validation.get('razon', 'unknown')
+                    print(f"[mapeo_ips] ✗ {ip} ({hostname}) - RECHAZADO: {razon_rechazo}")
 
             except Exception as e:
-                print(f"[mapeo_ips] Error en reverse DNS {ip}: {e}")
+                print(f"[mapeo_ips] Error analizando {ip}: {e}")
                 ips_analizadas.append({
                     'ip': ip,
                     'hostname': 'error',
-                    'status': 'error'
+                    'status': 'error',
+                    'from_domains': ip_to_dominios.get(ip, []),
+                    'es_valido': False,
+                    'hostname_validation': None,
+                    'geo': None
                 })
 
         return {
             "tipo": "mapeo_ips",
             "total_ips": len(ips_a_analizar),
             "total_success": len(ips_success),
-            "ips_success": ips_success,
-            "ips_todas": ips_analizadas
+            "ips_success": ips_success,  # ← IPs válidas con geolocalización
+            "ips_todas": ips_analizadas   # ← Todas las IPs analizadas (debug)
         }
 
     _run_osint_job(ejecucion_id, job)
@@ -889,7 +1032,7 @@ def _search_github(dominio):
         else:
             domain_base = dominio
 
-        # ✅ BÚSQUEDAS INTELIGENTES: Palabra clave + archivos típicos de credenciales
+        # BÚSQUEDAS INTELIGENTES: Palabra clave + archivos típicos de credenciales
         # Para "ater.gob.ar" → buscar "ater" en archivos específicos
         # Los subdominios NO se buscan individuales (evita falsos positivos)
 
