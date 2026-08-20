@@ -888,13 +888,18 @@ def _generate_bucket_candidates(dominio, tier='all'):
     """
     Genera candidatos de buckets por tiers de confianza - MEJORADO para autonomía.
 
+    REGLA FUNDAMENTAL: SOLO la primera parte del dominio es única y específica
+    - ater.gob.ar → usar SOLO "ater" (gob.ar es genérico)
+    - vpn.ater.gob.ar → usar SOLO "vpn-ater" (ater es la parte única)
+    - NO generar candidatos con partes genéricas (gob, ar, com, etc.)
+
     TIER 1 (Muy probable): Buckets encontrados en CT logs / Wayback
     TIER 2 (Probable): Específicos del dominio - EXPANDIDO para autonomía
     TIER 3 (Posible): Del domain name + variaciones - INCLUIDO por defecto
     TIER 4 (Improbable): Ultra-genéricos → NO USAR (mucho ruido)
 
     Args:
-        dominio (str): Dominio/subdominio
+        dominio (str): Dominio/subdominio (ej: "ater", "vpn-ater", "vpn.ater.gob.ar")
         tier (str): 'tier1', 'tier2', 'tier3', 'all'
 
     Returns:
@@ -902,13 +907,20 @@ def _generate_bucket_candidates(dominio, tier='all'):
     """
     parts = dominio.split('.')
 
+    # ⭐ REGLA: Extraer SOLO la parte única (primera parte)
+    # ater.gob.ar → "ater"
+    # vpn-ater → "vpn-ater" (ya combinado)
+    # vpn.ater.gob.ar → "vpn" + "ater" = "vpn-ater"
+
     if len(parts) >= 3:
-        subdomain = parts[0]
-        domain_name = parts[1]
-        full_base_dash = f"{subdomain}-{domain_name}"  # ser3-ater
+        # Subdominio + Dominio único (ej: vpn.ater.gob.ar)
+        subdomain = parts[0]  # vpn
+        domain_name = parts[1]  # ater (la parte ÚNICA, ignorar gob.ar)
+        full_base_dash = f"{subdomain}-{domain_name}"  # vpn-ater
     else:
+        # Ya es simple o viene pre-formateado (ej: "ater" o "vpn-ater")
         subdomain = None
-        domain_name = parts[0]
+        domain_name = parts[0]  # ater o vpn-ater
         full_base_dash = domain_name
 
     # ══════════════════════════════════════════════════════════════
@@ -920,20 +932,22 @@ def _generate_bucket_candidates(dominio, tier='all'):
 
     # ══════════════════════════════════════════════════════════════
     # TIER 2: Específicos del dominio (MÁS PROBABLE) - EXPANDIDO PARA AUTONOMÍA
+    # REGLA FUNDAMENTAL: TODOS los candidatos DEBEN comenzar con la parte única
+    # ✅ ater, ater-gob-ar, ater-backup, aws-ater
+    # ❌ gob-ar, gob, ar (NO comienzan con ater/vpn-ater)
     # ══════════════════════════════════════════════════════════════
     tier2 = [
         # ⭐ CANDIDATOS BÁSICOS PRIMERO (nombres simples que son MÁS comunes)
-        domain_name,  # ater (nombre exacto del domain)
-        dominio.lower(),  # ater.gob.ar sin caracteres especiales
-        dominio.lower().replace('.', '-'),  # ater-gob-ar (dominio completo con guiones)
-        dominio.lower().replace('.', ''),  # atergob ar (dominio sin separadores)
-        full_base_dash,  # ser3-ater (subdominio + domain con guion)
+        domain_name,  # ater (nombre exacto del domain ÚNICO)
 
-        # Combinaciones subdominio + domain
-        f"{full_base_dash}-bucket",  # ser3-ater-bucket
-        f"{full_base_dash}-backup",  # ser3-ater-backup
-        f"{full_base_dash}-data",  # ser3-ater-data
-        f"{full_base_dash}-assets",  # ser3-ater-assets
+        # Dominio completo CON guiones (pero SIEMPRE comienza con ater)
+        dominio.lower().replace('.', '-'),  # ater-gob-ar ✅ (comienza con ater)
+
+        # Combinaciones subdominio + domain (SOLO si hay subdominio)
+        f"{full_base_dash}-bucket",  # vpn-ater-bucket
+        f"{full_base_dash}-backup",  # vpn-ater-backup
+        f"{full_base_dash}-data",
+        f"{full_base_dash}-assets",
         f"{full_base_dash}-storage",
         f"{full_base_dash}-files",
         f"{full_base_dash}-logs",
@@ -951,38 +965,27 @@ def _generate_bucket_candidates(dominio, tier='all'):
         f"{full_base_dash}-static",
         f"{full_base_dash}-archive",
         f"{full_base_dash}-temp",
-        # Orden inverso
-        f"{domain_name}-{subdomain}-bucket" if subdomain else None,  # ater-ser3-bucket
-        f"{domain_name}-{subdomain}-data" if subdomain else None,
-        f"{domain_name}-{subdomain}-backup" if subdomain else None,
-        # Contexto completo
-        f"{dominio.replace('.', '-')}",  # ser3-ater-gob-ar
-        f"{dominio.replace('.', '-')}-bucket",
-        f"{dominio.replace('.', '-')}-backup",
-        f"{dominio.replace('.', '-')}-data",
-        # Variaciones con prefijos comunes
-        f"aws-{full_base_dash}",
+
+        # Variaciones con prefijos comunes (SIEMPRE con la parte única)
+        f"aws-{full_base_dash}",  # aws-ater o aws-vpn-ater
         f"s3-{full_base_dash}",
         f"bucket-{full_base_dash}",
         f"storage-{full_base_dash}",
         f"data-{full_base_dash}",
-        # Subdominio sin domain name (cuando es específico)
-        f"{subdomain}-bucket" if subdomain else None,
-        f"{subdomain}-backup" if subdomain else None,
-        f"{subdomain}-data" if subdomain else None,
-        f"{subdomain}-storage" if subdomain else None,
-        f"{subdomain}-media" if subdomain else None,
     ]
 
     # ══════════════════════════════════════════════════════════════
     # TIER 3: Del domain name (MENOS PROBABLE pero ÚTIL) - INCLUIDO POR DEFECTO
+    # REGLA: TODOS comienzan con la parte única
+    # ✅ ater-bucket, ater-gob, aws-ater, etc.
+    # ❌ gob, ar, gob-ar (sin la parte única)
     # ══════════════════════════════════════════════════════════════
     tier3 = [
-        # Combinaciones básicas del domain name
+        # Combinaciones básicas del domain name ÚNICO
         f"{domain_name}-bucket",  # ater-bucket
         f"{domain_name}-backup",  # ater-backup
         f"{domain_name}-data",  # ater-data
-        f"{domain_name}-assets",  # ater-assets
+        f"{domain_name}-assets",
         f"{domain_name}-storage",
         f"{domain_name}-files",
         f"{domain_name}-logs",
@@ -998,23 +1001,23 @@ def _generate_bucket_candidates(dominio, tier='all'):
         f"{domain_name}-dev",
         f"{domain_name}-content",
         f"{domain_name}-static",
-        # Con prefijos
-        f"bucket-{domain_name}",
-        f"aws-{domain_name}",
-        f"s3-{domain_name}",
+
+        # Con prefijos comunes (comienzan con parte única)
+        f"bucket-{domain_name}",  # bucket-ater
+        f"aws-{domain_name}",     # aws-ater
+        f"s3-{domain_name}",      # s3-ater
         f"storage-{domain_name}",
         f"data-{domain_name}",
         f"{domain_name}-aws",
         f"{domain_name}-s3",
-        f"{domain_name}-gcp",  # También probar Google Cloud
-        f"{domain_name}-azure",  # También probar Azure
-        # Variaciones minúsculas del dominio completo (algunos usan lowercase)
-        dominio.lower().replace('.', '-'),
-        dominio.lower().replace('.', ''),
-        # Variaciones con números iniciales (patrón común de buckets)
+        f"{domain_name}-gcp",
+        f"{domain_name}-azure",
+
+        # Variaciones con números (comienzan con parte única)
         f"01-{domain_name}",
-        f"01-{full_base_dash}" if subdomain else None,
         f"prod-{domain_name}",
+        # Variaciones de full_base_dash si hay subdominio
+        f"01-{full_base_dash}" if subdomain else None,
         f"prod-{full_base_dash}" if subdomain else None,
     ]
 
@@ -1393,6 +1396,18 @@ def _verify_bucket(bucket_name, dominio):
         # 5. Determinar nivel de acceso y severidad basada en correlación
         if acceso_anonimo == 'anónimo':
             # ¡BUCKET ABIERTO AL PÚBLICO!
+
+            # 🚨 FILTRO ANTI-FALSOS POSITIVOS
+            # Rechazar si:
+            # 1. Confianza negativa (claro falso positivo)
+            # 2. IP NO es AWS + confianza muy baja (bucket en otro servicio, no S3)
+            if correlation['confianza'] < 0:
+                print(f"[s3-verify] ❌ {bucket_name} RECHAZADO: Confianza negativa ({correlation['confianza']}%) - FALSO POSITIVO")
+                return resultado
+
+            if correlation['evidencias'].get('not_aws_ip') and correlation['confianza'] < 50:
+                print(f"[s3-verify] ❌ {bucket_name} RECHAZADO: IP no-AWS ({correlation['evidencias'].get('domain_ip')}) + baja correlación ({correlation['confianza']}%) - FALSO POSITIVO")
+                return resultado
 
             # ⭐ MEJORADO: HTTP 200 anónimo es evidencia REAL de que el bucket es accesible
             # Reducir threshold a 30% para buckets públicos (menos estricto)
