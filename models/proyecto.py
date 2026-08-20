@@ -824,8 +824,6 @@ class Proyecto:
             f.resource_id,
             f.inventory_data,
             f.referencias_data,
-            em.nombre AS estado_mitigacion,
-            em.color AS color_estado_mitigacion,
             f.finding_comment,
             GROUP_CONCAT(fe.file_path ORDER BY fe.id SEPARATOR '|') AS imagenes
         FROM findings f
@@ -848,8 +846,6 @@ class Proyecto:
             AND sr.provider = f.provider
         LEFT JOIN severidades sev
             ON sev.id = sr.severidad_id
-        LEFT JOIN estados em
-            ON em.id = f.estado_mitigacion
         LEFT JOIN findings_evidence fe
             ON fe.finding_id = f.id AND fe.estado_id = 1
         WHERE f.proyecto_id = %s
