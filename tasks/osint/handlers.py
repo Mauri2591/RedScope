@@ -710,36 +710,24 @@ def recon_cloud(ejecucion_id, proyecto_id):
 
         recursos = []
 
-        # ⭐ NUEVO: Extraer subdominios descubiertos para probarlos como nombres de buckets
-        subdominios_lista = []
-        if 'subdominios_descubiertos' in dominio_scope or subdominios_descubiertos:
-            subdominios_lista = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-            # Extraer la parte del subdominio (antes del .flaws.cloud)
-            # ej: level2-c8b217a33fcf1f839f6f1f73a00a9ae7.flaws.cloud → level2-c8b217a33fcf1f839f6f1f73a00a9ae7
-            subdominios_como_buckets = []
-            for sub in subdominios_lista:
-                parts = sub.split('.')
-                if parts:
-                    subdominios_como_buckets.append(parts[0])  # Tomar solo la parte del subdominio
-
-            if subdominios_como_buckets:
-                print(f"[recon_cloud] ⭐ NUEVO: Probando {len(subdominios_como_buckets)} subdominios como nombres de buckets")
-                print(f"[recon_cloud] Subdominios a probar: {subdominios_como_buckets[:5]}...")  # Mostrar primeros 5
-
         for dom in todos_los_dominios:
             try:
                 print(f"[recon_cloud] Escaneando buckets S3 para {dom}...")
 
                 # ═══════════════════════════════════════════════════════
-                # TIER 0: NUEVO - Subdominios descubiertos como buckets directos
+                # TIER 0: DIRECTO - Probar el dominio/subdominio COMO NOMBRE DE BUCKET
+                # ej: level2-c8b217a33fcf1f839f6f1f73a00a9ae7.flaws.cloud →
+                #     prueba "level2-c8b217a33fcf1f839f6f1f73a00a9ae7" como bucket directo
                 # ═══════════════════════════════════════════════════════
-                print(f"[recon_cloud] TIER 0: Probando subdominios descubiertos como nombres de buckets...")
-                if subdominios_como_buckets and dom == todos_los_dominios[0]:  # Solo en el dominio principal
-                    for bucket_candidate in subdominios_como_buckets:
-                        resultado = _verify_bucket(bucket_candidate, dom)
-                        if resultado:
-                            recursos.extend(resultado)
-                            print(f"[recon_cloud] ✓ TIER 0: Encontrado via subdominio: {bucket_candidate}")
+                print(f"[recon_cloud] TIER 0: Probando {dom} directamente como nombre de bucket...")
+                # Extraer la parte del subdominio si es necesario
+                dom_parts = dom.split('.')
+                bucket_directo = dom_parts[0] if len(dom_parts) > 1 else dom  # level2-xxx de level2-xxx.flaws.cloud
+
+                resultado = _verify_bucket(bucket_directo, dom)
+                if resultado:
+                    recursos.extend(resultado)
+                    print(f"[recon_cloud] ✓ TIER 0: Encontrado: {bucket_directo}")
 
                 # ═══════════════════════════════════════════════════════
                 # TIER 1: Buckets REALES (encontrados en CT logs/Wayback)
