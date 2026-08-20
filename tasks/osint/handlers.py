@@ -1236,7 +1236,7 @@ def _check_bucket_anonymous_access(bucket_name):
         print(f"[s3-anon] Verificando acceso anónimo a s3://{bucket_name}/...")
 
         result = subprocess.run(
-            ['aws', 's3', 'ls', f"s3://{bucket_name}/", '--no-sign-request', '--max-items', '1'],
+            ['aws', 's3', 'ls', f"s3://{bucket_name}/", '--no-sign-request'],
             capture_output=True,
             text=True,
             timeout=10
