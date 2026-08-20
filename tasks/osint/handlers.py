@@ -831,19 +831,28 @@ def recon_cloud(ejecucion_id, proyecto_id):
                 try:
                     print(f"[recon_cloud] [FALLBACK] Escaneando buckets S3 para {subdom}...")
 
-                    # TIER 0: Extraer subdomain_name y combinar con dominio_raiz
-                    # ej: ser.ater.gob.ar → "ser-ater"
+                    # TIER 0a: Probar el subdomain_name SOLO primero
+                    # Para dominios como flaws.cloud donde el bucket ES el subdominio
+                    # ej: level2-xxx.flaws.cloud → el bucket es "level2-xxx"
                     subdom_parts = subdom.split('.')
-                    subdomain_name = subdom_parts[0]  # "ser" de "ser.ater.gob.ar"
+                    subdomain_name = subdom_parts[0]  # "level2-xxx" de "level2-xxx.flaws.cloud"
 
-                    # Crear versión combinada con guión (estándar válido en S3)
-                    subdom_combined = f"{subdomain_name}-{dominio_raiz}"  # "ser-ater"
-                    print(f"[recon_cloud] [FALLBACK] TIER 0: Probando {subdom} como '{subdom_combined}'...")
-
-                    resultado = _verify_bucket(subdom_combined, subdom)
+                    print(f"[recon_cloud] [FALLBACK] TIER 0a: Probando subdomain '{subdomain_name}' directamente como bucket...")
+                    resultado = _verify_bucket(subdomain_name, subdom)
                     if resultado:
                         recursos.extend(resultado)
-                        print(f"[recon_cloud] ✓ [FALLBACK] TIER 0: Encontrado: {subdom_combined}")
+                        print(f"[recon_cloud] ✓ [FALLBACK] TIER 0a: Encontrado: {subdomain_name}")
+
+                    # TIER 0b: Si no encontró nada, probar combinando con dominio_raiz
+                    # ej: ser.ater.gob.ar → probar "ser-ater"
+                    if not resultado:
+                        subdom_combined = f"{subdomain_name}-{dominio_raiz}"  # "ser-ater"
+                        print(f"[recon_cloud] [FALLBACK] TIER 0b: Probando {subdom} como '{subdom_combined}'...")
+
+                        resultado = _verify_bucket(subdom_combined, subdom)
+                        if resultado:
+                            recursos.extend(resultado)
+                            print(f"[recon_cloud] ✓ [FALLBACK] TIER 0b: Encontrado: {subdom_combined}")
 
                     # TIER 1: Buckets reales encontrados en Wayback/CT
                     buckets_tier1 = _find_buckets_wayback(subdom)
@@ -1205,26 +1214,39 @@ def _scan_with_wordlist(dominio):
 
 
 def _check_bucket_anonymous_access(bucket_name):
-    """Verifica si el bucket permite acceso anónimo (sin credenciales AWS)"""
+    """Verifica si el bucket permite acceso anónimo (sin credenciales AWS)
+
+    Usa GET request (no HEAD) porque algunos buckets S3 responden diferente
+    a HEAD vs GET requests para la detección de acceso público.
+    """
     try:
         # Intentar listar bucket via HTTP anónimo
         url = f"https://{bucket_name}.s3.amazonaws.com/"
 
         try:
-            response = requests.head(url, timeout=5, allow_redirects=False, verify=False)
+            # ⭐ IMPORTANTE: Usar GET en lugar de HEAD para detección más confiable
+            # HEAD puede devolver resultados inconsistentes para buckets S3
+            response = requests.get(url, timeout=5, allow_redirects=False, verify=False)
             http_code = response.status_code
-            print(f"[s3-anon] {bucket_name}: HTTP {http_code}")
+            print(f"[s3-anon] {bucket_name}: HTTP GET {http_code}")
 
-            # 200 = acceso público, 403 = privado, 404 = no existe
+            # 200 = acceso público (XML listing), 403 = privado, 404 = no existe
             if http_code == 200:
-                print(f"[s3-anon] ✅ {bucket_name} - ACCESO ANÓNIMO ABIERTO")
-                return 'anónimo'  # ← BUCKET ABIERTO AL PÚBLICO
+                # Verificar que realmente es un listing de S3 (contiene XML)
+                if '<?xml' in response.text or '<ListBucketResult' in response.text or '<Contents>' in response.text:
+                    print(f"[s3-anon] ✅ {bucket_name} - ACCESO ANÓNIMO ABIERTO (XML listing detectado)")
+                    return 'anónimo'  # ← BUCKET ABIERTO AL PÚBLICO
+                else:
+                    print(f"[s3-anon] ℹ️  {bucket_name} - HTTP 200 pero no es S3 listing")
+                    return 'desconocido'
             elif http_code == 403:
                 print(f"[s3-anon] ❌ {bucket_name} - Acceso denegado (privado)")
                 return 'privado'
             elif http_code == 404:
+                print(f"[s3-anon] ❌ {bucket_name} - HTTP 404 (bucket no existe)")
                 return 'no_existe'
             else:
+                print(f"[s3-anon] ℹ️  {bucket_name} - HTTP {http_code} (desconocido)")
                 return 'desconocido'
         except requests.exceptions.Timeout:
             print(f"[s3-anon] ⏱ {bucket_name} - Timeout")
