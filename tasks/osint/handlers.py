@@ -585,11 +585,11 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                 from_domains = ip_to_dominios.get(ip, [])
                 hostname_valido = bool(from_domains)
 
-                # ✨ MEJORADO: Combinar validación de dominio + validación de hostname
-                # Una IP es realmente válida si:
-                # 1. Fue resuelta desde un dominio scope (from_domains)
-                # 2. El hostname pertenece al dominio objetivo (hostname_validation)
-                es_realmente_valida = hostname_valido and hostname_validation['es_valido']
+                # ✨ ARREGLADO: La validación de hostname es solo informativa
+                # Una IP es realmente válida si fue resuelta desde un dominio scope
+                # No importa qué diga el reverse DNS (puede ser del ISP)
+                es_realmente_valida = hostname_valido
+                # hostname_validation es solo contexto/info, no rechaza la IP
 
                 entry = {
                     'ip': ip,
@@ -613,10 +613,10 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                         'geo': geo_data
                     })
                     print(f"[mapeo_ips] ✓ {ip} ({hostname}) - {geo_data['pais']}, {geo_data['ciudad']} [VÁLIDO]")
+                    print(f"              Hostname info: {hostname_validation.get('razon', 'N/A')}")
                 else:
-                    # ✨ NUEVO: Logging para IPs rechazadas
-                    razon_rechazo = hostname_validation.get('razon', 'unknown')
-                    print(f"[mapeo_ips] ✗ {ip} ({hostname}) - RECHAZADO: {razon_rechazo}")
+                    # IPs sin from_domains (no resueltas desde dominio scope)
+                    print(f"[mapeo_ips] ⊘ {ip} ({hostname}) - No fue resuelto desde dominio scope")
 
             except Exception as e:
                 print(f"[mapeo_ips] Error analizando {ip}: {e}")
