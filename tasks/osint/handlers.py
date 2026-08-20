@@ -747,6 +747,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
                 # TIER 0: DIRECTO - Probar el dominio/subdominio COMO NOMBRE DE BUCKET
                 # ej: level2-c8b217a33fcf1f839f6f1f73a00a9ae7.flaws.cloud →
                 #     prueba "level2-c8b217a33fcf1f839f6f1f73a00a9ae7" como bucket directo
+                # ej: flaws.cloud → prueba "flaws" Y "flaws-cloud" como buckets
                 # ═══════════════════════════════════════════════════════
                 print(f"[recon_cloud] TIER 0: Probando {dom} directamente como nombre de bucket...")
                 # Extraer la parte del subdominio si es necesario
@@ -757,6 +758,16 @@ def recon_cloud(ejecucion_id, proyecto_id):
                 if resultado:
                     recursos.extend(resultado)
                     print(f"[recon_cloud] ✓ TIER 0: Encontrado: {bucket_directo}")
+
+                # ⭐ IMPORTANTE: También probar el dominio COMPLETO con guiones
+                # Esto es crítico para dominios como "flaws.cloud" donde el bucket se llama "flaws.cloud" (con guion)
+                if len(dom_parts) > 1:
+                    bucket_completo = '-'.join(dom_parts)  # "flaws-cloud"
+                    print(f"[recon_cloud] TIER 0b: Probando dominio completo con guiones: {bucket_completo}...")
+                    resultado_completo = _verify_bucket(bucket_completo, dom)
+                    if resultado_completo:
+                        recursos.extend(resultado_completo)
+                        print(f"[recon_cloud] ✓ TIER 0b: Encontrado: {bucket_completo}")
 
                 # ═══════════════════════════════════════════════════════
                 # TIER 1: Buckets REALES (encontrados en CT logs/Wayback)
@@ -1216,49 +1227,58 @@ def _scan_with_wordlist(dominio):
 def _check_bucket_anonymous_access(bucket_name):
     """Verifica si el bucket permite acceso anónimo (sin credenciales AWS)
 
-    Usa GET request (no HEAD) porque algunos buckets S3 responden diferente
-    a HEAD vs GET requests para la detección de acceso público.
+    ⭐ MEJORADO: Usa AWS CLI (aws s3 ls --no-sign-request) que es la forma
+    CORRECTA de verificar acceso público anónimo, mucho más confiable que
+    verificar HTTP status codes.
     """
     try:
-        # Intentar listar bucket via HTTP anónimo
-        url = f"https://{bucket_name}.s3.amazonaws.com/"
+        # ⭐ FORMA CORRECTA: Intentar listar bucket con AWS CLI sin credenciales
+        print(f"[s3-anon] Verificando acceso anónimo a s3://{bucket_name}/...")
 
-        try:
-            # ⭐ IMPORTANTE: Usar GET en lugar de HEAD para detección más confiable
-            # HEAD puede devolver resultados inconsistentes para buckets S3
-            response = requests.get(url, timeout=5, allow_redirects=False, verify=False)
-            http_code = response.status_code
-            print(f"[s3-anon] {bucket_name}: HTTP GET {http_code}")
+        result = subprocess.run(
+            ['aws', 's3', 'ls', f"s3://{bucket_name}/", '--no-sign-request', '--max-items', '1'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
 
-            # 200 = acceso público (XML listing), 403 = privado, 404 = no existe
-            if http_code == 200:
-                # Verificar que realmente es un listing de S3 (contiene XML)
-                if '<?xml' in response.text or '<ListBucketResult' in response.text or '<Contents>' in response.text:
-                    print(f"[s3-anon] ✅ {bucket_name} - ACCESO ANÓNIMO ABIERTO (XML listing detectado)")
-                    return 'anónimo'  # ← BUCKET ABIERTO AL PÚBLICO
-                else:
-                    print(f"[s3-anon] ℹ️  {bucket_name} - HTTP 200 pero no es S3 listing")
-                    return 'desconocido'
-            elif http_code == 403:
-                print(f"[s3-anon] ❌ {bucket_name} - Acceso denegado (privado)")
-                return 'privado'
-            elif http_code == 404:
-                print(f"[s3-anon] ❌ {bucket_name} - HTTP 404 (bucket no existe)")
-                return 'no_existe'
-            else:
-                print(f"[s3-anon] ℹ️  {bucket_name} - HTTP {http_code} (desconocido)")
-                return 'desconocido'
-        except requests.exceptions.Timeout:
-            print(f"[s3-anon] ⏱ {bucket_name} - Timeout")
-            return 'timeout'
-        except requests.exceptions.SSLError:
-            print(f"[s3-anon] 🔒 {bucket_name} - SSL error")
-            return 'ssl_error'
-        except requests.exceptions.ConnectionError as e:
-            print(f"[s3-anon] 🌐 {bucket_name} - Conexión error: {e}")
-            return 'conexion_error'
+        # Analizar resultado
+        stderr = result.stderr.lower()
+        stdout = result.stdout.lower()
+        returncode = result.returncode
+
+        print(f"[s3-anon] {bucket_name}: returncode={returncode}")
+
+        # ✅ returncode == 0 = Acceso público permitido
+        if returncode == 0:
+            print(f"[s3-anon] ✅ {bucket_name} - ACCESO ANÓNIMO CONFIRMADO (aws s3 ls devolvió 0)")
+            return 'anónimo'  # ← BUCKET ABIERTO AL PÚBLICO
+
+        # ❌ NoSuchBucket = El bucket no existe
+        if 'nosuchbucket' in stderr or 'does not exist' in stderr:
+            print(f"[s3-anon] ❌ {bucket_name} - El bucket no existe (NoSuchBucket)")
+            return 'no_existe'
+
+        # 🔒 Access Denied / AllAccessDisabled = Privado o restringido
+        if 'accessdenied' in stderr or 'allaccessdisabled' in stderr or 'signaturemismatch' in stderr:
+            print(f"[s3-anon] 🔒 {bucket_name} - Acceso denegado (bucket privado)")
+            return 'privado'
+
+        # ❓ Otros errores
+        if returncode != 0:
+            print(f"[s3-anon] ⚠️  {bucket_name} - Error: {result.stderr[:200]}")
+            return 'error'
+
+        return 'desconocido'
+
+    except subprocess.TimeoutExpired:
+        print(f"[s3-anon] ⏱ {bucket_name} - Timeout (aws s3 ls tardó > 10s)")
+        return 'timeout'
+    except FileNotFoundError:
+        print(f"[s3-anon] ⚠️  {bucket_name} - AWS CLI no está instalado")
+        return 'error'
     except Exception as e:
-        print(f"[s3-anon] ⚠ {bucket_name} - Error general: {e}")
+        print(f"[s3-anon] ⚠ {bucket_name} - Error: {str(e)[:200]}")
         return 'error'
 
 def _validate_bucket_domain_correlation(bucket_name, dominio):
