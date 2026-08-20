@@ -745,29 +745,48 @@ def recon_cloud(ejecucion_id, proyecto_id):
 
                 # ═══════════════════════════════════════════════════════
                 # TIER 0: DIRECTO - Probar el dominio/subdominio COMO NOMBRE DE BUCKET
-                # ej: level2-c8b217a33fcf1f839f6f1f73a00a9ae7.flaws.cloud →
-                #     prueba "level2-c8b217a33fcf1f839f6f1f73a00a9ae7" como bucket directo
-                # ej: flaws.cloud → prueba "flaws" Y "flaws-cloud" como buckets
+                # Probar EN ESTE ORDEN (optimizado para vida real):
+                # 1. Con guiones (ej: "flaws-cloud") ⭐ MÁS COMÚN EN VIDA REAL
+                # 2. Primera parte (ej: "flaws")
+                # 3. El dominio EXACTO (ej: "flaws.cloud") ⚠️ RARO pero posible
                 # ═══════════════════════════════════════════════════════
                 print(f"[recon_cloud] TIER 0: Probando {dom} directamente como nombre de bucket...")
-                # Extraer la parte del subdominio si es necesario
+
                 dom_parts = dom.split('.')
-                bucket_directo = dom_parts[0] if len(dom_parts) > 1 else dom  # level2-xxx de level2-xxx.flaws.cloud
 
-                resultado = _verify_bucket(bucket_directo, dom)
-                if resultado:
-                    recursos.extend(resultado)
-                    print(f"[recon_cloud] ✓ TIER 0: Encontrado: {bucket_directo}")
-
-                # ⭐ IMPORTANTE: También probar el dominio COMPLETO con guiones
-                # Esto es crítico para dominios como "flaws.cloud" donde el bucket se llama "flaws.cloud" (con guion)
+                # ⭐ TIER 0a: Probar el dominio COMPLETO con guiones
+                # Esto es MÁS COMÚN en la vida real (empresa-com-ar vs empresa.com.ar)
                 if len(dom_parts) > 1:
-                    bucket_completo = '-'.join(dom_parts)  # "flaws-cloud"
-                    print(f"[recon_cloud] TIER 0b: Probando dominio completo con guiones: {bucket_completo}...")
-                    resultado_completo = _verify_bucket(bucket_completo, dom)
-                    if resultado_completo:
-                        recursos.extend(resultado_completo)
-                        print(f"[recon_cloud] ✓ TIER 0b: Encontrado: {bucket_completo}")
+                    bucket_guiones = '-'.join(dom_parts)
+                    print(f"[recon_cloud] TIER 0a: Probando con guiones: {bucket_guiones}...")
+                    resultado = _verify_bucket(bucket_guiones, dom)
+                    if resultado:
+                        recursos.extend(resultado)
+                        print(f"[recon_cloud] ✓ TIER 0a: Encontrado: {bucket_guiones}")
+                    else:
+                        # TIER 0b: Probar la primera parte del dominio
+                        # ej: "flaws" de "flaws.cloud"
+                        bucket_directo = dom_parts[0]
+                        print(f"[recon_cloud] TIER 0b: Probando primera parte: {bucket_directo}...")
+                        resultado = _verify_bucket(bucket_directo, dom)
+                        if resultado:
+                            recursos.extend(resultado)
+                            print(f"[recon_cloud] ✓ TIER 0b: Encontrado: {bucket_directo}")
+                        else:
+                            # TIER 0c: Probar el dominio EXACTO con puntos
+                            # Esto es RARO en la vida real pero posible (ej: flaws.cloud)
+                            print(f"[recon_cloud] TIER 0c: Probando dominio EXACTO: {dom}...")
+                            resultado_exacto = _verify_bucket(dom, dom)
+                            if resultado_exacto:
+                                recursos.extend(resultado_exacto)
+                                print(f"[recon_cloud] ✓ TIER 0c: Encontrado: {dom}")
+                else:
+                    # Dominio simple (sin puntos)
+                    print(f"[recon_cloud] TIER 0: Probando dominio simple: {dom}...")
+                    resultado = _verify_bucket(dom, dom)
+                    if resultado:
+                        recursos.extend(resultado)
+                        print(f"[recon_cloud] ✓ TIER 0: Encontrado: {dom}")
 
                 # ═══════════════════════════════════════════════════════
                 # TIER 1: Buckets REALES (encontrados en CT logs/Wayback)
