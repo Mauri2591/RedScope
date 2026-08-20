@@ -712,18 +712,40 @@ def recon_cloud(ejecucion_id, proyecto_id):
         for dom in todos_los_dominios:
             try:
                 print(f"[recon_cloud] Escaneando buckets S3 para {dom}...")
-                bucket_names = _generate_bucket_candidates(dom)
-                bucket_names.extend(_find_buckets_wayback(dom))
-                bucket_names.extend(_find_buckets_from_ct(dom))
-                # DESACTIVADO: _scan_with_wordlist es muy lento (125+ llamadas a AWS por dominio)
-                # Generalmente los buckets vía wayback y CT logs son suficientes
-                # bucket_names.extend(_scan_with_wordlist(dom))
 
-                bucket_names = list(set(filter(None, bucket_names)))
-                print(f"[recon_cloud] {dom} → {len(bucket_names)} candidatos de buckets")
+                # ═══════════════════════════════════════════════════════
+                # TIER 1: Buckets REALES (encontrados en CT logs/Wayback)
+                # ═══════════════════════════════════════════════════════
+                print(f"[recon_cloud] TIER 1: Buckets encontrados en CT logs/Wayback...")
+                buckets_tier1 = _find_buckets_wayback(dom)
+                buckets_tier1.extend(_find_buckets_from_ct(dom))
+                buckets_tier1 = list(set(filter(None, buckets_tier1)))
 
-                for bucket in bucket_names:
+                print(f"[recon_cloud] TIER 1: {len(buckets_tier1)} buckets reales encontrados")
+                for bucket in buckets_tier1:
                     recursos.extend(_verify_bucket(bucket, dom))
+
+                # ═══════════════════════════════════════════════════════
+                # TIER 2: Candidatos ESPECÍFICOS del dominio
+                # ═══════════════════════════════════════════════════════
+                print(f"[recon_cloud] TIER 2: Candidatos específicos del dominio...")
+                buckets_tier2 = _generate_bucket_candidates(dom, tier='tier2')
+                buckets_tier2 = list(set(filter(None, buckets_tier2)))
+
+                print(f"[recon_cloud] TIER 2: {len(buckets_tier2)} candidatos a verificar")
+                for bucket in buckets_tier2:
+                    recursos.extend(_verify_bucket(bucket, dom))
+
+                # ═══════════════════════════════════════════════════════
+                # TIER 3: Candidatos MENOS ESPECÍFICOS (opcional)
+                # ═══════════════════════════════════════════════════════
+                # Desactivado por defecto para reducir ruido
+                # Descomentar solo si quieres mayor cobertura (más falsos positivos)
+                # buckets_tier3 = _generate_bucket_candidates(dom, tier='tier3')
+                # print(f"[recon_cloud] TIER 3: {len(buckets_tier3)} candidatos")
+                # for bucket in buckets_tier3:
+                #     recursos.extend(_verify_bucket(bucket, dom))
+
             except Exception as e:
                 print(f"[recon_cloud] Error escaneando {dom}: {e}")
 
@@ -741,34 +763,113 @@ def recon_cloud(ejecucion_id, proyecto_id):
     _run_osint_job(ejecucion_id, job)
 
 
-def _generate_bucket_candidates(dominio):
-    """Genera variaciones de nombres de buckets"""
-    domain_base = dominio.split('.')[0]
-    domain_clean = dominio.replace('.', '-').replace('_', '-')
-    domain_nodots = dominio.replace('.', '')
-    company = domain_base
+def _generate_bucket_candidates(dominio, tier='all'):
+    """
+    Genera candidatos de buckets por tiers de confianza.
 
-    candidates = [
-        dominio,
-        domain_clean,
-        domain_nodots,
-        f"{company}-bucket",
-        f"bucket-{company}",
-        f"{company}-aws",
-        f"{company}-s3",
-        f"s3-{company}",
-        f"{company}-data",
-        f"{company}-assets",
-        f"{company}-backup",
-        f"{company}-files",
-        f"{company}-media",
-        f"{company}-logs",
-        f"{company}-public",
-        f"{company}-com-ar",
-        f"{company}-{dominio.split('.')[-2]}",
+    TIER 1 (Muy probable): Buckets encontrados en CT logs / Wayback
+    TIER 2 (Probable): Específicos del dominio (ser3-ater-bucket)
+    TIER 3 (Posible): Del domain name (ater-backup)
+    TIER 4 (Improbable): Ultra-genéricos → NO USAR (mucho ruido)
+
+    Args:
+        dominio (str): Dominio/subdominio
+        tier (str): 'tier1', 'tier2', 'tier3', 'all'
+
+    Returns:
+        list: Candidatos ordenados por probabilidad (descendente)
+    """
+    parts = dominio.split('.')
+
+    if len(parts) >= 3:
+        subdomain = parts[0]
+        domain_name = parts[1]
+        full_base_dash = f"{subdomain}-{domain_name}"  # ser3-ater
+    else:
+        subdomain = None
+        domain_name = parts[0]
+        full_base_dash = domain_name
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 1: Buckets REALES (encontrados en CT logs / Wayback)
+    # ══════════════════════════════════════════════════════════════
+    tier1 = []
+    # Estos se cargan de _find_buckets_wayback() y _find_buckets_from_ct()
+    # No generamos, sino que verificamos los ENCONTRADOS
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 2: Específicos del dominio (MÁS PROBABLE)
+    # ══════════════════════════════════════════════════════════════
+    tier2 = [
+        # Combinaciones subdominio + domain
+        f"{full_base_dash}-bucket",  # ser3-ater-bucket
+        f"{full_base_dash}-backup",  # ser3-ater-backup
+        f"{full_base_dash}-data",  # ser3-ater-data
+        f"{full_base_dash}-assets",  # ser3-ater-assets
+        f"{full_base_dash}-storage",
+        f"{full_base_dash}-files",
+        f"{full_base_dash}-logs",
+        f"{full_base_dash}-db",
+        # Orden inverso
+        f"{domain_name}-{subdomain}-bucket" if subdomain else None,  # ater-ser3-bucket
+        f"{domain_name}-{subdomain}-data" if subdomain else None,
+        # Contexto completo
+        f"{dominio.replace('.', '-')}",  # ser3-ater-gob-ar
+        f"{dominio.replace('.', '-')}-bucket",
     ]
 
-    return candidates
+    # ══════════════════════════════════════════════════════════════
+    # TIER 3: Del domain name (MENOS PROBABLE)
+    # ══════════════════════════════════════════════════════════════
+    tier3 = [
+        f"{domain_name}-bucket",  # ater-bucket
+        f"{domain_name}-backup",  # ater-backup
+        f"{domain_name}-data",  # ater-data
+        f"{domain_name}-assets",  # ater-assets
+        f"{domain_name}-storage",
+        f"{domain_name}-files",
+        f"{domain_name}-logs",
+        f"{domain_name}-db",
+        f"{domain_name}-media",
+        f"bucket-{domain_name}",
+        f"{domain_name}-aws",
+        f"{domain_name}-s3",
+    ]
+
+    # Agregar subdominio solo si existe
+    if subdomain:
+        tier3.extend([
+            f"{subdomain}-bucket",  # ser3-bucket
+            f"{subdomain}-backup",
+            f"{subdomain}-data",
+        ])
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 4: NO USAR - Ultra genéricos (demasiado ruido)
+    # ══════════════════════════════════════════════════════════════
+    # backup, data, media, files, logs, db, assets, storage
+    # Estos generan miles de falsos positivos
+
+    # ══════════════════════════════════════════════════════════════
+    # Compilar según tier solicitado
+    # ══════════════════════════════════════════════════════════════
+    candidates = []
+    if tier in ['tier1', 'all']:
+        candidates.extend(tier1)
+    if tier in ['tier2', 'all']:
+        candidates.extend(tier2)
+    if tier in ['tier3', 'all']:
+        candidates.extend(tier3)
+
+    # Remover Nones y duplicados, mantener orden
+    seen = set()
+    unique_candidates = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            unique_candidates.append(c)
+
+    return unique_candidates
 
 
 def _find_buckets_wayback(dominio):
@@ -1119,6 +1220,12 @@ def _verify_bucket(bucket_name, dominio):
         if acceso_anonimo == 'anónimo':
             # ¡BUCKET ABIERTO AL PÚBLICO!
 
+            # FILTRO CRÍTICO: Solo reportar si confianza >= 50%
+            # Evita falsos positivos masivos
+            if correlation['confianza'] < 50:
+                print(f"[s3-verify] ⚠️  {bucket_name} abierto pero BAJA CORRELACIÓN ({correlation['confianza']}%) → IGNORAR")
+                return resultado
+
             # Obtener severidad dinámica desde BD basada en confianza
             severidad_obj = _get_severidad_por_confianza(correlation['confianza'])
             severidad_nombre = severidad_obj.get('nombre') if severidad_obj else 'UNKNOWN'
@@ -1132,6 +1239,7 @@ def _verify_bucket(bucket_name, dominio):
             else:
                 confianza_label = 'BAJA'
 
+            print(f"[s3-verify] ✅ REPORTAR: {bucket_name} (acceso=abierto, confianza={correlation['confianza']}%)")
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
@@ -1149,45 +1257,14 @@ def _verify_bucket(bucket_name, dominio):
                 'severidad': severidad_nombre  # ← MEJORADO: Dinámico desde BD
             })
         elif result.returncode == 0:
-            # Acceso con credenciales AWS
-            # Severidad más baja: es accesible solo con credenciales
-            severidad_obj = _get_severidad_por_confianza(30)  # Score bajo
-            severidad_nombre = severidad_obj.get('nombre') if severidad_obj else 'LOW'
-            severidad_id = severidad_obj.get('id') if severidad_obj else None
+            # Acceso con credenciales AWS (BAJO VALOR - No reportar)
+            print(f"[s3-verify] ℹ️  {bucket_name} requiere auth → NO REPORTAR (bajo valor)")
+            return resultado
 
-            resultado.append({
-                'tipo': 's3_bucket',
-                'nombre': bucket_name,
-                'dominio': dominio,
-                'acceso': 'público_o_auth',
-                'acceso_anonimo': acceso_anonimo,
-                'estado': 'existe',
-                'correlacion_validada': correlation['es_correlacionado'],
-                'confianza_correlacion': correlation['confianza'],
-                'razon_correlacion': correlation['razon'],
-                'severidad_id': severidad_id,
-                'severidad': severidad_nombre
-            })
         elif 'NoSuchBucket' not in result.stderr:
-            # Existe pero está privado
-            # Severidad mínima: no es accesible anónimamente
-            severidad_obj = _get_severidad_por_confianza(10)  # Score muy bajo
-            severidad_nombre = severidad_obj.get('nombre') if severidad_obj else 'INFO'
-            severidad_id = severidad_obj.get('id') if severidad_obj else None
-
-            resultado.append({
-                'tipo': 's3_bucket',
-                'nombre': bucket_name,
-                'dominio': dominio,
-                'acceso': 'privado',
-                'acceso_anonimo': acceso_anonimo,
-                'estado': 'existe',
-                'correlacion_validada': correlation['es_correlacionado'],
-                'confianza_correlacion': correlation['confianza'],
-                'razon_correlacion': correlation['razon'],
-                'severidad_id': severidad_id,
-                'severidad': severidad_nombre
-            })
+            # Existe pero está privado (MÍNIMO VALOR - No reportar)
+            print(f"[s3-verify] ℹ️  {bucket_name} privado → NO REPORTAR (sin acceso)")
+            return resultado
 
     except subprocess.TimeoutExpired:
         print(f"[s3-verify] Timeout verificando {bucket_name}")
