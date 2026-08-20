@@ -677,7 +677,13 @@ def mapeo_ips(ejecucion_id, proyecto_id):
     _run_osint_job(ejecucion_id, job)
 
 def recon_cloud(ejecucion_id, proyecto_id):
-    """Reconocimiento de buckets S3 y servicios cloud con fallback automático"""
+    """Reconocimiento de buckets S3 y servicios cloud con fallback automático
+
+    PRIORIDADES:
+    1. TIER 0-3: Buscar patrones del DOMINIO RAÍZ (ej: "ater" de "ater.gob.ar")
+    2. Si no hay resultados, entonces usar TIER 0-3 en SUBDOMINIOS combinados con el raíz
+       (ej: "ser-ater", "seater" de "ser.ater.gob.ar", NO solo "ser")
+    """
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
         dominio_scope = config.get('DOMINIO', '').strip() if config else ''
@@ -699,18 +705,41 @@ def recon_cloud(ejecucion_id, proyecto_id):
         if dominios_descubiertos:
             print(f"[recon_cloud] Subdominios descubiertos: {len(dominios_descubiertos)}")
 
-        # 4. Combinar todas las fuentes
-        todos_los_dominios = list(set(dominios_config + dominios_from_ips + dominios_descubiertos))
+        # 4. Crear lista de dominios PRINCIPALES (scope + fallbacks)
+        # IMPORTANTE: Los subdominios solo se usan si no hay hallazgos en los dominios principales
+        dominios_principales = list(set(dominios_config + dominios_from_ips))
 
-        if not todos_los_dominios:
+        if not dominios_principales and not dominios_descubiertos:
             raise Exception("No hay dominios para escanear (DOMINIO vacío, mapeo_ips sin resultados, subdominios no descubiertos)")
 
-        print(f"[recon_cloud] Dominios scope: {len(dominios_config)}, De mapeo_ips: {len(dominios_from_ips)}, Subdominios descubiertos: {len(dominios_descubiertos)}")
-        print(f"[recon_cloud] Total dominios a escanear: {len(todos_los_dominios)}")
+        # 5. EXTRAER DOMINIO RAÍZ (ej: "ater" de "ater.gob.ar")
+        # Este será la base para todos los patrones de búsqueda
+        dominio_raiz = None
+        if dominios_principales:
+            # Tomar el primer dominio principal y extraer la parte raíz
+            primer_dominio = dominios_principales[0]
+            partes = primer_dominio.split('.')
+            if len(partes) >= 2:
+                # ej: ater.gob.ar → "ater"
+                dominio_raiz = partes[0]
+            else:
+                # Si es un dominio simple, usarlo como raíz
+                dominio_raiz = primer_dominio
+
+        print(f"[recon_cloud] Dominios principales: {len(dominios_principales)}, Subdominios descubiertos: {len(dominios_descubiertos)}")
+        if dominio_raiz:
+            print(f"[recon_cloud] DOMINIO RAÍZ IDENTIFICADO: '{dominio_raiz}'")
 
         recursos = []
 
-        for dom in todos_los_dominios:
+        # ═══════════════════════════════════════════════════════════════════════
+        # FASE 1: Escanear DOMINIOS PRINCIPALES con TIER 0-3
+        # ═══════════════════════════════════════════════════════════════════════
+        print(f"[recon_cloud] ════════════════════════════════════════════")
+        print(f"[recon_cloud] FASE 1: Escaneando DOMINIOS PRINCIPALES")
+        print(f"[recon_cloud] ════════════════════════════════════════════")
+
+        for dom in dominios_principales:
             try:
                 print(f"[recon_cloud] Escaneando buckets S3 para {dom}...")
 
@@ -783,13 +812,71 @@ def recon_cloud(ejecucion_id, proyecto_id):
             except Exception as e:
                 print(f"[recon_cloud] Error escaneando {dom}: {e}")
 
+        # ═══════════════════════════════════════════════════════════════════════
+        # FASE 2: Si FASE 1 no encuentra nada, escanear SUBDOMINIOS DESCUBIERTOS
+        # IMPORTANTE: Combinar subdominio con dominio_raiz (ej: ser-ater)
+        # NO buscar solo la primera parte del subdominio (ej: NO solo "ser")
+        # ═══════════════════════════════════════════════════════════════════════
+        if not recursos and dominios_descubiertos and dominio_raiz:
+            print(f"[recon_cloud] ════════════════════════════════════════════")
+            print(f"[recon_cloud] FASE 2: FASE 1 sin resultados → FALLBACK a SUBDOMINIOS")
+            print(f"[recon_cloud] Escaneando {len(dominios_descubiertos)} subdominios descubiertos")
+            print(f"[recon_cloud] Combinándolos con dominio raíz: '{dominio_raiz}'")
+            print(f"[recon_cloud] ════════════════════════════════════════════")
+
+            for subdom in dominios_descubiertos:
+                try:
+                    print(f"[recon_cloud] [FALLBACK] Escaneando buckets S3 para {subdom}...")
+
+                    # TIER 0: Extraer subdomain_name y combinar con dominio_raiz
+                    # ej: ser.ater.gob.ar → "ser-ater"
+                    subdom_parts = subdom.split('.')
+                    subdomain_name = subdom_parts[0]  # "ser" de "ser.ater.gob.ar"
+
+                    # Crear versión combinada con guión (estándar válido en S3)
+                    subdom_combined = f"{subdomain_name}-{dominio_raiz}"  # "ser-ater"
+                    print(f"[recon_cloud] [FALLBACK] TIER 0: Probando {subdom} como '{subdom_combined}'...")
+
+                    resultado = _verify_bucket(subdom_combined, subdom)
+                    if resultado:
+                        recursos.extend(resultado)
+                        print(f"[recon_cloud] ✓ [FALLBACK] TIER 0: Encontrado: {subdom_combined}")
+
+                    # TIER 1: Buckets reales encontrados en Wayback/CT
+                    buckets_tier1 = _find_buckets_wayback(subdom)
+                    buckets_tier1.extend(_find_buckets_from_ct(subdom))
+                    buckets_tier1 = list(set(filter(None, buckets_tier1)))
+
+                    for bucket in buckets_tier1:
+                        recursos.extend(_verify_bucket(bucket, subdom))
+
+                    # TIER 2 y 3: Candidatos generados (usando dominio combinado)
+                    buckets_tier2 = _generate_bucket_candidates(subdom_combined, tier='tier2')
+                    buckets_tier2 = list(set(filter(None, buckets_tier2)))
+
+                    for bucket in buckets_tier2:
+                        result = _verify_bucket(bucket, subdom)
+                        if result:
+                            recursos.extend(result)
+
+                    buckets_tier3 = _generate_bucket_candidates(subdom_combined, tier='tier3')
+                    buckets_tier3 = list(set(filter(None, buckets_tier3)))
+
+                    for bucket in buckets_tier3:
+                        result = _verify_bucket(bucket, subdom)
+                        if result:
+                            recursos.extend(result)
+
+                except Exception as e:
+                    print(f"[recon_cloud] [FALLBACK] Error escaneando {subdom}: {e}")
+
         return {
             "tipo": "recon_cloud",
             "dominio_scope": dominio_scope,
             "total_dominios_scope": len(dominios_config),
             "total_dominios_from_ips": len(dominios_from_ips),
             "total_subdominios_descubiertos": len(dominios_descubiertos),
-            "total_dominios_buscados": len(todos_los_dominios),
+            "total_dominios_buscados": len(dominios_principales),
             "total_recursos": len(recursos),
             "recursos": recursos
         }
@@ -1333,6 +1420,15 @@ def _verify_bucket(bucket_name, dominio):
                 confianza_label = 'BAJA'
 
             print(f"[s3-verify] ✅ REPORTAR: {bucket_name} (acceso=abierto, confianza={correlation['confianza']}%, severidad={severidad_nombre})")
+
+            # ⭐ NUEVO: Generar comandos POC para explotar el bucket
+            poc_commands = {
+                'aws_cli': f"aws s3 ls s3://{bucket_name}/ --no-sign-request",
+                'aws_cli_download': f"aws s3 sync s3://{bucket_name}/ ./{bucket_name}/ --no-sign-request",
+                'curl': f"curl https://{bucket_name}.s3.amazonaws.com/",
+                's3cmd': f"s3cmd ls s3://{bucket_name}/"
+            }
+
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
@@ -1347,7 +1443,8 @@ def _verify_bucket(bucket_name, dominio):
                 'evidencias': correlation['evidencias'],  # ← NUEVO (detalles)
                 'razon_correlacion': correlation['razon'],  # ← NUEVO (descripción)
                 'severidad_id': severidad_id,  # ← NUEVO: ID de severidad desde BD
-                'severidad': severidad_nombre  # ← MEJORADO: Dinámico desde BD
+                'severidad': severidad_nombre,  # ← MEJORADO: Dinámico desde BD
+                'poc_commands': poc_commands  # ⭐ NUEVO: Comandos para explotar el bucket
             })
         elif result.returncode == 0:
             # Acceso con credenciales AWS (BAJO VALOR - No reportar)
