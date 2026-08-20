@@ -726,25 +726,43 @@ def recon_cloud(ejecucion_id, proyecto_id):
                     recursos.extend(_verify_bucket(bucket, dom))
 
                 # ═══════════════════════════════════════════════════════
-                # TIER 2: Candidatos ESPECÍFICOS del dominio
+                # TIER 2: Candidatos ESPECÍFICOS del dominio (EXPANDIDO)
                 # ═══════════════════════════════════════════════════════
                 print(f"[recon_cloud] TIER 2: Candidatos específicos del dominio...")
                 buckets_tier2 = _generate_bucket_candidates(dom, tier='tier2')
                 buckets_tier2 = list(set(filter(None, buckets_tier2)))
 
                 print(f"[recon_cloud] TIER 2: {len(buckets_tier2)} candidatos a verificar")
+                verified_tier2 = 0
                 for bucket in buckets_tier2:
-                    recursos.extend(_verify_bucket(bucket, dom))
+                    result = _verify_bucket(bucket, dom)
+                    if result:
+                        recursos.extend(result)
+                        verified_tier2 += 1
+                print(f"[recon_cloud] TIER 2: {verified_tier2} buckets verificados positivamente")
 
                 # ═══════════════════════════════════════════════════════
-                # TIER 3: Candidatos MENOS ESPECÍFICOS (opcional)
+                # TIER 3: Candidatos MENOS ESPECÍFICOS (HABILITADO POR DEFECTO)
+                # Ahora incluido para mejorar cobertura sin depender de Wayback/CT
                 # ═══════════════════════════════════════════════════════
-                # Desactivado por defecto para reducir ruido
-                # Descomentar solo si quieres mayor cobertura (más falsos positivos)
-                # buckets_tier3 = _generate_bucket_candidates(dom, tier='tier3')
-                # print(f"[recon_cloud] TIER 3: {len(buckets_tier3)} candidatos")
-                # for bucket in buckets_tier3:
-                #     recursos.extend(_verify_bucket(bucket, dom))
+                print(f"[recon_cloud] TIER 3: Candidatos del domain name...")
+                buckets_tier3 = _generate_bucket_candidates(dom, tier='tier3')
+                buckets_tier3 = list(set(filter(None, buckets_tier3)))
+
+                print(f"[recon_cloud] TIER 3: {len(buckets_tier3)} candidatos a verificar")
+                verified_tier3 = 0
+                for bucket in buckets_tier3:
+                    result = _verify_bucket(bucket, dom)
+                    if result:
+                        recursos.extend(result)
+                        verified_tier3 += 1
+                print(f"[recon_cloud] TIER 3: {verified_tier3} buckets verificados positivamente")
+
+                # ═══════════════════════════════════════════════════════
+                # RESUMEN POR DOMINIO
+                # ═══════════════════════════════════════════════════════
+                total_encontrados = len([r for r in recursos if r.get('dominio') == dom])
+                print(f"[recon_cloud] ✓ TOTAL para {dom}: {total_encontrados} buckets públicos encontrados")
 
             except Exception as e:
                 print(f"[recon_cloud] Error escaneando {dom}: {e}")
@@ -765,11 +783,11 @@ def recon_cloud(ejecucion_id, proyecto_id):
 
 def _generate_bucket_candidates(dominio, tier='all'):
     """
-    Genera candidatos de buckets por tiers de confianza.
+    Genera candidatos de buckets por tiers de confianza - MEJORADO para autonomía.
 
     TIER 1 (Muy probable): Buckets encontrados en CT logs / Wayback
-    TIER 2 (Probable): Específicos del dominio (ser3-ater-bucket)
-    TIER 3 (Posible): Del domain name (ater-backup)
+    TIER 2 (Probable): Específicos del dominio - EXPANDIDO para autonomía
+    TIER 3 (Posible): Del domain name + variaciones - INCLUIDO por defecto
     TIER 4 (Improbable): Ultra-genéricos → NO USAR (mucho ruido)
 
     Args:
@@ -798,7 +816,7 @@ def _generate_bucket_candidates(dominio, tier='all'):
     # No generamos, sino que verificamos los ENCONTRADOS
 
     # ══════════════════════════════════════════════════════════════
-    # TIER 2: Específicos del dominio (MÁS PROBABLE)
+    # TIER 2: Específicos del dominio (MÁS PROBABLE) - EXPANDIDO PARA AUTONOMÍA
     # ══════════════════════════════════════════════════════════════
     tier2 = [
         # Combinaciones subdominio + domain
@@ -810,18 +828,47 @@ def _generate_bucket_candidates(dominio, tier='all'):
         f"{full_base_dash}-files",
         f"{full_base_dash}-logs",
         f"{full_base_dash}-db",
+        f"{full_base_dash}-media",
+        f"{full_base_dash}-uploads",
+        f"{full_base_dash}-download",
+        f"{full_base_dash}-public",
+        f"{full_base_dash}-private",
+        f"{full_base_dash}-prod",
+        f"{full_base_dash}-staging",
+        f"{full_base_dash}-test",
+        f"{full_base_dash}-dev",
+        f"{full_base_dash}-content",
+        f"{full_base_dash}-static",
+        f"{full_base_dash}-archive",
+        f"{full_base_dash}-temp",
         # Orden inverso
         f"{domain_name}-{subdomain}-bucket" if subdomain else None,  # ater-ser3-bucket
         f"{domain_name}-{subdomain}-data" if subdomain else None,
+        f"{domain_name}-{subdomain}-backup" if subdomain else None,
         # Contexto completo
         f"{dominio.replace('.', '-')}",  # ser3-ater-gob-ar
         f"{dominio.replace('.', '-')}-bucket",
+        f"{dominio.replace('.', '-')}-backup",
+        f"{dominio.replace('.', '-')}-data",
+        # Variaciones con prefijos comunes
+        f"aws-{full_base_dash}",
+        f"s3-{full_base_dash}",
+        f"bucket-{full_base_dash}",
+        f"storage-{full_base_dash}",
+        f"data-{full_base_dash}",
+        # Subdominio sin domain name (cuando es específico)
+        f"{subdomain}-bucket" if subdomain else None,
+        f"{subdomain}-backup" if subdomain else None,
+        f"{subdomain}-data" if subdomain else None,
+        f"{subdomain}-storage" if subdomain else None,
+        f"{subdomain}-media" if subdomain else None,
     ]
 
     # ══════════════════════════════════════════════════════════════
-    # TIER 3: Del domain name (MENOS PROBABLE)
+    # TIER 3: Del domain name (MENOS PROBABLE pero ÚTIL) - INCLUIDO POR DEFECTO
     # ══════════════════════════════════════════════════════════════
     tier3 = [
+        # Combinaciones básicas del domain name
         f"{domain_name}-bucket",  # ater-bucket
         f"{domain_name}-backup",  # ater-backup
         f"{domain_name}-data",  # ater-data
@@ -831,23 +878,40 @@ def _generate_bucket_candidates(dominio, tier='all'):
         f"{domain_name}-logs",
         f"{domain_name}-db",
         f"{domain_name}-media",
+        f"{domain_name}-uploads",
+        f"{domain_name}-download",
+        f"{domain_name}-public",
+        f"{domain_name}-private",
+        f"{domain_name}-prod",
+        f"{domain_name}-staging",
+        f"{domain_name}-test",
+        f"{domain_name}-dev",
+        f"{domain_name}-content",
+        f"{domain_name}-static",
+        # Con prefijos
         f"bucket-{domain_name}",
+        f"aws-{domain_name}",
+        f"s3-{domain_name}",
+        f"storage-{domain_name}",
+        f"data-{domain_name}",
         f"{domain_name}-aws",
         f"{domain_name}-s3",
+        f"{domain_name}-gcp",  # También probar Google Cloud
+        f"{domain_name}-azure",  # También probar Azure
+        # Variaciones minúsculas del dominio completo (algunos usan lowercase)
+        dominio.lower().replace('.', '-'),
+        dominio.lower().replace('.', ''),
+        # Variaciones con números iniciales (patrón común de buckets)
+        f"01-{domain_name}",
+        f"01-{full_base_dash}" if subdomain else None,
+        f"prod-{domain_name}",
+        f"prod-{full_base_dash}" if subdomain else None,
     ]
-
-    # Agregar subdominio solo si existe
-    if subdomain:
-        tier3.extend([
-            f"{subdomain}-bucket",  # ser3-bucket
-            f"{subdomain}-backup",
-            f"{subdomain}-data",
-        ])
 
     # ══════════════════════════════════════════════════════════════
     # TIER 4: NO USAR - Ultra genéricos (demasiado ruido)
     # ══════════════════════════════════════════════════════════════
-    # backup, data, media, files, logs, db, assets, storage
+    # backup, data, media, files, logs, db, assets, storage (sin empresa)
     # Estos generan miles de falsos positivos
 
     # ══════════════════════════════════════════════════════════════
