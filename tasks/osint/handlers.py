@@ -16,6 +16,42 @@ import dns.exception
 # HELPERS GLOBALES OSINT
 # ══════════════════════════════════════════════════════════════════
 
+def _get_severidad_por_confianza(confianza_score):
+    """
+    Mapea confianza (0-100) a severidad de BD.
+
+    Normaliza confianza 0-100 a score 0-10 y busca severidad correspondiente.
+
+    Args:
+        confianza_score (int): Puntuación de confianza 0-100
+
+    Returns:
+        dict: Severidad de BD con score correspondiente
+    """
+    try:
+        severidades = Proyecto.get_severidades()
+
+        if not severidades or len(severidades) == 0:
+            return None
+
+        # Normalizar confianza (0-100) a score (0-10)
+        score_normalizado = (confianza_score / 100) * 10
+
+        # Ordenar por score
+        severidades_sorted = sorted(severidades, key=lambda x: x.get('score', 0))
+
+        # Buscar severidad cuyo score sea <= score_normalizado
+        severidad_seleccionada = severidades_sorted[0]  # Comienza con la más baja
+        for sev in severidades_sorted:
+            if sev.get('score', 0) <= score_normalizado:
+                severidad_seleccionada = sev
+
+        return severidad_seleccionada
+
+    except Exception as e:
+        print(f"[severidad] Error: {e}")
+        return None
+
 def _parse_multiline_config(value):
     """Limpia y parsea valores multilinea de configuración"""
     if not value:
@@ -886,11 +922,173 @@ def _check_bucket_anonymous_access(bucket_name):
         print(f"[s3-anon] ⚠ {bucket_name} - Error general: {e}")
         return 'error'
 
+def _validate_bucket_domain_correlation(bucket_name, dominio):
+    """
+    Valida si un bucket S3 realmente pertenece/está asociado a un dominio específico.
+
+    Retorna dict con validación y nivel de confianza (0-100)
+    Métodos de validación:
+    1. DNS: ¿El dominio apunta al bucket S3? (+50 puntos)
+    2. Contenido: ¿Hay referencias a dominio/empresa en archivos? (+30 puntos)
+    3. Metadatos: ¿Tags del bucket mencionan dominio? (+15 puntos)
+    4. IP: ¿IP del dominio es rango AWS? (±10 puntos)
+    """
+    validation = {
+        'es_correlacionado': False,
+        'confianza': 0,
+        'metodos_confirmados': [],
+        'evidencias': {},
+        'razon': 'sin_validación'
+    }
+
+    try:
+        # MÉTODO 1: Verificar DNS del dominio
+        print(f"[s3-correlation] Método 1: Verificar DNS de {dominio}")
+        try:
+            dns_result = subprocess.run(
+                ['dig', dominio, 'CNAME', '+short'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            dns_cname = dns_result.stdout.strip()
+            validation['evidencias']['dns_cname'] = dns_cname
+
+            if dns_cname:
+                print(f"[s3-correlation] DNS CNAME: {dns_cname}")
+                # Verificar si apunta a S3 o contiene el nombre del bucket
+                if 's3.amazonaws.com' in dns_cname or bucket_name in dns_cname:
+                    print(f"[s3-correlation] ✅ DNS apunta a S3/bucket")
+                    validation['metodos_confirmados'].append('dns_cname')
+                    validation['confianza'] += 50
+                else:
+                    print(f"[s3-correlation] ❌ DNS no apunta a S3. Apunta a: {dns_cname}")
+                    validation['evidencias']['dns_no_apunta_s3'] = True
+            else:
+                print(f"[s3-correlation] ⚠️  No hay CNAME para {dominio}")
+                validation['evidencias']['sin_cname'] = True
+        except Exception as e:
+            print(f"[s3-correlation] Error en DNS check: {e}")
+
+        # MÉTODO 2: Buscar evidencia en contenido del bucket
+        print(f"[s3-correlation] Método 2: Buscar referencias en contenido del bucket")
+        try:
+            content = subprocess.run(
+                ['curl', '-s', f'https://{bucket_name}.s3.amazonaws.com/', '--max-time', '10'],
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+
+            # Palabras clave a buscar (dominio, empresa, país)
+            domain_parts = dominio.lower().split('.')
+            keywords = [
+                dominio.lower(),
+                domain_parts[0] if domain_parts else '',  # Subdominio (ej: "ws" de "ws.ater.gob.ar")
+                'ater', 'gob.ar', 'argentina', 'gobierno',
+                'entre rios', 'energia', 'tecnologia'
+            ]
+            keywords = [k for k in keywords if k]  # Remover vacíos
+
+            found_keywords = []
+            for keyword in keywords:
+                if keyword in content.stdout.lower():
+                    found_keywords.append(keyword)
+
+            if found_keywords:
+                print(f"[s3-correlation] ✅ Encontradas referencias: {found_keywords}")
+                validation['metodos_confirmados'].append('contenido_keywords')
+                validation['evidencias']['keywords_encontradas'] = found_keywords
+                validation['confianza'] += 30
+            else:
+                print(f"[s3-correlation] ❌ No hay referencias a dominio/empresa en contenido")
+                validation['evidencias']['sin_keywords'] = True
+        except Exception as e:
+            print(f"[s3-correlation] Error consultando contenido: {e}")
+
+        # MÉTODO 3: Verificar propiedades del bucket (tagging, cors, etc)
+        print(f"[s3-correlation] Método 3: Verificar propiedades/metadatos del bucket")
+        try:
+            # Intentar obtener tagging (si es público)
+            tagging = subprocess.run(
+                ['curl', '-s', f'https://{bucket_name}.s3.amazonaws.com/?tagging', '--max-time', '5'],
+                capture_output=True,
+                text=True,
+                timeout=8
+            )
+
+            if 'Tag' in tagging.stdout or '<Key>' in tagging.stdout:
+                tags = []
+                # Extraer tags básicamente
+                for tag in tagging.stdout.split('<Key>')[1:]:
+                    if '</Key>' in tag:
+                        tag_name = tag.split('</Key>')[0]
+                        tags.append(tag_name)
+                if tags:
+                    print(f"[s3-correlation] Tags encontrados: {tags}")
+                    validation['evidencias']['tags'] = tags
+
+                    # Verificar si algún tag menciona el dominio
+                    if any(dominio.split('.')[0].lower() in tag.lower() for tag in tags):
+                        validation['metodos_confirmados'].append('bucket_tags')
+                        validation['confianza'] += 15
+        except:
+            pass
+
+        # MÉTODO 4: Información de la IP (si está disponible)
+        print(f"[s3-correlation] Método 4: Verificar IP del dominio")
+        try:
+            ip_result = subprocess.run(
+                ['dig', dominio, 'A', '+short'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            domain_ip = ip_result.stdout.strip()
+
+            if domain_ip:
+                validation['evidencias']['domain_ip'] = domain_ip
+                print(f"[s3-correlation] IP del dominio: {domain_ip}")
+
+                # Verificar si es rango AWS (generalmente 52.*, 54.*, 35.*)
+                aws_ranges = ['52.', '54.', '35.', '176.', '177.']
+                if any(domain_ip.startswith(range_ip) for range_ip in aws_ranges):
+                    print(f"[s3-correlation] ⚠️  IP es rango AWS (pero no necesariamente S3)")
+                    validation['evidencias']['is_aws_ip'] = True
+                else:
+                    print(f"[s3-correlation] ❌ IP NO es rango AWS")
+                    validation['evidencias']['not_aws_ip'] = True
+                    validation['confianza'] -= 10
+        except Exception as e:
+            print(f"[s3-correlation] Error resolviendo IP: {e}")
+
+        # DECISIÓN FINAL
+        if validation['confianza'] >= 50:
+            validation['es_correlacionado'] = True
+            validation['razon'] = f"Confirmado por {len(validation['metodos_confirmados'])} métodos (confianza: {validation['confianza']}%)"
+        elif validation['confianza'] >= 30:
+            validation['es_correlacionado'] = True  # Débilmente correlacionado
+            validation['razon'] = f"Débilmente confirmado ({validation['confianza']}%) - Revisar manualmente"
+        else:
+            validation['es_correlacionado'] = False
+            validation['razon'] = f"Sin confirmar (confianza: {validation['confianza']}%) - Posible falso positivo"
+
+        print(f"[s3-correlation] VEREDICTO: {validation['razon']}")
+
+    except Exception as e:
+        print(f"[s3-correlation] Error general: {e}")
+        validation['razon'] = f"Error en validación: {str(e)}"
+
+    return validation
+
 def _verify_bucket(bucket_name, dominio):
     """Verifica si un bucket existe y obtiene info + acceso anónimo
 
-    Prioridad: Primero verifica via HTTP (sin credenciales), luego AWS CLI
-    Solo reporta si el bucket realmente existe (HTTP != 404)
+    MEJORADO: Valida correlación entre bucket y dominio
+    Prioridad:
+    1. Verificar acceso anónimo (HTTP sin credenciales)
+    2. Validar que realmente pertenece al dominio
+    3. Solo reportar si correlación es suficientemente fuerte
     """
     resultado = []
 
@@ -904,7 +1102,12 @@ def _verify_bucket(bucket_name, dominio):
             print(f"[s3-verify] {bucket_name} - No existe (HTTP 404) → IGNORAR")
             return resultado
 
-        # 3. SEGUNDO: Verificar con AWS CLI (requiere credenciales)
+        # 3. NUEVO: Validar correlación entre bucket y dominio
+        # Esto evita falsos positivos
+        print(f"[s3-verify] Validando correlación: {bucket_name} ↔ {dominio}")
+        correlation = _validate_bucket_domain_correlation(bucket_name, dominio)
+
+        # 4. SEGUNDO: Verificar con AWS CLI (requiere credenciales)
         result = subprocess.run(
             ['aws', 's3', 'ls', f"s3://{bucket_name}", '--max-items', '1'],
             capture_output=True,
@@ -912,9 +1115,23 @@ def _verify_bucket(bucket_name, dominio):
             timeout=5
         )
 
-        # 4. Determinar nivel de acceso
+        # 5. Determinar nivel de acceso y severidad basada en correlación
         if acceso_anonimo == 'anónimo':
             # ¡BUCKET ABIERTO AL PÚBLICO!
+
+            # Obtener severidad dinámica desde BD basada en confianza
+            severidad_obj = _get_severidad_por_confianza(correlation['confianza'])
+            severidad_nombre = severidad_obj.get('nombre') if severidad_obj else 'UNKNOWN'
+            severidad_id = severidad_obj.get('id') if severidad_obj else None
+
+            # Etiqueta de confianza para legibilidad
+            if correlation['confianza'] >= 50:
+                confianza_label = 'ALTA'
+            elif correlation['confianza'] >= 30:
+                confianza_label = 'MEDIA'
+            else:
+                confianza_label = 'BAJA'
+
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
@@ -922,33 +1139,60 @@ def _verify_bucket(bucket_name, dominio):
                 'acceso': 'anónimo_abierto',  # ← CRÍTICO: ACCESO PÚBLICO
                 'acceso_anonimo': acceso_anonimo,
                 'estado': 'existe',
-                'severidad': 'CRITICAL'
+                'correlacion_validada': correlation['es_correlacionado'],  # ← NUEVO
+                'confianza_correlacion': correlation['confianza'],  # ← NUEVO (0-100)
+                'confianza_label': confianza_label,  # ← NUEVO (ALTA/MEDIA/BAJA)
+                'metodos_confirmados': correlation['metodos_confirmados'],  # ← NUEVO
+                'evidencias': correlation['evidencias'],  # ← NUEVO (detalles)
+                'razon_correlacion': correlation['razon'],  # ← NUEVO (descripción)
+                'severidad_id': severidad_id,  # ← NUEVO: ID de severidad desde BD
+                'severidad': severidad_nombre  # ← MEJORADO: Dinámico desde BD
             })
         elif result.returncode == 0:
             # Acceso con credenciales AWS
+            # Severidad más baja: es accesible solo con credenciales
+            severidad_obj = _get_severidad_por_confianza(30)  # Score bajo
+            severidad_nombre = severidad_obj.get('nombre') if severidad_obj else 'LOW'
+            severidad_id = severidad_obj.get('id') if severidad_obj else None
+
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
                 'dominio': dominio,
                 'acceso': 'público_o_auth',
                 'acceso_anonimo': acceso_anonimo,
-                'estado': 'existe'
+                'estado': 'existe',
+                'correlacion_validada': correlation['es_correlacionado'],
+                'confianza_correlacion': correlation['confianza'],
+                'razon_correlacion': correlation['razon'],
+                'severidad_id': severidad_id,
+                'severidad': severidad_nombre
             })
         elif 'NoSuchBucket' not in result.stderr:
             # Existe pero está privado
+            # Severidad mínima: no es accesible anónimamente
+            severidad_obj = _get_severidad_por_confianza(10)  # Score muy bajo
+            severidad_nombre = severidad_obj.get('nombre') if severidad_obj else 'INFO'
+            severidad_id = severidad_obj.get('id') if severidad_obj else None
+
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
                 'dominio': dominio,
                 'acceso': 'privado',
                 'acceso_anonimo': acceso_anonimo,
-                'estado': 'existe'
+                'estado': 'existe',
+                'correlacion_validada': correlation['es_correlacionado'],
+                'confianza_correlacion': correlation['confianza'],
+                'razon_correlacion': correlation['razon'],
+                'severidad_id': severidad_id,
+                'severidad': severidad_nombre
             })
 
     except subprocess.TimeoutExpired:
-        pass
+        print(f"[s3-verify] Timeout verificando {bucket_name}")
     except Exception as e:
-        pass
+        print(f"[s3-verify] Error: {e}")
 
     return resultado
 
