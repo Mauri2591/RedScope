@@ -772,6 +772,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
 
                 # ═══════════════════════════════════════════════════════
                 # TIER 2: Candidatos ESPECÍFICOS del dominio (EXPANDIDO)
+                # ⭐ IMPORTANTE: Pasar el dominio COMPLETO (ej: "ater.gob.ar")
+                # La función generará variaciones intermedias: ater, ater-gob, ater-gob-ar
                 # ═══════════════════════════════════════════════════════
                 print(f"[recon_cloud] TIER 2: Candidatos específicos del dominio...")
                 buckets_tier2 = _generate_bucket_candidates(dom, tier='tier2')
@@ -789,6 +791,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
                 # ═══════════════════════════════════════════════════════
                 # TIER 3: Candidatos MENOS ESPECÍFICOS (HABILITADO POR DEFECTO)
                 # Ahora incluido para mejorar cobertura sin depender de Wayback/CT
+                # ⭐ IMPORTANTE: Pasar el dominio COMPLETO para variaciones intermedias
                 # ═══════════════════════════════════════════════════════
                 print(f"[recon_cloud] TIER 3: Candidatos del domain name...")
                 buckets_tier3 = _generate_bucket_candidates(dom, tier='tier3')
@@ -850,8 +853,10 @@ def recon_cloud(ejecucion_id, proyecto_id):
                     for bucket in buckets_tier1:
                         recursos.extend(_verify_bucket(bucket, subdom))
 
-                    # TIER 2 y 3: Candidatos generados (usando dominio combinado)
-                    buckets_tier2 = _generate_bucket_candidates(subdom_combined, tier='tier2')
+                    # TIER 2 y 3: Candidatos generados (usando dominio COMPLETO para variaciones)
+                    # ⭐ IMPORTANTE: Pasar subdominio completo para generar variaciones intermedias
+                    # Ejemplo: vpn.ater.gob.ar → genera: vpn-ater, vpn-ater-gob, vpn-ater-gob-ar
+                    buckets_tier2 = _generate_bucket_candidates(subdom, tier='tier2')
                     buckets_tier2 = list(set(filter(None, buckets_tier2)))
 
                     for bucket in buckets_tier2:
@@ -859,7 +864,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         if result:
                             recursos.extend(result)
 
-                    buckets_tier3 = _generate_bucket_candidates(subdom_combined, tier='tier3')
+                    buckets_tier3 = _generate_bucket_candidates(subdom, tier='tier3')
                     buckets_tier3 = list(set(filter(None, buckets_tier3)))
 
                     for bucket in buckets_tier3:
@@ -907,21 +912,49 @@ def _generate_bucket_candidates(dominio, tier='all'):
     """
     parts = dominio.split('.')
 
-    # ⭐ REGLA: Extraer SOLO la parte única (primera parte)
-    # ater.gob.ar → "ater"
-    # vpn-ater → "vpn-ater" (ya combinado)
-    # vpn.ater.gob.ar → "vpn" + "ater" = "vpn-ater"
+    # ⭐ REGLA FUNDAMENTAL:
+    # - Dominio simple (3 partes): ater.gob.ar → base="ater", variaciones: ater, ater-gob, ater-gob-ar
+    # - Subdominio (4+ partes): vpn.ater.gob.ar → base="vpn-ater", variaciones: vpn-ater, vpn-ater-gob, vpn-ater-gob-ar
+    # - Ya procesado (sin puntos): vpn-ater → Generar: vpn-ater (solo una opción)
 
-    if len(parts) >= 3:
-        # Subdominio + Dominio único (ej: vpn.ater.gob.ar)
-        subdomain = parts[0]  # vpn
-        domain_name = parts[1]  # ater (la parte ÚNICA, ignorar gob.ar)
-        full_base_dash = f"{subdomain}-{domain_name}"  # vpn-ater
-    else:
-        # Ya es simple o viene pre-formateado (ej: "ater" o "vpn-ater")
+    intermediate_variations = []
+
+    if len(parts) == 1:
+        # Ya viene procesado (ej: "vpn-ater" o "ater")
+        domain_name = parts[0]
         subdomain = None
-        domain_name = parts[0]  # ater o vpn-ater
         full_base_dash = domain_name
+        # No hay variaciones intermedias porque ya viene sin puntos
+
+    elif len(parts) == 2:
+        # Dominio simple de 2 partes (ej: "ater.gob")
+        domain_name = parts[0]  # "ater"
+        subdomain = None
+        full_base_dash = domain_name
+        # Generar: ater, ater-gob
+        intermediate_variations.append('-'.join(parts[:2]))
+
+    elif len(parts) == 3:
+        # Dominio común (ej: "ater.gob.ar")
+        domain_name = parts[0]  # "ater" ← La parte ÚNICA
+        subdomain = None
+        full_base_dash = domain_name
+        # Generar variaciones: ater, ater-gob, ater-gob-ar
+        for i in range(1, len(parts)):
+            intermediate = '-'.join(parts[:i+1])
+            intermediate_variations.append(intermediate)
+
+    else:
+        # Subdominio (4+ partes, ej: "vpn.ater.gob.ar")
+        # parts = ["vpn", "ater", "gob", "ar"]
+        # base debe ser parts[0] + parts[1] = "vpn-ater" ← La combinación ÚNICA
+        domain_name = '-'.join(parts[:2])  # "vpn-ater"
+        subdomain = parts[0]  # "vpn"
+        full_base_dash = domain_name
+        # Generar variaciones: vpn-ater, vpn-ater-gob, vpn-ater-gob-ar
+        for i in range(2, len(parts)):
+            intermediate = '-'.join(parts[:i+1])
+            intermediate_variations.append(intermediate)
 
     # ══════════════════════════════════════════════════════════════
     # TIER 1: Buckets REALES (encontrados en CT logs / Wayback)
@@ -939,6 +972,9 @@ def _generate_bucket_candidates(dominio, tier='all'):
     tier2 = [
         # ⭐ CANDIDATOS BÁSICOS PRIMERO (nombres simples que son MÁS comunes)
         domain_name,  # ater (nombre exacto del domain ÚNICO)
+
+        # ⭐ Variaciones intermedias (ej: ater, ater-gob, ater-gob-ar)
+        *intermediate_variations,
 
         # Dominio completo CON guiones (pero SIEMPRE comienza con ater)
         dominio.lower().replace('.', '-'),  # ater-gob-ar ✅ (comienza con ater)
@@ -981,6 +1017,9 @@ def _generate_bucket_candidates(dominio, tier='all'):
     # ❌ gob, ar, gob-ar (sin la parte única)
     # ══════════════════════════════════════════════════════════════
     tier3 = [
+        # ⭐ Variaciones intermedias (ej: ater, ater-gob, ater-gob-ar)
+        *intermediate_variations,
+
         # Combinaciones básicas del domain name ÚNICO
         f"{domain_name}-bucket",  # ater-bucket
         f"{domain_name}-backup",  # ater-backup
