@@ -308,11 +308,24 @@ def _geolocate_ip(ip):
         if result.returncode == 0:
             geo = {'pais': 'unknown', 'ciudad': 'unknown', 'isp': 'unknown', 'asn': 'unknown', 'latitud': None, 'longitud': None, 'fuente': 'whois'}
             for line in result.stdout.split('\n'):
-                if 'country:' in line.lower():
+                line_lower = line.lower()
+                if 'country:' in line_lower:
                     geo['pais'] = line.split(':')[1].strip()
-                elif 'city:' in line.lower():
-                    geo['ciudad'] = line.split(':')[1].strip()
-                elif 'org:' in line.lower():
+                elif 'address:' in line_lower and geo['ciudad'] == 'unknown':
+                    addr = line.split(':', 1)[1].strip()
+                    if ',' in addr:
+                        parts = [p.strip() for p in addr.split(',')]
+                        if parts and len(parts[0]) > 1:
+                            geo['ciudad'] = parts[0]
+                    else:
+                        parts = [p.strip() for p in addr.split('-') if p.strip()]
+                        if parts:
+                            candidate = parts[-1] if len(parts) > 1 else parts[0]
+                            if '(' in candidate:
+                                candidate = candidate.split('(')[0].strip()
+                            if candidate and len(candidate) > 1:
+                                geo['ciudad'] = candidate
+                elif 'org:' in line_lower:
                     geo['isp'] = line.split(':')[1].strip()
             if geo['pais'] != 'unknown':
                 return geo
@@ -328,6 +341,7 @@ def _geolocate_ip(ip):
         'longitud': None,
         'fuente': None
     }
+
 
 def _reverse_dns_multi_resolver(ip):
     reverses_by_resolver = {}
