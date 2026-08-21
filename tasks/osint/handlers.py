@@ -284,44 +284,41 @@ def _geolocate_ip(ip):
                 'longitud': data.get('longitude'),
                 'fuente': 'ipapi.co'
             }
-    except:
-        try:
-            result = subprocess.run(
-                ['geoiplookup', ip],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if result.returncode == 0 and result.stdout:
-                parts = result.stdout.strip().split(',')
-                return {
-                    'pais': parts[2].strip() if len(parts) > 2 else 'unknown',
-                    'ciudad': parts[1].strip() if len(parts) > 1 else 'unknown',
-                    'isp': 'unknown',
-                    'asn': 'unknown',
-                    'latitud': float(parts[3]) if len(parts) > 3 else None,
-                    'longitud': float(parts[4]) if len(parts) > 4 else None,
-                    'fuente': 'maxmind'
-                }
-        except:
-            try:
-                result = subprocess.run(['whois', ip], capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
-                    geo = {'pais': 'unknown', 'ciudad': 'unknown', 'isp': 'unknown', 'asn': 'unknown', 'latitud': None, 'longitud': None, 'fuente': 'whois'}
-                    for line in result.stdout.split('\n'):
-                        if 'country:' in line.lower():
-                            geo['pais'] = line.split(':')[1].strip()
-                        elif 'city:' in line.lower():
-                            geo['ciudad'] = line.split(':')[1].strip()
-                        elif 'org:' in line.lower():
-                            geo['isp'] = line.split(':')[1].strip()
-                    return geo if geo['pais'] != 'unknown' else {
-                        'pais': 'unknown', 'ciudad': 'unknown', 'isp': 'unknown',
-                        'asn': 'unknown', 'latitud': None, 'longitud': None, 'fuente': None
-                    }
-            except:
-                pass
- 
+    except Exception as e:
+        print(f"[geo] ipapi.co fallo para {ip}: {str(e)[:60]}")
+
+    try:
+        result = subprocess.run(['geoiplookup', ip], capture_output=True, text=True, timeout=2)
+        if result.returncode == 0 and result.stdout:
+            parts = result.stdout.strip().split(',')
+            return {
+                'pais': parts[2].strip() if len(parts) > 2 else 'unknown',
+                'ciudad': parts[1].strip() if len(parts) > 1 else 'unknown',
+                'isp': 'unknown',
+                'asn': 'unknown',
+                'latitud': float(parts[3]) if len(parts) > 3 else None,
+                'longitud': float(parts[4]) if len(parts) > 4 else None,
+                'fuente': 'maxmind'
+            }
+    except Exception as e:
+        print(f"[geo] geoiplookup fallo para {ip}: {str(e)[:60]}")
+
+    try:
+        result = subprocess.run(['whois', ip], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            geo = {'pais': 'unknown', 'ciudad': 'unknown', 'isp': 'unknown', 'asn': 'unknown', 'latitud': None, 'longitud': None, 'fuente': 'whois'}
+            for line in result.stdout.split('\n'):
+                if 'country:' in line.lower():
+                    geo['pais'] = line.split(':')[1].strip()
+                elif 'city:' in line.lower():
+                    geo['ciudad'] = line.split(':')[1].strip()
+                elif 'org:' in line.lower():
+                    geo['isp'] = line.split(':')[1].strip()
+            if geo['pais'] != 'unknown':
+                return geo
+    except Exception as e:
+        print(f"[geo] whois fallo para {ip}: {str(e)[:60]}")
+
     return {
         'pais': 'unknown',
         'ciudad': 'unknown',
@@ -331,7 +328,6 @@ def _geolocate_ip(ip):
         'longitud': None,
         'fuente': None
     }
-
 
 def _reverse_dns_multi_resolver(ip):
     reverses_by_resolver = {}
