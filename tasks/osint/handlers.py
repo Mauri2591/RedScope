@@ -271,15 +271,8 @@ def _validate_hostname_belongs_to_domain(hostname, domain_objetivo, ip=None):
 
 
 def _geolocate_ip(ip):
-    """
-    Obtiene información geográfica de una IP usando ipapi.co (gratuito, sin API key)
-    Retorna dict con país, ciudad, ISP, ASN
-    """
     try:
-        result = requests.get(
-            f'https://ipapi.co/{ip}/json/',
-            timeout=5
-        )
+        result = requests.get(f'https://ipapi.co/{ip}/json/', timeout=5)
         if result.status_code == 200:
             data = result.json()
             return {
@@ -288,77 +281,106 @@ def _geolocate_ip(ip):
                 'isp': data.get('org', 'unknown'),
                 'asn': data.get('asn', 'unknown'),
                 'latitud': data.get('latitude'),
-                'longitud': data.get('longitude')
+                'longitud': data.get('longitude'),
+                'fuente': 'ipapi.co'
             }
-    except requests.exceptions.Timeout:
-        print(f"[geo] Timeout para {ip}")
-    except Exception as e:
-        print(f"[geo] Error geolocalizando {ip}: {e}")
-
+    except:
+        try:
+            result = subprocess.run(
+                ['geoiplookup', ip],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0 and result.stdout:
+                parts = result.stdout.strip().split(',')
+                return {
+                    'pais': parts[2].strip() if len(parts) > 2 else 'unknown',
+                    'ciudad': parts[1].strip() if len(parts) > 1 else 'unknown',
+                    'isp': 'unknown',
+                    'asn': 'unknown',
+                    'latitud': float(parts[3]) if len(parts) > 3 else None,
+                    'longitud': float(parts[4]) if len(parts) > 4 else None,
+                    'fuente': 'maxmind'
+                }
+        except:
+            try:
+                result = subprocess.run(['whois', ip], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    geo = {'pais': 'unknown', 'ciudad': 'unknown', 'isp': 'unknown', 'asn': 'unknown', 'latitud': None, 'longitud': None, 'fuente': 'whois'}
+                    for line in result.stdout.split('\n'):
+                        if 'country:' in line.lower():
+                            geo['pais'] = line.split(':')[1].strip()
+                        elif 'city:' in line.lower():
+                            geo['ciudad'] = line.split(':')[1].strip()
+                        elif 'org:' in line.lower():
+                            geo['isp'] = line.split(':')[1].strip()
+                    return geo if geo['pais'] != 'unknown' else {
+                        'pais': 'unknown', 'ciudad': 'unknown', 'isp': 'unknown',
+                        'asn': 'unknown', 'latitud': None, 'longitud': None, 'fuente': None
+                    }
+            except:
+                pass
+ 
     return {
         'pais': 'unknown',
         'ciudad': 'unknown',
         'isp': 'unknown',
         'asn': 'unknown',
         'latitud': None,
-        'longitud': None
+        'longitud': None,
+        'fuente': None
     }
 
 
 def _reverse_dns_multi_resolver(ip):
-    """
-    Intenta resolver reverso una IP usando múltiples métodos.
-    Retorna dict con hostname y información de resolvers.
-    """
     reverses_by_resolver = {}
-
-    # Método 1: usar dnspython
+    resolvers = [
+        ('8.8.8.8', 'Google'),
+        ('1.1.1.1', 'Cloudflare'),
+        ('9.9.9.9', 'Quad9'),
+        ('208.67.222.222', 'OpenDNS'),
+    ]
+ 
     try:
-        for resolver_ip, resolver_name in [('8.8.8.8', 'Google'), ('1.1.1.1', 'Cloudflare')]:
-            try:
-                resolver = dns.resolver.Resolver()
-                resolver.nameservers = [resolver_ip]
-                resolver.timeout = 5
-                resolver.lifetime = 5
-
-                rev_name = dns.reversename.from_address(ip)
-                answers = resolver.resolve(rev_name, 'PTR')
-                hostnames = [str(rdata).rstrip('.') for rdata in answers]
-                reverses_by_resolver[resolver_name] = hostnames
-                print(f"[Reverse DNS] {resolver_name}: {hostnames}")
-            except dns.exception.Timeout:
-                print(f"[Reverse DNS] {resolver_name}: TIMEOUT")
-            except dns.exception.NXDOMAIN:
-                print(f"[Reverse DNS] {resolver_name}: NXDOMAIN (no reverse DNS)")
-            except Exception as e:
-                print(f"[Reverse DNS] {resolver_name}: {str(e)}")
-    except ImportError:
-        print("[Reverse DNS] dnspython no disponible")
-
-    # Método 2: usar nslookup
+        for resolver_ip, resolver_name in resolvers:
+            for attempt in range(3):
+                try:
+                    resolver = dns.resolver.Resolver()
+                    resolver.nameservers = [resolver_ip]
+                    resolver.timeout = 3 + (attempt * 2)
+                    resolver.lifetime = resolver.timeout
+                    rev_name = dns.reversename.from_address(ip)
+                    answers = resolver.resolve(rev_name, 'PTR')
+                    reverses_by_resolver[resolver_name] = [str(rdata).rstrip('.') for rdata in answers]
+                    break
+                except dns.exception.Timeout:
+                    pass
+                except dns.exception.NXDOMAIN:
+                    break
+                except:
+                    pass
+    except:
+        pass
+ 
     try:
-        result = subprocess.run(
-            ['nslookup', ip],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        hostname = None
+        result = subprocess.run(['nslookup', ip], capture_output=True, text=True, timeout=10)
         for line in result.stdout.split('\n'):
-            if 'name =' in line:
-                hostname = line.split('name =')[1].strip().rstrip('.')
+            if 'name =' in line.lower():
+                hostname = line.split('=')[1].strip().rstrip('.')
+                if hostname and hostname != 'unknown':
+                    reverses_by_resolver['System'] = [hostname]
                 break
-        if hostname and hostname != 'unknown':
-            reverses_by_resolver['System'] = [hostname]
-            print(f"[Reverse DNS] System: {hostname}")
-    except Exception as e:
-        print(f"[Reverse DNS] nslookup error: {e}")
-
-    # Consolidar hostnames
+    except:
+        pass
+ 
     all_hostnames = set()
     for hostnames in reverses_by_resolver.values():
-        all_hostnames.update(hostnames)
-
+        if isinstance(hostnames, list):
+            all_hostnames.update(hostnames)
+ 
+    all_hostnames = {h for h in all_hostnames if h and h != 'unknown' and not h.startswith('.')}
+ 
     return {
         'hostnames': sorted(list(all_hostnames)),
         'by_resolver': reverses_by_resolver,
@@ -656,14 +678,15 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
             except Exception as e:
                 print(f"[mapeo_ips] Error analizando {ip}: {e}")
+                geo_data_fallback = _geolocate_ip(ip)
                 ips_analizadas.append({
                     'ip': ip,
-                    'hostname': 'error',
+                    'hostname': 'unknown',
                     'status': 'error',
                     'from_domains': ip_to_dominios.get(ip, []),
                     'es_valido': False,
                     'hostname_validation': None,
-                    'geo': None
+                    'geo': geo_data_fallback
                 })
 
         return {
