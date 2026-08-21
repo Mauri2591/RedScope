@@ -623,21 +623,47 @@ def mapeo_ips(ejecucion_id, proyecto_id):
             resolution_metadata['ips_configuradas'] = ips_configuradas_filtradas
             print(f"[mapeo_ips] IPs configuradas: {ips_configuradas_filtradas}")
 
-        # 2. Resolver dominios configurados usando múltiples resolvers
+        # 2. Resolver dominios + subdominios del scope
         dominio = config.get('DOMINIO', '').strip() if config else ''
+        subdominio = config.get('SUBDOMINIO', '').strip() if config else ''
+
+        dominios_scope = []
         if dominio:
-            dominios = _parse_multiline_config(dominio)
-            for dom in dominios:
-                try:
-                    print(f"[mapeo_ips] Resolviendo dominio {dom} con múltiples resolvers...")
-                    resolution_result = _resolve_domain_multi_resolver(dom)
+            dominios_scope.extend(_parse_multiline_config(dominio))
+        if subdominio:
+            dominios_scope.extend(_parse_multiline_config(subdominio))
 
-                    ips_a_analizar.update(resolution_result['ips'])
-                    resolution_metadata['dominios_resueltos'][dom] = resolution_result['by_resolver']
+        print(f"[mapeo_ips] Dominios del scope a resolver: {dominios_scope}")
 
-                    print(f"[mapeo_ips] {dom} → {resolution_result['ips']}")
-                except Exception as e:
-                    print(f"[mapeo_ips] Error resolviendo {dom}: {e}")
+        for dom in dominios_scope:
+            try:
+                print(f"[mapeo_ips] Resolviendo {dom} con múltiples resolvers...")
+                resolution_result = _resolve_domain_multi_resolver(dom)
+
+                ips_a_analizar.update(resolution_result['ips'])
+                resolution_metadata['dominios_resueltos'][dom] = resolution_result['by_resolver']
+
+                print(f"[mapeo_ips] {dom} → {resolution_result['ips']}")
+            except Exception as e:
+                print(f"[mapeo_ips] Error resolviendo {dom}: {e}")
+
+        # 2b. FALLBACK: Resolver subdominios descubiertos si hay pocas IPs
+        if len(ips_a_analizar) < 5:
+            try:
+                subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+                if subdominios_descubiertos:
+                    print(f"[mapeo_ips] Fallback: Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...")
+                    for subdom in subdominios_descubiertos[:20]:
+                        try:
+                            resolution_result = _resolve_domain_multi_resolver(subdom)
+                            if resolution_result['ips']:
+                                ips_a_analizar.update(resolution_result['ips'])
+                                resolution_metadata['dominios_resueltos'][subdom] = resolution_result['by_resolver']
+                                print(f"[mapeo_ips] {subdom} → {resolution_result['ips']}")
+                        except Exception:
+                            pass
+            except Exception as e:
+                print(f"[mapeo_ips] Error en fallback de subdominios: {e}")
 
         if not ips_a_analizar:
             raise Exception("No hay IPs ni dominios configurados para analizar")
