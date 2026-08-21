@@ -306,27 +306,59 @@ def _geolocate_ip(ip):
     try:
         result = subprocess.run(['whois', ip], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
-            geo = {'pais': 'unknown', 'ciudad': 'unknown', 'isp': 'unknown', 'asn': 'unknown', 'latitud': None, 'longitud': None, 'fuente': 'whois'}
+            geo = {
+                'pais': 'unknown',
+                'ciudad': 'unknown',
+                'isp': 'unknown',
+                'asn': 'unknown',
+                'latitud': None,
+                'longitud': None,
+                'fuente': 'whois',
+                'owner': 'unknown',
+                'responsible': 'unknown',
+                'phone': 'unknown',
+                'address': 'unknown'
+            }
+            address_lines = []
             for line in result.stdout.split('\n'):
                 line_lower = line.lower()
                 if 'country:' in line_lower:
-                    geo['pais'] = line.split(':')[1].strip()
-                elif 'address:' in line_lower and geo['ciudad'] == 'unknown':
+                    geo['pais'] = line.split(':', 1)[1].strip().upper()
+                elif 'address:' in line_lower:
                     addr = line.split(':', 1)[1].strip()
-                    if ',' in addr:
+                    if addr:
+                        address_lines.append(addr)
+                elif 'owner:' in line_lower and geo['owner'] == 'unknown':
+                    geo['owner'] = line.split(':', 1)[1].strip()
+                elif 'responsible:' in line_lower and geo['responsible'] == 'unknown':
+                    geo['responsible'] = line.split(':', 1)[1].strip()
+                elif 'phone:' in line_lower and geo['phone'] == 'unknown':
+                    phone = line.split(':', 1)[1].strip()
+                    if phone and phone != 'not available':
+                        geo['phone'] = phone
+                elif 'org:' in line_lower and geo['isp'] == 'unknown':
+                    geo['isp'] = line.split(':', 1)[1].strip()
+
+            if address_lines:
+                geo['address'] = ' | '.join(address_lines)
+                for addr in address_lines:
+                    if geo['ciudad'] == 'unknown':
+                        if '(' in addr and '-' in addr:
+                            parts = [p.strip() for p in addr.split('-') if p.strip()]
+                            if parts:
+                                candidate = parts[-1] if len(parts) > 1 else parts[0]
+                                if '(' in candidate:
+                                    candidate = candidate.split('(')[0].strip()
+                                if candidate and len(candidate) > 2 and not any(c.isdigit() for c in candidate[:3]):
+                                    geo['ciudad'] = candidate
+                                    break
+                for addr in address_lines:
+                    if geo['ciudad'] == 'unknown' and ',' in addr and addr[0] not in ['-', ' ']:
                         parts = [p.strip() for p in addr.split(',')]
-                        if parts and len(parts[0]) > 1:
+                        if parts and len(parts[0]) > 2 and not any(c.isdigit() for c in parts[0][:5]):
                             geo['ciudad'] = parts[0]
-                    else:
-                        parts = [p.strip() for p in addr.split('-') if p.strip()]
-                        if parts:
-                            candidate = parts[-1] if len(parts) > 1 else parts[0]
-                            if '(' in candidate:
-                                candidate = candidate.split('(')[0].strip()
-                            if candidate and len(candidate) > 1:
-                                geo['ciudad'] = candidate
-                elif 'org:' in line_lower:
-                    geo['isp'] = line.split(':')[1].strip()
+                            break
+
             if geo['pais'] != 'unknown':
                 return geo
     except Exception as e:
