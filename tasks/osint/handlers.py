@@ -647,22 +647,26 @@ def mapeo_ips(ejecucion_id, proyecto_id):
             except Exception as e:
                 print(f"[mapeo_ips] Error resolviendo {dom}: {e}")
 
-        # 2b. Resolver subdominios descubiertos
+        # 2b. Resolver subdominios descubiertos (opcional)
         try:
             subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-            if subdominios_descubiertos:
+            if subdominios_descubiertos and isinstance(subdominios_descubiertos, (list, tuple)):
                 print(f"[mapeo_ips] Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...")
                 for subdom in subdominios_descubiertos:
+                    if not subdom:
+                        continue
                     try:
                         resolution_result = _resolve_domain_multi_resolver(subdom)
-                        if resolution_result['ips']:
+                        if resolution_result and resolution_result.get('ips'):
                             ips_a_analizar.update(resolution_result['ips'])
                             resolution_metadata['dominios_resueltos'][subdom] = resolution_result['by_resolver']
                             print(f"[mapeo_ips] {subdom} → {resolution_result['ips']}")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"[mapeo_ips] Error en subdominio {subdom}: {str(e)[:60]}")
+        except AttributeError:
+            print(f"[mapeo_ips] get_discovered_subdomains no disponible (primera ejecución)")
         except Exception as e:
-            print(f"[mapeo_ips] Error resolviendo subdominios descubiertos: {e}")
+            print(f"[mapeo_ips] Error resolviendo subdominios descubiertos: {str(e)[:100]}")
 
         if not ips_a_analizar:
             raise Exception("No hay IPs ni dominios configurados para analizar")
@@ -974,13 +978,9 @@ def recon_cloud(ejecucion_id, proyecto_id):
                             recursos.extend(resultado)
                             print(f"[recon_cloud] ✓ [FALLBACK] TIER 0b: Encontrado: {subdom_combined}")
 
-                    # TIER 1: Buckets reales encontrados en Wayback/CT
-                    buckets_tier1 = _find_buckets_wayback(subdom)
-                    buckets_tier1.extend(_find_buckets_from_ct(subdom))
-                    buckets_tier1 = list(set(filter(None, buckets_tier1)))
-
-                    for bucket in buckets_tier1:
-                        recursos.extend(_verify_bucket(bucket, subdom))
+                    # TIER 1: Buckets específicos (si existen referencias externas)
+                    # NOTA: Wayback y CT logs removidos para reducir ruido
+                    # Recon Cloud se enfoca SOLO en S3 enumeration
 
                     # TIER 2 y 3: Candidatos generados (usando dominio COMPLETO para variaciones)
                     # ⭐ IMPORTANTE: Pasar subdominio completo para generar variaciones intermedias
