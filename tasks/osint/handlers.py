@@ -2341,6 +2341,57 @@ def _get_valid_ips_from_mapeo(proyecto_id):
         print(f"[mapeo_ips] Error obteniendo IPs válidas: {e}")
         return []
 
+def _filter_urls_by_extension(urls):
+    """
+    Filtra URLs descartando SOLO extensiones inútiles para pentest.
+    
+    DESCARTA:
+    - .gif, .png, .ico, .svg (iconos y gráficos)
+    - .css, .js, .woff, .woff2, .ttf, .eot (recursos frontend)
+    
+    MANTIENE TODO LO DEMÁS:
+    - .jpg, .jpeg (imágenes para extraer metadatos)
+    - .php, .html, .pdf, .doc, .docx, .xlsx, etc.
+    - URLs sin extensión (directorios, APIs)
+    - Cualquier otra cosa que NO esté en la lista de exclusión
+    """
+    
+    # SOLO extensiones INÚTILES para pentest
+    EXCLUDE_EXTENSIONS = {
+        '.gif', '.png', '.ico', '.svg',  # Imágenes que no aportan info
+        '.css', '.js',                    # Código frontend
+        '.woff', '.woff2', '.ttf', '.eot' # Fuentes
+    }
+    
+    urls_filtradas = []
+    descartadas = 0
+    
+    for url in urls:
+        if not url or not isinstance(url, str):
+            continue
+            
+        # Obtener extensión (ignorar parámetros GET)
+        path = url.split('?')[0] if '?' in url else url
+        path = path.split('#')[0] if '#' in path else path
+        
+        # Obtener extensión
+        import os
+        _, ext = os.path.splitext(path)
+        ext = ext.lower()
+        
+        # Si está en la lista de EXCLUSIÓN → descartar
+        if ext in EXCLUDE_EXTENSIONS:
+            descartadas += 1
+            continue
+        
+        # Si NO está en EXCLUSIÓN → mantener (imágenes, php, pdf, etc.)
+        urls_filtradas.append(url)
+    print(f"[filter_urls] URLs originales: {len(urls)}")
+    print(f"[filter_urls] URLs descartadas: {descartadas}")
+    print(f"[filter_urls] URLs finales: {len(urls_filtradas)}")    
+    
+    return urls_filtradas
+
 def _search_gau(target):
     """Busca URLs históricas usando GAU (múltiples fuentes)
 
@@ -2359,20 +2410,26 @@ def _search_gau(target):
             return urls
 
         # Ejecuta con filtros para evitar descargar archivos multimedia
-        # Nota: no usamos --subs porque causa problemas con algunos dominios
         result = subprocess.run(
             [gau_path, '--blacklist', 'jpg,jpeg,png,gif,svg,css,js,woff,woff2,ttf,eot', target],
             capture_output=True,
             text=True,
-            timeout=300  # 5 minutos - gau puede tardar para dominios grandes
+            timeout=300
         )
 
         if result.stdout:
-            urls_found = result.stdout.strip().split('\n')
-            urls.update([url for url in urls_found if url])
-            print(f"[gau] Encontradas {len(urls_found)} URLs históricas para {target}")
+            urls_raw = result.stdout.strip().split('\n')
+            urls.update([url for url in urls_raw if url])
+            print(f"[gau] Encontradas {len(urls)} URLs históricas para {target}")
+            
+            # ✨ NUEVO: Filtrar extensiones inútiles
+            urls_filtradas = set(_filter_urls_by_extension(list(urls)))
+            print(f"[gau] Después de filtrado: {len(urls_filtradas)} URLs válidas")
+            
+            return urls_filtradas
         else:
             print(f"[gau] No se encontraron URLs para {target}")
+            
     except subprocess.TimeoutExpired:
         print(f"[gau] Timeout para {target} (dominios muy grandes pueden tardar >5 min)")
     except Exception as e:
