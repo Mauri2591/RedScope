@@ -647,23 +647,22 @@ def mapeo_ips(ejecucion_id, proyecto_id):
             except Exception as e:
                 print(f"[mapeo_ips] Error resolviendo {dom}: {e}")
 
-        # 2b. FALLBACK: Resolver subdominios descubiertos si hay pocas IPs
-        if len(ips_a_analizar) < 5:
-            try:
-                subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-                if subdominios_descubiertos:
-                    print(f"[mapeo_ips] Fallback: Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...")
-                    for subdom in subdominios_descubiertos[:20]:
-                        try:
-                            resolution_result = _resolve_domain_multi_resolver(subdom)
-                            if resolution_result['ips']:
-                                ips_a_analizar.update(resolution_result['ips'])
-                                resolution_metadata['dominios_resueltos'][subdom] = resolution_result['by_resolver']
-                                print(f"[mapeo_ips] {subdom} → {resolution_result['ips']}")
-                        except Exception:
-                            pass
-            except Exception as e:
-                print(f"[mapeo_ips] Error en fallback de subdominios: {e}")
+        # 2b. Resolver subdominios descubiertos
+        try:
+            subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+            if subdominios_descubiertos:
+                print(f"[mapeo_ips] Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...")
+                for subdom in subdominios_descubiertos:
+                    try:
+                        resolution_result = _resolve_domain_multi_resolver(subdom)
+                        if resolution_result['ips']:
+                            ips_a_analizar.update(resolution_result['ips'])
+                            resolution_metadata['dominios_resueltos'][subdom] = resolution_result['by_resolver']
+                            print(f"[mapeo_ips] {subdom} → {resolution_result['ips']}")
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[mapeo_ips] Error resolviendo subdominios descubiertos: {e}")
 
         if not ips_a_analizar:
             raise Exception("No hay IPs ni dominios configurados para analizar")
