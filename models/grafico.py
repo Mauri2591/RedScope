@@ -12,7 +12,7 @@ class Grafico:
             tipos_servicio.nombre AS tipo, tipos_servicio.id AS id_tipo_servicio, 
             tipo_proyecto.descripcion AS descripcion 
         FROM tipo_proyecto 
-        INNER JOIN tipos_servicio ON tipos_servicio.tipo_proyecto_id=tipo_proyecto.id 
+        INNER JOIN tipos_servicio ON tipos_servicio.id_tipo_proyecto=tipo_proyecto.id 
         WHERE tipo_proyecto.estado_id=1 AND tipos_servicio.estado_id=1
         """
         cursor.execute(sql_servicios)
