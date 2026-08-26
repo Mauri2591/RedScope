@@ -74,6 +74,28 @@
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 
+    <!-- Script para agregar BASE_PATH a todas las URLs en desarrollo/producción -->
+    <script>
+        // Define el base path (ej: /redscope en producción, vacío en desarrollo)
+        const BASE_PATH = "{{ request.script_root }}";
+
+        // Intercepta todos los fetch calls para agregar el BASE_PATH
+        const originalFetch = window.fetch;
+        window.fetch = function(resource, config) {
+            if (typeof resource === 'string' && resource.startsWith('/')) {
+                // Si la URL comienza con /, agrega el BASE_PATH
+                resource = BASE_PATH + resource;
+            }
+            return originalFetch.apply(this, [resource, config]);
+        };
+
+        // Intercepta jQuery AJAX calls también
+        $(document).ajaxSend(function(event, jqxhr, settings) {
+            if (settings.url && settings.url.startsWith('/')) {
+                settings.url = BASE_PATH + settings.url;
+            }
+        });
+    </script>
 
     {% block extra_js %}{% endblock %}
 </body>
