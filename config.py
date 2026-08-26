@@ -45,7 +45,9 @@ class Config:
     # RUTAS / ARCHIVOS
     # -------------------
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
+    
+    USE_PROXY_FIX = os.getenv("USE_PROXY_FIX", "false").lower() == "true"
+    
     # Esto toma la variable de entorno si existe, sino usa BASE_DIR/data
     DATA_DIR = os.getenv("DATA_DIR", os.path.join(BASE_DIR, "data"))
 
