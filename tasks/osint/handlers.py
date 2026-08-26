@@ -1003,19 +1003,20 @@ def _generate_s3_candidates(dominio):
 
 
 def _verify_s3_bucket(bucket_name, dominio):
-    """Verifica si bucket S3 existe y es público"""
+    """Verifica si bucket S3 existe y es público (usando curl - más rápido)"""
     resultado = []
 
     try:
-        # Verificar acceso anónimo
+        # Usar curl en lugar de aws CLI (más rápido y respeta timeouts)
+        url = f"https://{bucket_name}.s3.amazonaws.com/"
         result = subprocess.run(
-            ['aws', 's3', 'ls', f"s3://{bucket_name}/", '--no-sign-request'],
+            ['curl', '-s', '-I', '--max-time', '5', url],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=6
         )
 
-        if result.returncode == 0:
+        if '200' in result.stdout:
             # Bucket abierto al público
             print(f"[s3] ✅ PÚBLICO: {bucket_name}")
             resultado.append({
@@ -1023,18 +1024,18 @@ def _verify_s3_bucket(bucket_name, dominio):
                 'nombre': bucket_name,
                 'dominio': dominio,
                 'acceso': 'público',
-                'url': f"https://{bucket_name}.s3.amazonaws.com",
+                'url': url,
                 'poc': [
                     f"aws s3 ls s3://{bucket_name}/ --no-sign-request",
                     f"s3cmd ls s3://{bucket_name}/",
-                    f"curl https://{bucket_name}.s3.amazonaws.com/"
+                    f"curl {url}"
                 ]
             })
-        elif 'NoSuchBucket' in result.stderr:
-            # No existe
+        elif '403' in result.stdout:
+            # Existe pero privado
             pass
         else:
-            # Privado
+            # No existe o error
             pass
 
     except subprocess.TimeoutExpired:
