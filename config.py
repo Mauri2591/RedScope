@@ -44,6 +44,7 @@ class Config:
     # -------------------
     # RUTAS / ARCHIVOS
     # -------------------
+    BASE_PATH = os.getenv("BASE_PATH", "")
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
     # Esto toma la variable de entorno si existe, sino usa BASE_DIR/data
