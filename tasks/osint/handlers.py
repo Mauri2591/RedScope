@@ -11,8 +11,6 @@ import os
 import dns.resolver
 import dns.reversename
 import dns.exception
-import traceback
-import sys
 
 # ══════════════════════════════════════════════════════════════════
 # HELPERS GLOBALES OSINT
@@ -89,51 +87,14 @@ def _find_gau_path():
     return None
 
 def _run_osint_job(ejecucion_id, fn):
-    """Wrapper mejorado para todos los jobs OSINT.
-
-    Mejoras:
-    - Loguea excepciones con stack trace completo
-    - Retorna resultado para que RQ lo procese
-    - Re-lanza excepciones para estabilidad del worker
-    - Mejor visibilidad en logs
-    """
+    """Wrapper para todos los jobs OSINT."""
     try:
-        print(f"[OSINT] ========================================")
-        print(f"[OSINT] Job {ejecucion_id} INICIANDO")
-        print(f"[OSINT] Tiempo: {datetime.now().isoformat()}")
-        print(f"[OSINT] ========================================")
-
         OsintEjecucion.mark_running(ejecucion_id)
-        print(f"[OSINT] Estado marcado como RUNNING")
-
         resultado = fn()
-
-        print(f"[OSINT] ========================================")
-        print(f"[OSINT] ✅ Job {ejecucion_id} COMPLETADO")
-        print(f"[OSINT] Tiempo: {datetime.now().isoformat()}")
-        print(f"[OSINT] ========================================")
-
         OsintEjecucion.mark_completed(ejecucion_id, resultado)
-        return resultado
-
     except Exception as e:
-        error_trace = traceback.format_exc()
-
-        print(f"[OSINT] ========================================")
-        print(f"[OSINT] ❌ ERROR en Job {ejecucion_id}")
-        print(f"[OSINT] Mensaje: {str(e)}")
-        print(f"[OSINT] Stack trace:")
-        print(error_trace)
-        print(f"[OSINT] Tiempo: {datetime.now().isoformat()}")
-        print(f"[OSINT] ========================================")
-
-        try:
-            OsintEjecucion.mark_failed(ejecucion_id, str(e))
-        except Exception as db_error:
-            print(f"[OSINT] Error marcando fallo en BD: {db_error}")
-
-        # Re-lanzar para que RQ maneje correctamente
-        raise
+        OsintEjecucion.mark_failed(ejecucion_id, str(e))
+        print(f"[OSINT ERROR] {str(e)}")
 
 # ══════════════════════════════════════════════════════════════════
 # HELPERS DNS MEJORADO (Multi-Resolver)
@@ -481,7 +442,6 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
 
     Retorna SOLO subdominios descubiertos.
     """
-    print(f"[OSINT-DISCOVERY] Handler iniciado para ejecución {ejecucion_id}")
     def job():
         # 1. Obtener scope: DOMINIO + SUBDOMINIO + SERVICIOS
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
@@ -643,7 +603,6 @@ def mapeo_ips(ejecucion_id, proyecto_id):
     - ✨ MEJORADO: Agrega geolocalización (país, ciudad, ISP) a cada IP
     - ✨ MEJORADO: Incluye IPs válidas aunque reverse DNS falle
     """
-    print(f"[OSINT-MAPEO-IPS] Handler iniciado para ejecución {ejecucion_id}")
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
 
@@ -819,7 +778,6 @@ def recon_cloud(ejecucion_id, proyecto_id):
     2. Si no hay resultados, entonces usar TIER 0-3 en SUBDOMINIOS combinados con el raíz
        (ej: "ser-ater", "seater" de "ser.ater.gob.ar", NO solo "ser")
     """
-    print(f"[OSINT-CLOUD] Handler iniciado para ejecución {ejecucion_id}")
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
         dominio_scope = config.get('DOMINIO', '').strip() if config else ''
@@ -2029,7 +1987,6 @@ def analisis_dns(ejecucion_id, proyecto_id):
 
     Retorna SOLO los registros DNS, sin listas innecesarias.
     """
-    print(f"[OSINT-DNS] Handler iniciado para ejecución {ejecucion_id}")
     def job():
         # 1. Obtener TODO el scope: DOMINIO + SUBDOMINIO + SERVICIOS
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
