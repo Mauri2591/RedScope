@@ -295,7 +295,7 @@
         $('#formAltaProyecto').on('submit', function (e) {
             e.preventDefault();
             $.ajax({
-                url: "/proyecto/crear",
+                url: BASE_PATH+"/proyecto/crear",
                 type: "POST",
                 data: $(this).serialize(),
                 success: function (response) {
@@ -414,7 +414,7 @@
             for (const opt of opciones.toArray()) {
                 await $.ajax({
                     type: 'POST',
-                    url: '/cloud/run-roles',
+                    url: BASE_PATH+'/cloud/run-roles',
                     contentType: 'application/json',
                     headers: {
                         'X-CSRFToken': csrfToken
@@ -442,7 +442,7 @@
 
             $.ajax({
                 type: "POST",
-                url: "/cloud/run-roles",
+                url: BASE_PATH+"/cloud/run-roles",
                 contentType: "application/json",
                 headers: {
                     "X-CSRFToken": csrfToken
@@ -682,20 +682,20 @@
         const proyectoId = document
             .getElementById("cloudWorkspace")
             .dataset.proyectoId;
-        window.location.href = `/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}/hallazgos`;
+        window.location.href = BASE_PATH+`/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}/hallazgos`;
     }
 
 
     function descargarDocAws(id, tipo) {
-        window.location.href = `/proyecto/${id}/export/docx/aws/${tipo}`;
+        window.location.href = BASE_PATH+`/proyecto/${id}/export/docx/aws/${tipo}`;
     }
 
     function descargarXlsxAws(id) {
-        window.location.href = `/proyecto/${id}/export/xlsx/aws`;
+        window.location.href = BASE_PATH+`/proyecto/${id}/export/xlsx/aws`;
     }
 
     function descargarDocOsint(id, tipo) {
-        window.location.href = `/proyecto/${id}/export/docx/osint/${tipo}`;
+        window.location.href = BASE_PATH+`/proyecto/${id}/export/docx/osint/${tipo}`;
     }
     
 
@@ -1352,7 +1352,7 @@
     });
 
     function verHallazgosImportados(proyectoId, herramienta) {
-        window.location.href = `/proyecto/${proyectoId}/cloud/importados/${herramienta}/hallazgos`;
+        window.location.href = BASE_PATH+`/proyecto/${proyectoId}/cloud/importados/${herramienta}/hallazgos`;
     }
 
 
@@ -1412,7 +1412,7 @@
         const match = urlPath.match(/importados\/([^/]+)/);
         const herramienta = match ? match[1] : null;
 
-        fetch("/proyecto/findings/eliminar-masivo", {
+        fetch(BASE_PATH+"/proyecto/findings/eliminar-masivo", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
