@@ -237,7 +237,7 @@
             formAltaServicio.addEventListener("submit", (e) => {
                 e.preventDefault();
                 const data = new FormData(formAltaServicio);
-                fetch('/servicio/alta', {
+                fetch(BASE_PATH+'/servicio/alta', {
                         method: 'POST',
                         headers: {
                             'X-CSRFToken': getCSRFToken()
@@ -485,7 +485,7 @@
 
         const interval = setInterval(async () => {
 
-            const response = await fetch(`/cloud/resultados/${proyectoId}`);
+            const response = await fetch(BASE_PATH+`/cloud/resultados/${proyectoId}`);
             if (!response.ok) return;
 
             const data = await response.json();
@@ -555,7 +555,7 @@
         const container = document.getElementById('cloudWorkspace');
         const proyectoId = container.dataset.proyectoId;
 
-        const response = await fetch(`/cloud/resultados/${proyectoId}`);
+        const response = await fetch(BASE_PATH+`/cloud/resultados/${proyectoId}`);
 
         if (!response.ok) return;
 
@@ -755,7 +755,7 @@
 
         try {
             const [findingRes, ruleRes_temp] = await Promise.all([
-                fetch(`/proyecto/finding/detail/${finding_id}`).then(r => r.json()),
+                fetch(BASE_PATH+`/proyecto/finding/detail/${finding_id}`).then(r => r.json()),
                 // ruleRes lo cargamos después de tener el check_id
             ]);
 
@@ -765,7 +765,7 @@
             const check_id = findingData.check_id;
 
             // Ahora cargamos la rule con el check_id real
-            const ruleRes = await fetch(`/proyecto/security-rule/${check_id}`).then(r => r.json());
+            const ruleRes = await fetch(BASE_PATH+`/proyecto/security-rule/${check_id}`).then(r => r.json());
 
             // Setear hiddens
             $("#check_id").val(check_id);
@@ -876,7 +876,7 @@
         const herramienta = match ? match[1] : null;
         console.log("[DEBUG] Herramienta extraída:", herramienta);
 
-        fetch(`/proyecto/finding/eliminar/${finding_id}`, {
+        fetch(BASE_PATH+`/proyecto/finding/eliminar/${finding_id}`, {
                 method: 'POST',
                 headers: {
                     "Content-Type": "application/json",
@@ -1014,7 +1014,7 @@
             reference: $("#rule_reference").val()
         }
 
-        fetch("/proyecto/security-rule", {
+        fetch(BASE_PATH+"/proyecto/security-rule", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -1067,7 +1067,7 @@
             region: $("#finding_region").val() || ''
         };
 
-        fetch("/proyecto/finding", {
+        fetch(BASE_PATH+"/proyecto/finding", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -1078,7 +1078,7 @@
             .then(res => res.json())
             .then(res => {
                 const finding_id = res.finding_id;
-                return fetch(`/proyecto/finding/${finding_id}/verificar`, {
+                return fetch(BASE_PATH+`/proyecto/finding/${finding_id}/verificar`, {
                     method: "POST",
                     headers: {
                         "X-CSRFToken": getCSRFToken()
@@ -1154,7 +1154,7 @@
         const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
         // Traer todas las acciones
-        const res = await fetch(`/cloud/acciones/all/${proyectoId}`);
+        const res = await fetch(BASE_PATH+`/cloud/acciones/all/${proyectoId}`);
         const data = await res.json();
         if (!data.success || !data.acciones.length) {
             alert("No se encontraron acciones para ejecutar");
@@ -1162,7 +1162,7 @@
         }
         // Encolar cada acción secuencialmente
         for (const accion of data.acciones) {
-            await fetch('/cloud/run-roles', {
+            await fetch(BASE_PATH+'/cloud/run-roles', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1189,7 +1189,7 @@
         if (pendientes.length === 0) return;
 
         const interval = setInterval(() => {
-            fetch('/proyecto/cloud/estado-reglas', {
+            fetch(BASE_PATH+'/proyecto/cloud/estado-reglas', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1318,7 +1318,7 @@
         };
         reader.readAsText(archivo);
 
-        fetch(`/proyecto/${proyectoId}/cloud/import-findings`, {
+        fetch(BASE_PATH+`/proyecto/${proyectoId}/cloud/import-findings`, {
                 method: "POST",
                 headers: {
                     "X-CSRFToken": $('meta[name="csrf-token"]').attr("content")
@@ -1380,7 +1380,7 @@
     function verificarSeleccionados() {
         const ids = getSeleccionados();
         if (!ids.length) return;
-        fetch("/proyecto/findings/verificar-masivo", {
+        fetch(BASE_PATH+"/proyecto/findings/verificar-masivo", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -1403,7 +1403,7 @@
         const match = urlPath.match(/importados\/([^/]+)/);
         const herramienta = match ? match[1] : null;
 
-        fetch("/proyecto/findings/eliminar-masivo", {
+        fetch(BASE_PATH+"/proyecto/findings/eliminar-masivo", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -1425,7 +1425,7 @@
 
     function abrirFiltroMitre() {
         const proyectoId = document.getElementById('hallazgosWorkspace').dataset.proyectoId;
-        fetch(`/proyecto/${proyectoId}/cloud/mitre-tecnicas`)
+        fetch(BASE_PATH+`/proyecto/${proyectoId}/cloud/mitre-tecnicas`)
             .then(r => r.json())
             .then(data => {
                 mitreTecnicas = data;
@@ -1473,7 +1473,7 @@
         document.getElementById('contenedorResultadosMitre').style.display = 'none';
         document.getElementById('sinResultadosMitre').style.display = 'none';
 
-        fetch(`/proyecto/${proyectoId}/cloud/mitre-findings/${tecnica}`)
+        fetch(BASE_PATH+`/proyecto/${proyectoId}/cloud/mitre-findings/${tecnica}`)
             .then(r => r.json())
             .then(data => {
                 const tbody = document.getElementById('tbodyMitreFindings');
@@ -1516,7 +1516,7 @@
 
             try {
                 console.log("Fetching /osint/config-tipos");
-                const response = await fetch('/osint/config-tipos', {
+                const response = await fetch(BASE_PATH+'/osint/config-tipos', {
                     credentials: 'include'
                 });
                 console.log("Response status:", response.status);
@@ -1556,7 +1556,7 @@
             const proyectoId = document.getElementById('osint_proyecto_id').value;
             const formData = new FormData(this);
 
-            fetch(`/proyecto/${proyectoId}/osint-config`, {
+            fetch(BASE_PATH+`/proyecto/${proyectoId}/osint-config`, {
                     method: "POST",
                     headers: {
                         "X-CSRFToken": getCSRFToken()
@@ -1600,7 +1600,7 @@ function ejecutar_osint(servicioId, nombreServicio) {
     const proyectoId = hallazgosEl.dataset.proyectoId;
     const terminal = document.getElementById('terminalOSINT');
 
-    fetch('/osint/run', {
+    fetch(BASE_PATH+'/osint/run', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -1636,7 +1636,7 @@ function iniciarPollingOSINT(ejecucionId) {
     const terminal = document.getElementById('terminalOSINT');
 
     const interval = setInterval(() => {
-        fetch(`/osint/status/${ejecucionId}`)
+        fetch(BASE_PATH+`/osint/status/${ejecucionId}`)
             .then(r => r.json())
             .then(status => {
                 if (!terminal) return;
@@ -1697,7 +1697,7 @@ async function cargarEjecucionesOSINT() {
     if (!tbody) return;
 
     try {
-        const response = await fetch(`/osint/ejecuciones/${proyectoId}`);
+        const response = await fetch(BASE_PATH+`/osint/ejecuciones/${proyectoId}`);
         const ejecuciones = await response.json();
 
         let html = '';
@@ -1774,7 +1774,7 @@ function cargarResultadosOSINT() {
         return;
     }
 
-    fetch(`/osint/ejecuciones/${proyectoId}`)
+    fetch(BASE_PATH+`/osint/ejecuciones/${proyectoId}`)
         .then(r => r.json())
         .then(ejecuciones => {
             console.log('[OSINT] Ejecuciones obtenidas:', ejecuciones);
