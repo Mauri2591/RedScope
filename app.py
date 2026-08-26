@@ -18,8 +18,8 @@ app = Flask(__name__)
 app.config.from_object(Config)
 
 # Middleware para reverse proxy (Apache) - solo en producción
-if app.config['USE_PROXY_FIX']:
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
+# if app.config['USE_PROXY_FIX']:
+#     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
 
 csrf = CSRFProtect(app)
 app.jinja_env.globals['csrf_token'] = generate_csrf
