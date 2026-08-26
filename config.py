@@ -50,7 +50,8 @@ class Config:
     
     # Esto toma la variable de entorno si existe, sino usa BASE_DIR/data
     DATA_DIR = os.getenv("DATA_DIR", os.path.join(BASE_DIR, "data"))
-
+    BASE_PATH = os.getenv("BASE_PATH", "")
+    
     # Asegurarse de que la carpeta exista
     os.makedirs(DATA_DIR, exist_ok=True)
     
