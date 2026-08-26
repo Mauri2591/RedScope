@@ -815,15 +815,6 @@
                 selectSeverity.append(`<option value="${s.id}" style="background-color:${s.color}">${s.nombre}</option>`);
             });
 
-            // Estado Mitigacion (readonly text)
-            let inputMitigacion = $("#estado_mitigacion");
-            // Mapear estado_mitigacion a nombre (8=SIN MITIGAR, 9=MITIGADO)
-            const estadosMitigacion = {
-                8: "SIN MITIGAR",
-                9: "MITIGADO"
-            };
-            inputMitigacion.val(estadosMitigacion[findingData.estado_mitigacion] || "DESCONOCIDO");
-
             // Rule
             if (!ruleRes.rule_exists) {
                 $("#btnGuardarFinding").prop("disabled", true);
