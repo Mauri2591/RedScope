@@ -604,7 +604,15 @@ def mapeo_ips(ejecucion_id, proyecto_id):
     - ✨ MEJORADO: Incluye IPs válidas aunque reverse DNS falle
     """
     def job():
+        import sys
+        print(f"[mapeo_ips] ⏱️ INICIANDO - proyecto_id={proyecto_id}", flush=True)
+        sys.stdout.flush()
+
+        print(f"[mapeo_ips] ⏱️ Llamando get_osint_config...", flush=True)
+        sys.stdout.flush()
         config = Proyecto.get_osint_config(proyecto_id)
+        print(f"[mapeo_ips] ✅ get_osint_config completado", flush=True)
+        sys.stdout.flush()
 
         ips_analizadas = []
         ips_a_analizar = set()
@@ -614,6 +622,8 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         }
 
         # 1. Agregar IPs configuradas directamente (filtrar IPs de DNS públicos)
+        print(f"[mapeo_ips] ⏱️ Procesando IPs configuradas...", flush=True)
+        sys.stdout.flush()
         ips_str = config.get('IPS', '').strip() if config else ''
         if ips_str:
             ips_configuradas = _parse_multiline_config(ips_str)
@@ -621,11 +631,23 @@ def mapeo_ips(ejecucion_id, proyecto_id):
             ips_configuradas_filtradas = [ip for ip in ips_configuradas if ip not in PUBLIC_DNS_IPS]
             ips_a_analizar.update(ips_configuradas_filtradas)
             resolution_metadata['ips_configuradas'] = ips_configuradas_filtradas
-            print(f"[mapeo_ips] IPs configuradas: {ips_configuradas_filtradas}")
+            print(f"[mapeo_ips] ✅ IPs configuradas: {ips_configuradas_filtradas}", flush=True)
+        else:
+            print(f"[mapeo_ips] ✅ Sin IPs configuradas", flush=True)
+        sys.stdout.flush()
 
         # 2. Resolver dominios + subdominios del scope
+        print(f"[mapeo_ips] ⏱️ Extrayendo DOMINIO scope...", flush=True)
+        sys.stdout.flush()
         dominio = config.get('DOMINIO', '').strip() if config else ''
+        print(f"[mapeo_ips] ✅ DOMINIO extraído: len={len(dominio)}", flush=True)
+        sys.stdout.flush()
+
+        print(f"[mapeo_ips] ⏱️ Extrayendo SUBDOMINIO scope...", flush=True)
+        sys.stdout.flush()
         subdominio = config.get('SUBDOMINIO', '').strip() if config else ''
+        print(f"[mapeo_ips] ✅ SUBDOMINIO extraído: len={len(subdominio)}", flush=True)
+        sys.stdout.flush()
 
         dominios_scope = []
         if dominio:
@@ -633,47 +655,72 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         if subdominio:
             dominios_scope.extend(_parse_multiline_config(subdominio))
 
-        print(f"[mapeo_ips] Dominios del scope a resolver: {dominios_scope}")
+        print(f"[mapeo_ips] ⏱️ Dominios del scope a resolver: {dominios_scope}", flush=True)
+        sys.stdout.flush()
 
-        for dom in dominios_scope:
+        print(f"[mapeo_ips] ⏱️ Resolviendo {len(dominios_scope)} dominios scope...", flush=True)
+        sys.stdout.flush()
+        for idx, dom in enumerate(dominios_scope, 1):
             try:
-                print(f"[mapeo_ips] Resolviendo {dom} con múltiples resolvers...")
+                print(f"[mapeo_ips] [{idx}/{len(dominios_scope)}] Resolviendo {dom}...", flush=True)
+                sys.stdout.flush()
                 resolution_result = _resolve_domain_multi_resolver(dom)
 
                 ips_a_analizar.update(resolution_result['ips'])
                 resolution_metadata['dominios_resueltos'][dom] = resolution_result['by_resolver']
 
-                print(f"[mapeo_ips] {dom} → {resolution_result['ips']}")
+                print(f"[mapeo_ips] ✅ {dom} → {resolution_result['ips']}", flush=True)
+                sys.stdout.flush()
             except Exception as e:
-                print(f"[mapeo_ips] Error resolviendo {dom}: {e}")
+                print(f"[mapeo_ips] ❌ Error resolviendo {dom}: {e}", flush=True)
+                sys.stdout.flush()
 
         # 2b. Resolver subdominios descubiertos (opcional)
+        print(f"[mapeo_ips] ⏱️ Llamando get_discovered_subdomains...", flush=True)
+        sys.stdout.flush()
         try:
             subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+            print(f"[mapeo_ips] ✅ get_discovered_subdomains completado", flush=True)
+            sys.stdout.flush()
             if subdominios_descubiertos and isinstance(subdominios_descubiertos, (list, tuple)):
-                print(f"[mapeo_ips] Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...")
-                for subdom in subdominios_descubiertos:
+                print(f"[mapeo_ips] ⏱️ Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...", flush=True)
+                sys.stdout.flush()
+                for idx, subdom in enumerate(subdominios_descubiertos, 1):
                     if not subdom:
                         continue
                     try:
+                        print(f"[mapeo_ips] [{idx}/{len(subdominios_descubiertos)}] Resolviendo {subdom}...", flush=True)
+                        sys.stdout.flush()
                         resolution_result = _resolve_domain_multi_resolver(subdom)
                         if resolution_result and resolution_result.get('ips'):
                             ips_a_analizar.update(resolution_result['ips'])
                             resolution_metadata['dominios_resueltos'][subdom] = resolution_result['by_resolver']
-                            print(f"[mapeo_ips] {subdom} → {resolution_result['ips']}")
+                            print(f"[mapeo_ips] ✅ {subdom} → {resolution_result['ips']}", flush=True)
+                            sys.stdout.flush()
                     except Exception as e:
-                        print(f"[mapeo_ips] Error en subdominio {subdom}: {str(e)[:60]}")
+                        print(f"[mapeo_ips] ❌ Error en subdominio {subdom}: {str(e)[:60]}", flush=True)
+                        sys.stdout.flush()
+            else:
+                print(f"[mapeo_ips] ✅ Sin subdominios descubiertos", flush=True)
+                sys.stdout.flush()
         except AttributeError:
-            print(f"[mapeo_ips] get_discovered_subdomains no disponible (primera ejecución)")
+            print(f"[mapeo_ips] ℹ️ get_discovered_subdomains no disponible (primera ejecución)", flush=True)
+            sys.stdout.flush()
         except Exception as e:
-            print(f"[mapeo_ips] Error resolviendo subdominios descubiertos: {str(e)[:100]}")
+            print(f"[mapeo_ips] ❌ Error resolviendo subdominios descubiertos: {str(e)[:100]}", flush=True)
+            sys.stdout.flush()
 
         if not ips_a_analizar:
+            print(f"[mapeo_ips] ⚠️ No hay IPs ni dominios configurados para analizar", flush=True)
+            sys.stdout.flush()
             raise Exception("No hay IPs ni dominios configurados para analizar")
 
-        print(f"[mapeo_ips] Total IPs a analizar: {len(ips_a_analizar)}")
+        print(f"[mapeo_ips] ✅ Total IPs a analizar: {len(ips_a_analizar)}", flush=True)
+        sys.stdout.flush()
 
         # 3. Hacer reverse DNS + Geolocalización para cada IP
+        print(f"[mapeo_ips] ⏱️ Preparando mapeo de IP→dominios...", flush=True)
+        sys.stdout.flush()
         ips_success = []
 
         # Crear mapeo de IP → dominios que la resolvieron (sin duplicados)
@@ -687,16 +734,25 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
         # Convertir sets a listas ordenadas
         ip_to_dominios = {ip: sorted(list(doms)) for ip, doms in ip_to_dominios.items()}
+        print(f"[mapeo_ips] ✅ Mapeo IP→dominios completado", flush=True)
+        sys.stdout.flush()
 
         # Obtener dominio objetivo para validar hostnames
+        print(f"[mapeo_ips] ⏱️ Extrayendo dominio objetivo...", flush=True)
+        sys.stdout.flush()
         dominio_objetivo = None
         dominios_config = _parse_multiline_config(dominio) if dominio else []
         if dominios_config:
             dominio_objetivo = dominios_config[0]
+        print(f"[mapeo_ips] ✅ Dominio objetivo: {dominio_objetivo}", flush=True)
+        sys.stdout.flush()
 
-        for ip in sorted(ips_a_analizar):
+        print(f"[mapeo_ips] ⏱️ Analizando {len(ips_a_analizar)} IPs (Reverse DNS + Geolocalización)...", flush=True)
+        sys.stdout.flush()
+        for idx, ip in enumerate(sorted(ips_a_analizar), 1):
             try:
-                print(f"[mapeo_ips] Analizando {ip}...")
+                print(f"[mapeo_ips] [{idx}/{len(ips_a_analizar)}] Analizando {ip}...", flush=True)
+                sys.stdout.flush()
 
                 # Reverse DNS
                 reverse_result = _reverse_dns_multi_resolver(ip)
@@ -741,14 +797,17 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                         'hostname_validation': hostname_validation['razon'],
                         'geo': geo_data
                     })
-                    print(f"[mapeo_ips] ✓ {ip} ({hostname}) - {geo_data['pais']}, {geo_data['ciudad']} [VÁLIDO]")
-                    print(f"              Hostname info: {hostname_validation.get('razon', 'N/A')}")
+                    print(f"[mapeo_ips] ✅ {ip} ({hostname}) - {geo_data['pais']}, {geo_data['ciudad']} [VÁLIDO]", flush=True)
+                    print(f"              Hostname info: {hostname_validation.get('razon', 'N/A')}", flush=True)
+                    sys.stdout.flush()
                 else:
                     # IPs sin from_domains (no resueltas desde dominio scope)
-                    print(f"[mapeo_ips] ⊘ {ip} ({hostname}) - No fue resuelto desde dominio scope")
+                    print(f"[mapeo_ips] ⊘ {ip} ({hostname}) - No fue resuelto desde dominio scope", flush=True)
+                    sys.stdout.flush()
 
             except Exception as e:
-                print(f"[mapeo_ips] Error analizando {ip}: {e}")
+                print(f"[mapeo_ips] ❌ Error analizando {ip}: {e}", flush=True)
+                sys.stdout.flush()
                 geo_data_fallback = _geolocate_ip(ip)
                 ips_analizadas.append({
                     'ip': ip,
@@ -760,13 +819,18 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                     'geo': geo_data_fallback
                 })
 
-        return {
+        print(f"[mapeo_ips] ⏱️ Compilando resultados finales...", flush=True)
+        sys.stdout.flush()
+        result = {
             "tipo": "mapeo_ips",
             "total_ips": len(ips_a_analizar),
             "total_success": len(ips_success),
             "ips_success": ips_success,  # ← IPs válidas con geolocalización
             "ips_todas": ips_analizadas   # ← Todas las IPs analizadas (debug)
         }
+        print(f"[mapeo_ips] ✅ COMPLETADO - Total: {len(ips_a_analizar)} IPs, Válidas: {len(ips_success)}", flush=True)
+        sys.stdout.flush()
+        return result
 
     _run_osint_job(ejecucion_id, job)
 
