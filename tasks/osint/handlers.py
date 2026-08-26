@@ -789,44 +789,68 @@ def recon_cloud(ejecucion_id, proyecto_id):
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
 
-        # 1. DOMINIO del scope (obligatorio si existe)
+        # 1. DOMINIO del scope (estado_id=1)
         dominio_scope = config.get('DOMINIO', '').strip() if config else ''
         dominios_config = _parse_multiline_config(dominio_scope) if dominio_scope else []
 
         if dominios_config:
-            print(f"[recon_cloud] DOMINIO scope encontrado: {dominios_config}")
+            print(f"[recon_cloud] DOMINIO scope (estado_id=1): {dominios_config}")
         else:
             print(f"[recon_cloud] Sin DOMINIO configurado")
 
-        # 2. SUBDOMINIO del scope
+        # 2. SUBDOMINIO del scope (estado_id=1)
         subdominio_scope = config.get('SUBDOMINIO', '').strip() if config else ''
         subdominios_config = _parse_multiline_config(subdominio_scope) if subdominio_scope else []
 
         if subdominios_config:
-            print(f"[recon_cloud] SUBDOMINIO scope encontrado: {subdominios_config}")
+            print(f"[recon_cloud] SUBDOMINIO scope (estado_id=1): {subdominios_config}")
 
-        # 3. Resultados de discovery_subdominios (si existen)
+        # 3. Resultados de discovery_subdominios (estado_id=1)
         dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
         if dominios_descubiertos:
-            print(f"[recon_cloud] Subdominios descubiertos: {len(dominios_descubiertos)}")
+            print(f"[recon_cloud] Subdominios descubiertos (estado_id=1): {len(dominios_descubiertos)}")
 
-        # 4. FALLBACK: Dominios de mapeo_ips
-        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
-        if dominios_from_ips:
-            print(f"[recon_cloud] Dominios de mapeo_ips: {dominios_from_ips}")
-
-        # Combinar: scope + descubiertos (INCLUSIVO)
+        # Combinar: scope + descubiertos
         todos_los_dominios = dominios_config + subdominios_config + dominios_descubiertos
 
-        # Fallback: si no hay scope, usar mapeo_ips
         if not todos_los_dominios:
-            todos_los_dominios = dominios_from_ips
+            raise Exception("No hay dominios para escanear (DOMINIO/SUBDOMINIO vacío o discovery sin resultados con estado_id=1)")
 
-        if not todos_los_dominios:
-            raise Exception("No hay dominios para escanear (DOMINIO/SUBDOMINIO vacío, discovery sin resultados, mapeo_ips vacío)")
+        # ═══════════════════════════════════════════════════════════════
+        # GENERAR CASCADAS DE DOMINIOS
+        # SCOPE (DOMINIO + SUBDOMINIO) + DISCOVERY (estado_id=1)
+        # Ej: ater.gob.ar → [ater.gob.ar, ater.gob, ater]
+        # Ej: vpn.ater.gob.ar → [vpn.ater.gob.ar, vpn.ater.gob, vpn.ater]
+        # ═══════════════════════════════════════════════════════════════
+        def _generate_domain_cascades(dominio):
+            """Genera variaciones en cascada de un dominio reduciendo desde el final."""
+            parts = dominio.split('.')
+            variaciones = []
+            # Generar desde completo hasta un segmento
+            for i in range(len(parts), 0, -1):
+                variaciones.append('.'.join(parts[:i]))
+            return variaciones
 
-        todos_los_dominios = list(set(todos_los_dominios))
-        print(f"[recon_cloud] Total dominios a escanear: {len(todos_los_dominios)}")
+        # Expandir dominios con cascadas
+        dominios_expandidos = []
+
+        # Cascadas para SCOPE (DOMINIO + SUBDOMINIO con estado_id=1)
+        print(f"[recon_cloud] ════ Generando cascadas para SCOPE ════")
+        for dom in dominios_config + subdominios_config:
+            cascadas = _generate_domain_cascades(dom)
+            dominios_expandidos.extend(cascadas)
+            print(f"[recon_cloud] Cascadas: {dom} → {cascadas}")
+
+        # Cascadas para DISCOVERY (estado_id=1)
+        if dominios_descubiertos:
+            print(f"[recon_cloud] ════ Generando cascadas para DISCOVERY ════")
+            for dom in dominios_descubiertos:
+                cascadas = _generate_domain_cascades(dom)
+                dominios_expandidos.extend(cascadas)
+                print(f"[recon_cloud] Cascadas: {dom} → {cascadas}")
+
+        todos_los_dominios = list(set(dominios_expandidos))  # Eliminar duplicados
+        print(f"[recon_cloud] Total dominios a escanear (con cascadas): {len(todos_los_dominios)}")
 
         # Extraer dominio raíz para variaciones
         dominio_raiz = None
@@ -931,13 +955,36 @@ def recon_cloud(ejecucion_id, proyecto_id):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# HELPER FUNCTIONS FOR CLOUD SERVICE RECONNAISSANCE
+# ═══════════════════════════════════════════════════════════════════════
+
+def _extract_org_name(dominio):
+    """
+    Extrae el nombre de la organización del dominio.
+    Para subdomios (4+ partes): usa la segunda parte
+    Ejemplo: www.ater.gob.ar -> ater
+    Para dominios regulares (3 partes): usa la primera parte
+    Ejemplo: ater.gob.ar -> ater
+    """
+    parts = dominio.split('.')
+
+    # Si es un subdominio (4+ partes), usar la segunda parte
+    if len(parts) >= 4:
+        return parts[1]
+    # Si es un dominio regular, usar la primera parte
+    else:
+        return parts[0]
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # AWS S3 HELPERS
 # ═══════════════════════════════════════════════════════════════════════
 
 def _generate_s3_candidates(dominio):
     """Genera candidatos de buckets S3 (RÁPIDO)"""
     parts = dominio.split('.')
-    domain_name = parts[0]
+    org_name = _extract_org_name(dominio)
+    domain_name = org_name
 
     candidates = [
         domain_name,
@@ -1004,8 +1051,7 @@ def _verify_s3_bucket(bucket_name, dominio):
 
 def _generate_azure_candidates(dominio):
     """Genera candidatos de storage accounts Azure (RÁPIDO)"""
-    parts = dominio.split('.')
-    base = parts[0]
+    base = _extract_org_name(dominio)
 
     candidates = [
         base,
@@ -1074,8 +1120,7 @@ def _verify_azure_blob(storage_account, dominio):
 
 def _generate_gcp_candidates(dominio):
     """Genera candidatos de buckets GCP (RÁPIDO)"""
-    parts = dominio.split('.')
-    base = parts[0]
+    base = _extract_org_name(dominio)
 
     candidates = [
         base,
@@ -1151,8 +1196,7 @@ def _verify_gcp_bucket(bucket_name, dominio):
 
 def _generate_api_candidates(dominio, provider='aws'):
     """Genera candidatos de APIs (AWS API Gateway / Azure API Management)"""
-    parts = dominio.split('.')
-    base = parts[0]
+    base = _extract_org_name(dominio)
 
     candidates = [
         base,
