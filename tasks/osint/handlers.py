@@ -787,31 +787,71 @@ def recon_cloud(ejecucion_id, proyecto_id):
     RÁPIDO: Solo genera candidatos + verifica acceso directo
     """
     def job():
+        import sys
+        print(f"[recon_cloud] ⏱️ INICIANDO - proyecto_id={proyecto_id}", flush=True)
+        sys.stdout.flush()
+
+        print(f"[recon_cloud] ⏱️ Llamando get_osint_config...", flush=True)
+        sys.stdout.flush()
         config = Proyecto.get_osint_config(proyecto_id)
+        print(f"[recon_cloud] ✅ get_osint_config completado", flush=True)
+        sys.stdout.flush()
 
         # 1. DOMINIO del scope (estado_id=1)
+        print(f"[recon_cloud] ⏱️ Extrayendo DOMINIO scope...", flush=True)
+        sys.stdout.flush()
         dominio_scope = config.get('DOMINIO', '').strip() if config else ''
+        print(f"[recon_cloud] ✅ DOMINIO extraído: len={len(dominio_scope)}", flush=True)
+        sys.stdout.flush()
+
+        print(f"[recon_cloud] ⏱️ Parseando DOMINIO scope...", flush=True)
+        sys.stdout.flush()
         dominios_config = _parse_multiline_config(dominio_scope) if dominio_scope else []
+        print(f"[recon_cloud] ✅ DOMINIO parseado: {dominios_config}", flush=True)
+        sys.stdout.flush()
 
         if dominios_config:
-            print(f"[recon_cloud] DOMINIO scope (estado_id=1): {dominios_config}")
+            print(f"[recon_cloud] DOMINIO scope (estado_id=1): {dominios_config}", flush=True)
         else:
-            print(f"[recon_cloud] Sin DOMINIO configurado")
+            print(f"[recon_cloud] Sin DOMINIO configurado", flush=True)
+        sys.stdout.flush()
 
         # 2. SUBDOMINIO del scope (estado_id=1)
+        print(f"[recon_cloud] ⏱️ Extrayendo SUBDOMINIO scope...", flush=True)
+        sys.stdout.flush()
         subdominio_scope = config.get('SUBDOMINIO', '').strip() if config else ''
+        print(f"[recon_cloud] ✅ SUBDOMINIO extraído: len={len(subdominio_scope)}", flush=True)
+        sys.stdout.flush()
+
+        print(f"[recon_cloud] ⏱️ Parseando SUBDOMINIO scope...", flush=True)
+        sys.stdout.flush()
         subdominios_config = _parse_multiline_config(subdominio_scope) if subdominio_scope else []
+        print(f"[recon_cloud] ✅ SUBDOMINIO parseado: {subdominios_config}", flush=True)
+        sys.stdout.flush()
 
         if subdominios_config:
-            print(f"[recon_cloud] SUBDOMINIO scope (estado_id=1): {subdominios_config}")
+            print(f"[recon_cloud] SUBDOMINIO scope (estado_id=1): {subdominios_config}", flush=True)
+        sys.stdout.flush()
 
         # 3. Resultados de discovery_subdominios (estado_id=1)
+        print(f"[recon_cloud] ⏱️ Llamando get_discovered_subdomains...", flush=True)
+        sys.stdout.flush()
         dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        print(f"[recon_cloud] ✅ get_discovered_subdomains completado", flush=True)
+        sys.stdout.flush()
+
         if dominios_descubiertos:
-            print(f"[recon_cloud] Subdominios descubiertos (estado_id=1): {len(dominios_descubiertos)}")
+            print(f"[recon_cloud] Subdominios descubiertos (estado_id=1): {len(dominios_descubiertos)}", flush=True)
+        else:
+            print(f"[recon_cloud] Sin subdominios descubiertos", flush=True)
+        sys.stdout.flush()
 
         # Combinar: scope + descubiertos
+        print(f"[recon_cloud] ⏱️ Combinando dominios...", flush=True)
+        sys.stdout.flush()
         todos_los_dominios = dominios_config + subdominios_config + dominios_descubiertos
+        print(f"[recon_cloud] ✅ Dominios combinados: {len(todos_los_dominios)}", flush=True)
+        sys.stdout.flush()
 
         if not todos_los_dominios:
             raise Exception("No hay dominios para escanear (DOMINIO/SUBDOMINIO vacío o discovery sin resultados con estado_id=1)")
@@ -835,22 +875,33 @@ def recon_cloud(ejecucion_id, proyecto_id):
         dominios_expandidos = []
 
         # Cascadas para SCOPE (DOMINIO + SUBDOMINIO con estado_id=1)
-        print(f"[recon_cloud] ════ Generando cascadas para SCOPE ════")
+        print(f"[recon_cloud] ⏱️ Generando cascadas para SCOPE...", flush=True)
+        sys.stdout.flush()
+        print(f"[recon_cloud] ════ Generando cascadas para SCOPE ════", flush=True)
         for dom in dominios_config + subdominios_config:
             cascadas = _generate_domain_cascades(dom)
             dominios_expandidos.extend(cascadas)
-            print(f"[recon_cloud] Cascadas: {dom} → {cascadas}")
+            print(f"[recon_cloud] Cascadas: {dom} → {cascadas}", flush=True)
+        print(f"[recon_cloud] ✅ Cascadas SCOPE completadas", flush=True)
+        sys.stdout.flush()
 
         # Cascadas para DISCOVERY (estado_id=1)
         if dominios_descubiertos:
-            print(f"[recon_cloud] ════ Generando cascadas para DISCOVERY ════")
+            print(f"[recon_cloud] ⏱️ Generando cascadas para DISCOVERY...", flush=True)
+            sys.stdout.flush()
+            print(f"[recon_cloud] ════ Generando cascadas para DISCOVERY ════", flush=True)
             for dom in dominios_descubiertos:
                 cascadas = _generate_domain_cascades(dom)
                 dominios_expandidos.extend(cascadas)
-                print(f"[recon_cloud] Cascadas: {dom} → {cascadas}")
+                print(f"[recon_cloud] Cascadas: {dom} → {cascadas}", flush=True)
+            print(f"[recon_cloud] ✅ Cascadas DISCOVERY completadas", flush=True)
+            sys.stdout.flush()
 
+        print(f"[recon_cloud] ⏱️ Eliminando duplicados...", flush=True)
+        sys.stdout.flush()
         todos_los_dominios = list(set(dominios_expandidos))  # Eliminar duplicados
-        print(f"[recon_cloud] Total dominios a escanear (con cascadas): {len(todos_los_dominios)}")
+        print(f"[recon_cloud] ✅ Total dominios a escanear (con cascadas): {len(todos_los_dominios)}", flush=True)
+        sys.stdout.flush()
 
         # Extraer dominio raíz para variaciones
         dominio_raiz = None
@@ -859,19 +910,28 @@ def recon_cloud(ejecucion_id, proyecto_id):
             partes = primer_dominio.split('.')
             dominio_raiz = partes[0] if len(partes) >= 2 else primer_dominio
 
-        print(f"[recon_cloud] ════════════════════════════════════════════")
-        print(f"[recon_cloud] MULTICLOUD: Buscando almacenamiento + APIs")
-        print(f"[recon_cloud] ════════════════════════════════════════════")
+        print(f"[recon_cloud] ════════════════════════════════════════════", flush=True)
+        print(f"[recon_cloud] MULTICLOUD: Buscando almacenamiento + APIs", flush=True)
+        print(f"[recon_cloud] ════════════════════════════════════════════", flush=True)
+        sys.stdout.flush()
 
         recursos = []
 
         # ═══════════════════════════════════════════════════════════════
         # AWS: S3 Buckets
         # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud] ════ AWS S3 Buckets ════")
+        print(f"[recon_cloud] ⏱️ INICIANDO AWS S3 Buckets...", flush=True)
+        sys.stdout.flush()
+        print(f"[recon_cloud] ════ AWS S3 Buckets ════", flush=True)
+        s3_count = 0
         for dom in todos_los_dominios:
+            s3_count += 1
+            print(f"[recon_cloud] S3 [{s3_count}/{len(todos_los_dominios)}] Generando candidatos para {dom}...", flush=True)
+            sys.stdout.flush()
+
             candidatos_s3 = _generate_s3_candidates(dom)
-            print(f"[recon_cloud] AWS S3: Probando {len(candidatos_s3)} candidatos para {dom}...")
+            print(f"[recon_cloud] S3 [{s3_count}/{len(todos_los_dominios)}] Probando {len(candidatos_s3)} candidatos para {dom}...", flush=True)
+            sys.stdout.flush()
 
             for bucket in candidatos_s3:
                 resultado = _verify_s3_bucket(bucket, dom)
@@ -880,13 +940,22 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         r['proveedor'] = 'AWS'
                     recursos.extend(resultado)
 
+        print(f"[recon_cloud] ✅ AWS S3 completado", flush=True)
+        sys.stdout.flush()
+
         # ═══════════════════════════════════════════════════════════════
         # AWS: API Gateway
         # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud] ════ AWS API Gateway ════")
+        print(f"[recon_cloud] ⏱️ INICIANDO AWS API Gateway...", flush=True)
+        sys.stdout.flush()
+        print(f"[recon_cloud] ════ AWS API Gateway ════", flush=True)
+        api_count = 0
         for dom in todos_los_dominios:
+            api_count += 1
+            print(f"[recon_cloud] API-AWS [{api_count}/{len(todos_los_dominios)}] Probando candidatos para {dom}...", flush=True)
+            sys.stdout.flush()
+
             candidatos_api = _generate_api_candidates(dom, 'aws')
-            print(f"[recon_cloud] AWS API: Probando {len(candidatos_api)} candidatos para {dom}...")
 
             for api_name in candidatos_api:
                 resultado = _verify_aws_api_gateway(api_name, dom)
@@ -895,13 +964,22 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         r['proveedor'] = 'AWS'
                     recursos.extend(resultado)
 
+        print(f"[recon_cloud] ✅ AWS API Gateway completado", flush=True)
+        sys.stdout.flush()
+
         # ═══════════════════════════════════════════════════════════════
         # AZURE: Blob Storage
         # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud] ════ Azure Blob Storage ════")
+        print(f"[recon_cloud] ⏱️ INICIANDO Azure Blob Storage...", flush=True)
+        sys.stdout.flush()
+        print(f"[recon_cloud] ════ Azure Blob Storage ════", flush=True)
+        blob_count = 0
         for dom in todos_los_dominios:
+            blob_count += 1
+            print(f"[recon_cloud] BLOB [{blob_count}/{len(todos_los_dominios)}] Probando candidatos para {dom}...", flush=True)
+            sys.stdout.flush()
+
             candidatos_azure = _generate_azure_candidates(dom)
-            print(f"[recon_cloud] Azure Blob: Probando {len(candidatos_azure)} candidatos para {dom}...")
 
             for storage_account in candidatos_azure:
                 resultado = _verify_azure_blob(storage_account, dom)
@@ -910,13 +988,22 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         r['proveedor'] = 'Azure'
                     recursos.extend(resultado)
 
+        print(f"[recon_cloud] ✅ Azure Blob Storage completado", flush=True)
+        sys.stdout.flush()
+
         # ═══════════════════════════════════════════════════════════════
         # AZURE: API Management
         # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud] ════ Azure API Management ════")
+        print(f"[recon_cloud] ⏱️ INICIANDO Azure API Management...", flush=True)
+        sys.stdout.flush()
+        print(f"[recon_cloud] ════ Azure API Management ════", flush=True)
+        apim_count = 0
         for dom in todos_los_dominios:
+            apim_count += 1
+            print(f"[recon_cloud] APIM [{apim_count}/{len(todos_los_dominios)}] Probando candidatos para {dom}...", flush=True)
+            sys.stdout.flush()
+
             candidatos_api = _generate_api_candidates(dom, 'azure')
-            print(f"[recon_cloud] Azure API: Probando {len(candidatos_api)} candidatos para {dom}...")
 
             for api_name in candidatos_api:
                 resultado = _verify_azure_api_management(api_name, dom)
@@ -925,13 +1012,22 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         r['proveedor'] = 'Azure'
                     recursos.extend(resultado)
 
+        print(f"[recon_cloud] ✅ Azure API Management completado", flush=True)
+        sys.stdout.flush()
+
         # ═══════════════════════════════════════════════════════════════
         # GOOGLE: Cloud Storage
         # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud] ════ Google Cloud Storage ════")
+        print(f"[recon_cloud] ⏱️ INICIANDO Google Cloud Storage...", flush=True)
+        sys.stdout.flush()
+        print(f"[recon_cloud] ════ Google Cloud Storage ════", flush=True)
+        gcp_count = 0
         for dom in todos_los_dominios:
+            gcp_count += 1
+            print(f"[recon_cloud] GCP [{gcp_count}/{len(todos_los_dominios)}] Probando candidatos para {dom}...", flush=True)
+            sys.stdout.flush()
+
             candidatos_gcp = _generate_gcp_candidates(dom)
-            print(f"[recon_cloud] GCP Storage: Probando {len(candidatos_gcp)} candidatos para {dom}...")
 
             for bucket in candidatos_gcp:
                 resultado = _verify_gcp_bucket(bucket, dom)
@@ -940,7 +1036,13 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         r['proveedor'] = 'GCP'
                     recursos.extend(resultado)
 
-        return {
+        print(f"[recon_cloud] ✅ Google Cloud Storage completado", flush=True)
+        sys.stdout.flush()
+
+        print(f"[recon_cloud] ⏱️ Preparando resultado final...", flush=True)
+        sys.stdout.flush()
+
+        resultado_final = {
             "tipo": "recon_cloud",
             "dominio_scope": dominio_scope,
             "subdominio_scope": subdominio_scope,
@@ -950,6 +1052,11 @@ def recon_cloud(ejecucion_id, proyecto_id):
             "total_recursos": len(recursos),
             "recursos": recursos
         }
+
+        print(f"[recon_cloud] ✅ COMPLETADO - Encontrados {len(recursos)} recursos en {len(todos_los_dominios)} dominios", flush=True)
+        sys.stdout.flush()
+
+        return resultado_final
 
     _run_osint_job(ejecucion_id, job)
 
