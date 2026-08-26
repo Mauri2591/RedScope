@@ -480,7 +480,7 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
                 if result.stdout:
                     nuevos = result.stdout.strip().split('\n')
                     subdominios.update(nuevos)
-                    print(f"[subfinder] {dom} -> {len(nuevos)} subdominios")
+                    print(f"[subfinder] {dom} → {len(nuevos)} subdominios")
             except subprocess.TimeoutExpired:
                 print(f"[subfinder] Timeout para {dom}")
             except Exception as e:
@@ -604,15 +604,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
     - ✨ MEJORADO: Incluye IPs válidas aunque reverse DNS falle
     """
     def job():
-        import sys
-        print(f"[mapeo_ips] *STARTING** INICIANDO - proyecto_id={proyecto_id}", flush=True)
-        sys.stdout.flush()
-
-        print(f"[mapeo_ips] *STARTING** Llamando get_osint_config...", flush=True)
-        sys.stdout.flush()
         config = Proyecto.get_osint_config(proyecto_id)
-        print(f"[mapeo_ips] OK get_osint_config completado", flush=True)
-        sys.stdout.flush()
 
         ips_analizadas = []
         ips_a_analizar = set()
@@ -622,8 +614,6 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         }
 
         # 1. Agregar IPs configuradas directamente (filtrar IPs de DNS públicos)
-        print(f"[mapeo_ips] *STARTING** Procesando IPs configuradas...", flush=True)
-        sys.stdout.flush()
         ips_str = config.get('IPS', '').strip() if config else ''
         if ips_str:
             ips_configuradas = _parse_multiline_config(ips_str)
@@ -631,23 +621,11 @@ def mapeo_ips(ejecucion_id, proyecto_id):
             ips_configuradas_filtradas = [ip for ip in ips_configuradas if ip not in PUBLIC_DNS_IPS]
             ips_a_analizar.update(ips_configuradas_filtradas)
             resolution_metadata['ips_configuradas'] = ips_configuradas_filtradas
-            print(f"[mapeo_ips] OK IPs configuradas: {ips_configuradas_filtradas}", flush=True)
-        else:
-            print(f"[mapeo_ips] OK Sin IPs configuradas", flush=True)
-        sys.stdout.flush()
+            print(f"[mapeo_ips] IPs configuradas: {ips_configuradas_filtradas}")
 
         # 2. Resolver dominios + subdominios del scope
-        print(f"[mapeo_ips] *STARTING** Extrayendo DOMINIO scope...", flush=True)
-        sys.stdout.flush()
         dominio = config.get('DOMINIO', '').strip() if config else ''
-        print(f"[mapeo_ips] OK DOMINIO extraído: len={len(dominio)}", flush=True)
-        sys.stdout.flush()
-
-        print(f"[mapeo_ips] *STARTING** Extrayendo SUBDOMINIO scope...", flush=True)
-        sys.stdout.flush()
         subdominio = config.get('SUBDOMINIO', '').strip() if config else ''
-        print(f"[mapeo_ips] OK SUBDOMINIO extraído: len={len(subdominio)}", flush=True)
-        sys.stdout.flush()
 
         dominios_scope = []
         if dominio:
@@ -655,75 +633,50 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         if subdominio:
             dominios_scope.extend(_parse_multiline_config(subdominio))
 
-        print(f"[mapeo_ips] *STARTING** Dominios del scope a resolver: {dominios_scope}", flush=True)
-        sys.stdout.flush()
+        print(f"[mapeo_ips] Dominios del scope a resolver: {dominios_scope}")
 
-        print(f"[mapeo_ips] *STARTING** Resolviendo {len(dominios_scope)} dominios scope...", flush=True)
-        sys.stdout.flush()
-        for idx, dom in enumerate(dominios_scope, 1):
+        for dom in dominios_scope:
             try:
-                print(f"[mapeo_ips] [{idx}/{len(dominios_scope)}] Resolviendo {dom}...", flush=True)
-                sys.stdout.flush()
+                print(f"[mapeo_ips] Resolviendo {dom} con múltiples resolvers...")
                 resolution_result = _resolve_domain_multi_resolver(dom)
 
                 ips_a_analizar.update(resolution_result['ips'])
                 resolution_metadata['dominios_resueltos'][dom] = resolution_result['by_resolver']
 
-                print(f"[mapeo_ips] OK {dom} -> {resolution_result['ips']}", flush=True)
-                sys.stdout.flush()
+                print(f"[mapeo_ips] {dom} → {resolution_result['ips']}")
             except Exception as e:
-                print(f"[mapeo_ips] ERROR resolviendo {dom}: {e}", flush=True)
-                sys.stdout.flush()
+                print(f"[mapeo_ips] Error resolviendo {dom}: {e}")
 
         # 2b. Resolver subdominios descubiertos (opcional)
-        print(f"[mapeo_ips] *STARTING** Llamando get_discovered_subdomains...", flush=True)
-        sys.stdout.flush()
         try:
             subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-            print(f"[mapeo_ips] OK get_discovered_subdomains completado", flush=True)
-            sys.stdout.flush()
             if subdominios_descubiertos and isinstance(subdominios_descubiertos, (list, tuple)):
-                print(f"[mapeo_ips] *STARTING** Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...", flush=True)
-                sys.stdout.flush()
-                for idx, subdom in enumerate(subdominios_descubiertos, 1):
+                print(f"[mapeo_ips] Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...")
+                for subdom in subdominios_descubiertos:
                     if not subdom:
                         continue
                     try:
-                        print(f"[mapeo_ips] [{idx}/{len(subdominios_descubiertos)}] Resolviendo {subdom}...", flush=True)
-                        sys.stdout.flush()
                         resolution_result = _resolve_domain_multi_resolver(subdom)
                         if resolution_result and resolution_result.get('ips'):
                             ips_a_analizar.update(resolution_result['ips'])
                             resolution_metadata['dominios_resueltos'][subdom] = resolution_result['by_resolver']
-                            print(f"[mapeo_ips] OK {subdom} -> {resolution_result['ips']}", flush=True)
-                            sys.stdout.flush()
+                            print(f"[mapeo_ips] {subdom} → {resolution_result['ips']}")
                     except Exception as e:
-                        print(f"[mapeo_ips] ERROR en subdominio {subdom}: {str(e)[:60]}", flush=True)
-                        sys.stdout.flush()
-            else:
-                print(f"[mapeo_ips] OK Sin subdominios descubiertos", flush=True)
-                sys.stdout.flush()
+                        print(f"[mapeo_ips] Error en subdominio {subdom}: {str(e)[:60]}")
         except AttributeError:
-            print(f"[mapeo_ips] INFO get_discovered_subdomains no disponible (primera ejecución)", flush=True)
-            sys.stdout.flush()
+            print(f"[mapeo_ips] get_discovered_subdomains no disponible (primera ejecución)")
         except Exception as e:
-            print(f"[mapeo_ips] ERROR resolviendo subdominios descubiertos: {str(e)[:100]}", flush=True)
-            sys.stdout.flush()
+            print(f"[mapeo_ips] Error resolviendo subdominios descubiertos: {str(e)[:100]}")
 
         if not ips_a_analizar:
-            print(f"[mapeo_ips] WARN No hay IPs ni dominios configurados para analizar", flush=True)
-            sys.stdout.flush()
             raise Exception("No hay IPs ni dominios configurados para analizar")
 
-        print(f"[mapeo_ips] OK Total IPs a analizar: {len(ips_a_analizar)}", flush=True)
-        sys.stdout.flush()
+        print(f"[mapeo_ips] Total IPs a analizar: {len(ips_a_analizar)}")
 
         # 3. Hacer reverse DNS + Geolocalización para cada IP
-        print(f"[mapeo_ips] *STARTING** Preparando mapeo de IP->dominios...", flush=True)
-        sys.stdout.flush()
         ips_success = []
 
-        # Crear mapeo de IP -> dominios que la resolvieron (sin duplicados)
+        # Crear mapeo de IP → dominios que la resolvieron (sin duplicados)
         ip_to_dominios = {}
         for dom, resolvers_data in resolution_metadata['dominios_resueltos'].items():
             for ips_list in resolvers_data.values():
@@ -734,25 +687,16 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
         # Convertir sets a listas ordenadas
         ip_to_dominios = {ip: sorted(list(doms)) for ip, doms in ip_to_dominios.items()}
-        print(f"[mapeo_ips] OK Mapeo IP->dominios completado", flush=True)
-        sys.stdout.flush()
 
         # Obtener dominio objetivo para validar hostnames
-        print(f"[mapeo_ips] *STARTING** Extrayendo dominio objetivo...", flush=True)
-        sys.stdout.flush()
         dominio_objetivo = None
         dominios_config = _parse_multiline_config(dominio) if dominio else []
         if dominios_config:
             dominio_objetivo = dominios_config[0]
-        print(f"[mapeo_ips] OK Dominio objetivo: {dominio_objetivo}", flush=True)
-        sys.stdout.flush()
 
-        print(f"[mapeo_ips] *STARTING** Analizando {len(ips_a_analizar)} IPs (Reverse DNS + Geolocalización)...", flush=True)
-        sys.stdout.flush()
-        for idx, ip in enumerate(sorted(ips_a_analizar), 1):
+        for ip in sorted(ips_a_analizar):
             try:
-                print(f"[mapeo_ips] [{idx}/{len(ips_a_analizar)}] Analizando {ip}...", flush=True)
-                sys.stdout.flush()
+                print(f"[mapeo_ips] Analizando {ip}...")
 
                 # Reverse DNS
                 reverse_result = _reverse_dns_multi_resolver(ip)
@@ -797,17 +741,14 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                         'hostname_validation': hostname_validation['razon'],
                         'geo': geo_data
                     })
-                    print(f"[mapeo_ips] OK {ip} ({hostname}) - {geo_data['pais']}, {geo_data['ciudad']} [VÁLIDO]", flush=True)
-                    print(f"              Hostname info: {hostname_validation.get('razon', 'N/A')}", flush=True)
-                    sys.stdout.flush()
+                    print(f"[mapeo_ips] ✓ {ip} ({hostname}) - {geo_data['pais']}, {geo_data['ciudad']} [VÁLIDO]")
+                    print(f"              Hostname info: {hostname_validation.get('razon', 'N/A')}")
                 else:
                     # IPs sin from_domains (no resueltas desde dominio scope)
-                    print(f"[mapeo_ips] -- {ip} ({hostname}) - No fue resuelto desde dominio scope", flush=True)
-                    sys.stdout.flush()
+                    print(f"[mapeo_ips] ⊘ {ip} ({hostname}) - No fue resuelto desde dominio scope")
 
             except Exception as e:
-                print(f"[mapeo_ips] ERROR analizando {ip}: {e}", flush=True)
-                sys.stdout.flush()
+                print(f"[mapeo_ips] Error analizando {ip}: {e}")
                 geo_data_fallback = _geolocate_ip(ip)
                 ips_analizadas.append({
                     'ip': ip,
@@ -819,657 +760,911 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                     'geo': geo_data_fallback
                 })
 
-        print(f"[mapeo_ips] *STARTING** Compilando resultados finales...", flush=True)
-        sys.stdout.flush()
-        result = {
+        return {
             "tipo": "mapeo_ips",
             "total_ips": len(ips_a_analizar),
             "total_success": len(ips_success),
             "ips_success": ips_success,  # ← IPs válidas con geolocalización
             "ips_todas": ips_analizadas   # ← Todas las IPs analizadas (debug)
         }
-        print(f"[mapeo_ips] OK COMPLETADO - Total: {len(ips_a_analizar)} IPs, Válidas: {len(ips_success)}", flush=True)
-        sys.stdout.flush()
-        return result
 
     _run_osint_job(ejecucion_id, job)
 
 def recon_cloud(ejecucion_id, proyecto_id):
-    """Reconocimiento MULTICLOUD - Almacenamiento + APIs públicas
+    """Reconocimiento de buckets S3 y servicios cloud con fallback automático
 
-    ✨ Busca en:
-    - AWS: S3 buckets + API Gateway
-    - Azure: Blob Storage + API Management
-    - Google Cloud: Cloud Storage + APIs
-
-    FALLBACK CASCADE:
-    1. DOMINIO del scope
-    2. SUBDOMINIO del scope
-    3. Resultados de discovery_subdominios
-    4. FALLBACK: Dominios de mapeo_ips
-
-    RÁPIDO: Solo genera candidatos + verifica acceso directo
+    PRIORIDADES:
+    1. TIER 0-3: Buscar patrones del DOMINIO RAÍZ (ej: "ater" de "ater.gob.ar")
+    2. Si no hay resultados, entonces usar TIER 0-3 en SUBDOMINIOS combinados con el raíz
+       (ej: "ser-ater", "seater" de "ser.ater.gob.ar", NO solo "ser")
     """
     def job():
-        import sys
-        print(f"[recon_cloud] *STARTING** INICIANDO - proyecto_id={proyecto_id}", flush=True)
-        sys.stdout.flush()
-
-        print(f"[recon_cloud] *STARTING** Llamando get_osint_config...", flush=True)
-        sys.stdout.flush()
         config = Proyecto.get_osint_config(proyecto_id)
-        print(f"[recon_cloud] OK get_osint_config completado", flush=True)
-        sys.stdout.flush()
-
-        # 1. DOMINIO del scope (estado_id=1)
-        print(f"[recon_cloud] *STARTING** Extrayendo DOMINIO scope...", flush=True)
-        sys.stdout.flush()
         dominio_scope = config.get('DOMINIO', '').strip() if config else ''
-        print(f"[recon_cloud] OK DOMINIO extraído: len={len(dominio_scope)}", flush=True)
-        sys.stdout.flush()
 
-        print(f"[recon_cloud] *STARTING** Parseando DOMINIO scope...", flush=True)
-        sys.stdout.flush()
+        # 1. Obtener dominios de configuración inicial (OPCIONAL)
         dominios_config = _parse_multiline_config(dominio_scope) if dominio_scope else []
-        print(f"[recon_cloud] OK DOMINIO parseado: {dominios_config}", flush=True)
-        sys.stdout.flush()
-
         if dominios_config:
-            print(f"[recon_cloud] DOMINIO scope (estado_id=1): {dominios_config}", flush=True)
+            print(f"[recon_cloud] Dominios del scope: {dominios_config}")
         else:
-            print(f"[recon_cloud] Sin DOMINIO configurado", flush=True)
-        sys.stdout.flush()
+            print(f"[recon_cloud] Sin DOMINIO configurado, buscando fallbacks...")
 
-        # 2. SUBDOMINIO del scope (estado_id=1)
-        print(f"[recon_cloud] *STARTING** Extrayendo SUBDOMINIO scope...", flush=True)
-        sys.stdout.flush()
-        subdominio_scope = config.get('SUBDOMINIO', '').strip() if config else ''
-        print(f"[recon_cloud] OK SUBDOMINIO extraído: len={len(subdominio_scope)}", flush=True)
-        sys.stdout.flush()
+        # 2. FALLBACK 1: Dominios válidos de mapeo_ips (si DOMINIO vacío)
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id) if not dominios_config else []
+        if dominios_from_ips:
+            print(f"[recon_cloud] Dominios de mapeo_ips: {dominios_from_ips}")
 
-        print(f"[recon_cloud] *STARTING** Parseando SUBDOMINIO scope...", flush=True)
-        sys.stdout.flush()
-        subdominios_config = _parse_multiline_config(subdominio_scope) if subdominio_scope else []
-        print(f"[recon_cloud] OK SUBDOMINIO parseado: {subdominios_config}", flush=True)
-        sys.stdout.flush()
-
-        if subdominios_config:
-            print(f"[recon_cloud] SUBDOMINIO scope (estado_id=1): {subdominios_config}", flush=True)
-        sys.stdout.flush()
-
-        # 3. Resultados de discovery_subdominios (estado_id=1)
-        print(f"[recon_cloud] *STARTING** Llamando get_discovered_subdomains...", flush=True)
-        sys.stdout.flush()
+        # 3. FALLBACK 2: Subdominios descubiertos (si DOMINIO y mapeo_ips vacíos)
         dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-        print(f"[recon_cloud] OK get_discovered_subdomains completado", flush=True)
-        sys.stdout.flush()
-
         if dominios_descubiertos:
-            print(f"[recon_cloud] Subdominios descubiertos (estado_id=1): {len(dominios_descubiertos)}", flush=True)
-        else:
-            print(f"[recon_cloud] Sin subdominios descubiertos", flush=True)
-        sys.stdout.flush()
+            print(f"[recon_cloud] Subdominios descubiertos: {len(dominios_descubiertos)}")
 
-        # Combinar: scope + descubiertos
-        print(f"[recon_cloud] *STARTING** Combinando dominios...", flush=True)
-        sys.stdout.flush()
-        todos_los_dominios = dominios_config + subdominios_config + dominios_descubiertos
-        print(f"[recon_cloud] OK Dominios combinados: {len(todos_los_dominios)}", flush=True)
-        sys.stdout.flush()
+        # 4. Crear lista de dominios PRINCIPALES (scope + fallbacks)
+        # IMPORTANTE: Los subdominios solo se usan si no hay hallazgos en los dominios principales
+        dominios_principales = list(set(dominios_config + dominios_from_ips))
 
-        if not todos_los_dominios:
-            raise Exception("No hay dominios para escanear (DOMINIO/SUBDOMINIO vacío o discovery sin resultados con estado_id=1)")
+        if not dominios_principales and not dominios_descubiertos:
+            raise Exception("No hay dominios para escanear (DOMINIO vacío, mapeo_ips sin resultados, subdominios no descubiertos)")
 
-        # ═══════════════════════════════════════════════════════════════
-        # GENERAR CASCADAS DE DOMINIOS
-        # SCOPE (DOMINIO + SUBDOMINIO) + DISCOVERY (estado_id=1)
-        # Ej: ater.gob.ar -> [ater.gob.ar, ater.gob, ater]
-        # Ej: vpn.ater.gob.ar -> [vpn.ater.gob.ar, vpn.ater.gob, vpn.ater]
-        # ═══════════════════════════════════════════════════════════════
-        def _generate_domain_cascades(dominio):
-            """Genera variaciones en cascada de un dominio reduciendo desde el final."""
-            parts = dominio.split('.')
-            variaciones = []
-            # Generar desde completo hasta un segmento
-            for i in range(len(parts), 0, -1):
-                variaciones.append('.'.join(parts[:i]))
-            return variaciones
-
-        # Expandir dominios con cascadas
-        dominios_expandidos = []
-
-        # Cascadas para SCOPE (DOMINIO + SUBDOMINIO con estado_id=1)
-        print(f"[recon_cloud] *STARTING** Generando cascadas para SCOPE...", flush=True)
-        sys.stdout.flush()
-        print(f"[recon_cloud] ════ Generando cascadas para SCOPE ════", flush=True)
-        for dom in dominios_config + subdominios_config:
-            cascadas = _generate_domain_cascades(dom)
-            dominios_expandidos.extend(cascadas)
-            print(f"[recon_cloud] Cascadas: {dom} -> {cascadas}", flush=True)
-        print(f"[recon_cloud] OK Cascadas SCOPE completadas", flush=True)
-        sys.stdout.flush()
-
-        # Cascadas para DISCOVERY (estado_id=1)
-        if dominios_descubiertos:
-            print(f"[recon_cloud] *STARTING** Generando cascadas para DISCOVERY...", flush=True)
-            sys.stdout.flush()
-            print(f"[recon_cloud] ════ Generando cascadas para DISCOVERY ════", flush=True)
-            for dom in dominios_descubiertos:
-                cascadas = _generate_domain_cascades(dom)
-                dominios_expandidos.extend(cascadas)
-                print(f"[recon_cloud] Cascadas: {dom} -> {cascadas}", flush=True)
-            print(f"[recon_cloud] OK Cascadas DISCOVERY completadas", flush=True)
-            sys.stdout.flush()
-
-        print(f"[recon_cloud] *STARTING** Eliminando duplicados...", flush=True)
-        sys.stdout.flush()
-        todos_los_dominios = list(set(dominios_expandidos))  # Eliminar duplicados
-        print(f"[recon_cloud] OK Total dominios a escanear (con cascadas): {len(todos_los_dominios)}", flush=True)
-        sys.stdout.flush()
-
-        # Extraer dominio raíz para variaciones
+        # 5. EXTRAER DOMINIO RAÍZ (ej: "ater" de "ater.gob.ar")
+        # Este será la base para todos los patrones de búsqueda
         dominio_raiz = None
-        if dominios_config:
-            primer_dominio = dominios_config[0]
+        if dominios_principales:
+            # Tomar el primer dominio principal y extraer la parte raíz
+            primer_dominio = dominios_principales[0]
             partes = primer_dominio.split('.')
-            dominio_raiz = partes[0] if len(partes) >= 2 else primer_dominio
+            if len(partes) >= 2:
+                # ej: ater.gob.ar → "ater"
+                dominio_raiz = partes[0]
+            else:
+                # Si es un dominio simple, usarlo como raíz
+                dominio_raiz = primer_dominio
 
-        print(f"[recon_cloud] ════════════════════════════════════════════", flush=True)
-        print(f"[recon_cloud] MULTICLOUD: Buscando almacenamiento + APIs", flush=True)
-        print(f"[recon_cloud] ════════════════════════════════════════════", flush=True)
-        sys.stdout.flush()
+        print(f"[recon_cloud] Dominios principales: {len(dominios_principales)}, Subdominios descubiertos: {len(dominios_descubiertos)}")
+        if dominio_raiz:
+            print(f"[recon_cloud] DOMINIO RAÍZ IDENTIFICADO: '{dominio_raiz}'")
 
         recursos = []
 
-        # ═══════════════════════════════════════════════════════════════
-        # AWS: S3 Buckets
-        # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud] *STARTING** INICIANDO AWS S3 Buckets...", flush=True)
-        sys.stdout.flush()
-        print(f"[recon_cloud] ════ AWS S3 Buckets ════", flush=True)
-        s3_count = 0
-        for dom in todos_los_dominios:
-            s3_count += 1
-            print(f"[recon_cloud] S3 [{s3_count}/{len(todos_los_dominios)}] Generando candidatos para {dom}...", flush=True)
-            sys.stdout.flush()
+        # ═══════════════════════════════════════════════════════════════════════
+        # FASE 1: Escanear DOMINIOS PRINCIPALES con TIER 0-3
+        # ═══════════════════════════════════════════════════════════════════════
+        print(f"[recon_cloud] ════════════════════════════════════════════")
+        print(f"[recon_cloud] FASE 1: Escaneando DOMINIOS PRINCIPALES")
+        print(f"[recon_cloud] ════════════════════════════════════════════")
 
-            candidatos_s3 = _generate_s3_candidates(dom)
-            print(f"[recon_cloud] S3 [{s3_count}/{len(todos_los_dominios)}] Probando {len(candidatos_s3)} candidatos para {dom}...", flush=True)
-            sys.stdout.flush()
+        for dom in dominios_principales:
+            try:
+                print(f"[recon_cloud] Escaneando buckets S3 para {dom}...")
 
-            for bucket in candidatos_s3:
-                resultado = _verify_s3_bucket(bucket, dom)
-                if resultado:
-                    for r in resultado:
-                        r['proveedor'] = 'AWS'
-                    recursos.extend(resultado)
+                # ═══════════════════════════════════════════════════════
+                # TIER 0: DIRECTO - Probar el dominio/subdominio COMO NOMBRE DE BUCKET
+                # Probar EN ESTE ORDEN (optimizado para vida real):
+                # 1. Con guiones (ej: "flaws-cloud") ⭐ MÁS COMÚN EN VIDA REAL
+                # 2. Primera parte (ej: "flaws")
+                # 3. El dominio EXACTO (ej: "flaws.cloud") ⚠️ RARO pero posible
+                # ═══════════════════════════════════════════════════════
+                print(f"[recon_cloud] TIER 0: Probando {dom} directamente como nombre de bucket...")
 
-        print(f"[recon_cloud] OK AWS S3 completado", flush=True)
-        sys.stdout.flush()
+                dom_parts = dom.split('.')
 
-        # ═══════════════════════════════════════════════════════════════
-        # AWS: API Gateway
-        # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud] *STARTING** INICIANDO AWS API Gateway...", flush=True)
-        sys.stdout.flush()
-        print(f"[recon_cloud] ════ AWS API Gateway ════", flush=True)
-        api_count = 0
-        for dom in todos_los_dominios:
-            api_count += 1
-            print(f"[recon_cloud] API-AWS [{api_count}/{len(todos_los_dominios)}] Probando candidatos para {dom}...", flush=True)
-            sys.stdout.flush()
+                # ⭐ TIER 0a: Probar el dominio COMPLETO con guiones
+                # Esto es MÁS COMÚN en la vida real (empresa-com-ar vs empresa.com.ar)
+                if len(dom_parts) > 1:
+                    bucket_guiones = '-'.join(dom_parts)
+                    print(f"[recon_cloud] TIER 0a: Probando con guiones: {bucket_guiones}...")
+                    resultado = _verify_bucket(bucket_guiones, dom)
+                    if resultado:
+                        recursos.extend(resultado)
+                        print(f"[recon_cloud] ✓ TIER 0a: Encontrado: {bucket_guiones}")
+                    else:
+                        # TIER 0b: Probar la primera parte del dominio
+                        # ej: "flaws" de "flaws.cloud"
+                        bucket_directo = dom_parts[0]
+                        print(f"[recon_cloud] TIER 0b: Probando primera parte: {bucket_directo}...")
+                        resultado = _verify_bucket(bucket_directo, dom)
+                        if resultado:
+                            recursos.extend(resultado)
+                            print(f"[recon_cloud] ✓ TIER 0b: Encontrado: {bucket_directo}")
+                        else:
+                            # TIER 0c: Probar el dominio EXACTO con puntos
+                            # Esto es RARO en la vida real pero posible (ej: flaws.cloud)
+                            print(f"[recon_cloud] TIER 0c: Probando dominio EXACTO: {dom}...")
+                            resultado_exacto = _verify_bucket(dom, dom)
+                            if resultado_exacto:
+                                recursos.extend(resultado_exacto)
+                                print(f"[recon_cloud] ✓ TIER 0c: Encontrado: {dom}")
+                else:
+                    # Dominio simple (sin puntos)
+                    print(f"[recon_cloud] TIER 0: Probando dominio simple: {dom}...")
+                    resultado = _verify_bucket(dom, dom)
+                    if resultado:
+                        recursos.extend(resultado)
+                        print(f"[recon_cloud] ✓ TIER 0: Encontrado: {dom}")
 
-            candidatos_api = _generate_api_candidates(dom, 'aws')
+                # ═══════════════════════════════════════════════════════
+                # TIER 1: Buckets REALES (encontrados en CT logs/Wayback)
+                # ═══════════════════════════════════════════════════════
+                print(f"[recon_cloud] TIER 1: Buckets encontrados en CT logs/Wayback...")
+                buckets_tier1 = _find_buckets_wayback(dom)
+                buckets_tier1.extend(_find_buckets_from_ct(dom))
+                buckets_tier1 = list(set(filter(None, buckets_tier1)))
 
-            for api_name in candidatos_api:
-                resultado = _verify_aws_api_gateway(api_name, dom)
-                if resultado:
-                    for r in resultado:
-                        r['proveedor'] = 'AWS'
-                    recursos.extend(resultado)
+                print(f"[recon_cloud] TIER 1: {len(buckets_tier1)} buckets reales encontrados")
+                for bucket in buckets_tier1:
+                    recursos.extend(_verify_bucket(bucket, dom))
 
-        print(f"[recon_cloud] OK AWS API Gateway completado", flush=True)
-        sys.stdout.flush()
+                # ═══════════════════════════════════════════════════════
+                # TIER 2: Candidatos ESPECÍFICOS del dominio (EXPANDIDO)
+                # ⭐ IMPORTANTE: Pasar el dominio COMPLETO (ej: "ater.gob.ar")
+                # La función generará variaciones intermedias: ater, ater-gob, ater-gob-ar
+                # ═══════════════════════════════════════════════════════
+                print(f"[recon_cloud] TIER 2: Candidatos específicos del dominio...")
+                buckets_tier2 = _generate_bucket_candidates(dom, tier='tier2')
+                buckets_tier2 = list(set(filter(None, buckets_tier2)))
 
-        # ═══════════════════════════════════════════════════════════════
-        # AZURE: Blob Storage
-        # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud] *STARTING** INICIANDO Azure Blob Storage...", flush=True)
-        sys.stdout.flush()
-        print(f"[recon_cloud] ════ Azure Blob Storage ════", flush=True)
-        blob_count = 0
-        for dom in todos_los_dominios:
-            blob_count += 1
-            print(f"[recon_cloud] BLOB [{blob_count}/{len(todos_los_dominios)}] Probando candidatos para {dom}...", flush=True)
-            sys.stdout.flush()
+                print(f"[recon_cloud] TIER 2: {len(buckets_tier2)} candidatos a verificar")
+                verified_tier2 = 0
+                for bucket in buckets_tier2:
+                    result = _verify_bucket(bucket, dom)
+                    if result:
+                        recursos.extend(result)
+                        verified_tier2 += 1
+                print(f"[recon_cloud] TIER 2: {verified_tier2} buckets verificados positivamente")
 
-            candidatos_azure = _generate_azure_candidates(dom)
+                # ═══════════════════════════════════════════════════════
+                # TIER 3: Candidatos MENOS ESPECÍFICOS (HABILITADO POR DEFECTO)
+                # Ahora incluido para mejorar cobertura sin depender de Wayback/CT
+                # ⭐ IMPORTANTE: Pasar el dominio COMPLETO para variaciones intermedias
+                # ═══════════════════════════════════════════════════════
+                print(f"[recon_cloud] TIER 3: Candidatos del domain name...")
+                buckets_tier3 = _generate_bucket_candidates(dom, tier='tier3')
+                buckets_tier3 = list(set(filter(None, buckets_tier3)))
 
-            for storage_account in candidatos_azure:
-                resultado = _verify_azure_blob(storage_account, dom)
-                if resultado:
-                    for r in resultado:
-                        r['proveedor'] = 'Azure'
-                    recursos.extend(resultado)
+                print(f"[recon_cloud] TIER 3: {len(buckets_tier3)} candidatos a verificar")
+                verified_tier3 = 0
+                for bucket in buckets_tier3:
+                    result = _verify_bucket(bucket, dom)
+                    if result:
+                        recursos.extend(result)
+                        verified_tier3 += 1
+                print(f"[recon_cloud] TIER 3: {verified_tier3} buckets verificados positivamente")
 
-        print(f"[recon_cloud] OK Azure Blob Storage completado", flush=True)
-        sys.stdout.flush()
+                # ═══════════════════════════════════════════════════════
+                # RESUMEN POR DOMINIO
+                # ═══════════════════════════════════════════════════════
+                total_encontrados = len([r for r in recursos if r.get('dominio') == dom])
+                print(f"[recon_cloud] ✓ TOTAL para {dom}: {total_encontrados} buckets públicos encontrados")
 
-        # ═══════════════════════════════════════════════════════════════
-        # AZURE: API Management
-        # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud] *STARTING** INICIANDO Azure API Management...", flush=True)
-        sys.stdout.flush()
-        print(f"[recon_cloud] ════ Azure API Management ════", flush=True)
-        apim_count = 0
-        for dom in todos_los_dominios:
-            apim_count += 1
-            print(f"[recon_cloud] APIM [{apim_count}/{len(todos_los_dominios)}] Probando candidatos para {dom}...", flush=True)
-            sys.stdout.flush()
+            except Exception as e:
+                print(f"[recon_cloud] Error escaneando {dom}: {e}")
 
-            candidatos_api = _generate_api_candidates(dom, 'azure')
+        # ═══════════════════════════════════════════════════════════════════════
+        # FASE 2: Si FASE 1 no encuentra nada, escanear SUBDOMINIOS DESCUBIERTOS
+        # IMPORTANTE: Combinar subdominio con dominio_raiz (ej: ser-ater)
+        # NO buscar solo la primera parte del subdominio (ej: NO solo "ser")
+        # ═══════════════════════════════════════════════════════════════════════
+        if not recursos and dominios_descubiertos and dominio_raiz:
+            print(f"[recon_cloud] ════════════════════════════════════════════")
+            print(f"[recon_cloud] FASE 2: FASE 1 sin resultados → FALLBACK a SUBDOMINIOS")
+            print(f"[recon_cloud] Escaneando {len(dominios_descubiertos)} subdominios descubiertos")
+            print(f"[recon_cloud] Combinándolos con dominio raíz: '{dominio_raiz}'")
+            print(f"[recon_cloud] ════════════════════════════════════════════")
 
-            for api_name in candidatos_api:
-                resultado = _verify_azure_api_management(api_name, dom)
-                if resultado:
-                    for r in resultado:
-                        r['proveedor'] = 'Azure'
-                    recursos.extend(resultado)
+            for subdom in dominios_descubiertos:
+                try:
+                    print(f"[recon_cloud] [FALLBACK] Escaneando buckets S3 para {subdom}...")
 
-        print(f"[recon_cloud] OK Azure API Management completado", flush=True)
-        sys.stdout.flush()
+                    # TIER 0a: Probar el subdomain_name SOLO primero
+                    # Para dominios como flaws.cloud donde el bucket ES el subdominio
+                    # ej: level2-xxx.flaws.cloud → el bucket es "level2-xxx"
+                    subdom_parts = subdom.split('.')
+                    subdomain_name = subdom_parts[0]  # "level2-xxx" de "level2-xxx.flaws.cloud"
 
-        # ═══════════════════════════════════════════════════════════════
-        # GOOGLE: Cloud Storage
-        # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud] *STARTING** INICIANDO Google Cloud Storage...", flush=True)
-        sys.stdout.flush()
-        print(f"[recon_cloud] ════ Google Cloud Storage ════", flush=True)
-        gcp_count = 0
-        for dom in todos_los_dominios:
-            gcp_count += 1
-            print(f"[recon_cloud] GCP [{gcp_count}/{len(todos_los_dominios)}] Probando candidatos para {dom}...", flush=True)
-            sys.stdout.flush()
+                    print(f"[recon_cloud] [FALLBACK] TIER 0a: Probando subdomain '{subdomain_name}' directamente como bucket...")
+                    resultado = _verify_bucket(subdomain_name, subdom)
+                    if resultado:
+                        recursos.extend(resultado)
+                        print(f"[recon_cloud] ✓ [FALLBACK] TIER 0a: Encontrado: {subdomain_name}")
 
-            candidatos_gcp = _generate_gcp_candidates(dom)
+                    # TIER 0b: Si no encontró nada, probar combinando con dominio_raiz
+                    # ej: ser.ater.gob.ar → probar "ser-ater"
+                    if not resultado:
+                        subdom_combined = f"{subdomain_name}-{dominio_raiz}"  # "ser-ater"
+                        print(f"[recon_cloud] [FALLBACK] TIER 0b: Probando {subdom} como '{subdom_combined}'...")
 
-            for bucket in candidatos_gcp:
-                resultado = _verify_gcp_bucket(bucket, dom)
-                if resultado:
-                    for r in resultado:
-                        r['proveedor'] = 'GCP'
-                    recursos.extend(resultado)
+                        resultado = _verify_bucket(subdom_combined, subdom)
+                        if resultado:
+                            recursos.extend(resultado)
+                            print(f"[recon_cloud] ✓ [FALLBACK] TIER 0b: Encontrado: {subdom_combined}")
 
-        print(f"[recon_cloud] OK Google Cloud Storage completado", flush=True)
-        sys.stdout.flush()
+                    # TIER 1: Buckets específicos (si existen referencias externas)
+                    # NOTA: Wayback y CT logs removidos para reducir ruido
+                    # Recon Cloud se enfoca SOLO en S3 enumeration
 
-        print(f"[recon_cloud] *STARTING** Preparando resultado final...", flush=True)
-        sys.stdout.flush()
+                    # TIER 2 y 3: Candidatos generados (usando dominio COMPLETO para variaciones)
+                    # ⭐ IMPORTANTE: Pasar subdominio completo para generar variaciones intermedias
+                    # Ejemplo: vpn.ater.gob.ar → genera: vpn-ater, vpn-ater-gob, vpn-ater-gob-ar
+                    buckets_tier2 = _generate_bucket_candidates(subdom, tier='tier2')
+                    buckets_tier2 = list(set(filter(None, buckets_tier2)))
 
-        resultado_final = {
+                    for bucket in buckets_tier2:
+                        result = _verify_bucket(bucket, subdom)
+                        if result:
+                            recursos.extend(result)
+
+                    buckets_tier3 = _generate_bucket_candidates(subdom, tier='tier3')
+                    buckets_tier3 = list(set(filter(None, buckets_tier3)))
+
+                    for bucket in buckets_tier3:
+                        result = _verify_bucket(bucket, subdom)
+                        if result:
+                            recursos.extend(result)
+
+                except Exception as e:
+                    print(f"[recon_cloud] [FALLBACK] Error escaneando {subdom}: {e}")
+
+        return {
             "tipo": "recon_cloud",
             "dominio_scope": dominio_scope,
-            "subdominio_scope": subdominio_scope,
-            "total_dominios_config": len(dominios_config) + len(subdominios_config),
-            "total_dominios_descubiertos": len(dominios_descubiertos),
-            "total_dominios_buscados": len(todos_los_dominios),
+            "total_dominios_scope": len(dominios_config),
+            "total_dominios_from_ips": len(dominios_from_ips),
+            "total_subdominios_descubiertos": len(dominios_descubiertos),
+            "total_dominios_buscados": len(dominios_principales),
             "total_recursos": len(recursos),
             "recursos": recursos
         }
 
-        print(f"[recon_cloud] OK COMPLETADO - Encontrados {len(recursos)} recursos en {len(todos_los_dominios)} dominios", flush=True)
-        sys.stdout.flush()
-
-        return resultado_final
-
     _run_osint_job(ejecucion_id, job)
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# HELPER FUNCTIONS FOR CLOUD SERVICE RECONNAISSANCE
-# ═══════════════════════════════════════════════════════════════════════
-
-def _extract_org_name(dominio):
+def _generate_bucket_candidates(dominio, tier='all'):
     """
-    Extrae el nombre de la organización del dominio.
-    Para subdomios (4+ partes): usa la segunda parte
-    Ejemplo: www.ater.gob.ar -> ater
-    Para dominios regulares (3 partes): usa la primera parte
-    Ejemplo: ater.gob.ar -> ater
+    Genera candidatos de buckets por tiers de confianza - MEJORADO para autonomía.
+
+    REGLA FUNDAMENTAL: SOLO la primera parte del dominio es única y específica
+    - ater.gob.ar → usar SOLO "ater" (gob.ar es genérico)
+    - vpn.ater.gob.ar → usar SOLO "vpn-ater" (ater es la parte única)
+    - NO generar candidatos con partes genéricas (gob, ar, com, etc.)
+
+    TIER 1 (Muy probable): Buckets encontrados en CT logs / Wayback
+    TIER 2 (Probable): Específicos del dominio - EXPANDIDO para autonomía
+    TIER 3 (Posible): Del domain name + variaciones - INCLUIDO por defecto
+    TIER 4 (Improbable): Ultra-genéricos → NO USAR (mucho ruido)
+
+    Args:
+        dominio (str): Dominio/subdominio (ej: "ater", "vpn-ater", "vpn.ater.gob.ar")
+        tier (str): 'tier1', 'tier2', 'tier3', 'all'
+
+    Returns:
+        list: Candidatos ordenados por probabilidad (descendente)
     """
     parts = dominio.split('.')
 
-    # Si es un subdominio (4+ partes), usar la segunda parte
-    if len(parts) >= 4:
-        return parts[1]
-    # Si es un dominio regular, usar la primera parte
+    # ⭐ REGLA FUNDAMENTAL:
+    # - Dominio simple (3 partes): ater.gob.ar → base="ater", variaciones: ater, ater-gob, ater-gob-ar
+    # - Subdominio (4+ partes): vpn.ater.gob.ar → base="vpn-ater", variaciones: vpn-ater, vpn-ater-gob, vpn-ater-gob-ar
+    # - Ya procesado (sin puntos): vpn-ater → Generar: vpn-ater (solo una opción)
+
+    intermediate_variations = []
+
+    if len(parts) == 1:
+        # Ya viene procesado (ej: "vpn-ater" o "ater")
+        domain_name = parts[0]
+        subdomain = None
+        full_base_dash = domain_name
+        # No hay variaciones intermedias porque ya viene sin puntos
+
+    elif len(parts) == 2:
+        # Dominio simple de 2 partes (ej: "ater.gob")
+        domain_name = parts[0]  # "ater"
+        subdomain = None
+        full_base_dash = domain_name
+        # Generar: ater, ater-gob
+        intermediate_variations.append('-'.join(parts[:2]))
+
+    elif len(parts) == 3:
+        # Dominio común (ej: "ater.gob.ar")
+        domain_name = parts[0]  # "ater" ← La parte ÚNICA
+        subdomain = None
+        full_base_dash = domain_name
+        # Generar variaciones: ater, ater-gob, ater-gob-ar
+        for i in range(1, len(parts)):
+            intermediate = '-'.join(parts[:i+1])
+            intermediate_variations.append(intermediate)
+
     else:
-        return parts[0]
+        # Subdominio (4+ partes, ej: "vpn.ater.gob.ar")
+        # parts = ["vpn", "ater", "gob", "ar"]
+        # base debe ser parts[0] + parts[1] = "vpn-ater" ← La combinación ÚNICA
+        domain_name = '-'.join(parts[:2])  # "vpn-ater"
+        subdomain = parts[0]  # "vpn"
+        full_base_dash = domain_name
+        # Generar variaciones: vpn-ater, vpn-ater-gob, vpn-ater-gob-ar
+        for i in range(2, len(parts)):
+            intermediate = '-'.join(parts[:i+1])
+            intermediate_variations.append(intermediate)
 
+    # ══════════════════════════════════════════════════════════════
+    # TIER 1: Buckets REALES (encontrados en CT logs / Wayback)
+    # ══════════════════════════════════════════════════════════════
+    tier1 = []
+    # Estos se cargan de _find_buckets_wayback() y _find_buckets_from_ct()
+    # No generamos, sino que verificamos los ENCONTRADOS
 
-# ═══════════════════════════════════════════════════════════════════════
-# AWS S3 HELPERS
-# ═══════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════
+    # TIER 2: Específicos del dominio (MÁS PROBABLE) - EXPANDIDO PARA AUTONOMÍA
+    # REGLA FUNDAMENTAL: TODOS los candidatos DEBEN comenzar con la parte única
+    # ✅ ater, ater-gob-ar, ater-backup, aws-ater
+    # ❌ gob-ar, gob, ar (NO comienzan con ater/vpn-ater)
+    # ══════════════════════════════════════════════════════════════
+    tier2 = [
+        # ⭐ CANDIDATOS BÁSICOS PRIMERO (nombres simples que son MÁS comunes)
+        domain_name,  # ater (nombre exacto del domain ÚNICO)
 
-def _generate_s3_candidates(dominio):
-    """Genera candidatos de buckets S3 (RÁPIDO)"""
-    parts = dominio.split('.')
-    org_name = _extract_org_name(dominio)
-    domain_name = org_name
+        # ⭐ Variaciones intermedias (ej: ater, ater-gob, ater-gob-ar)
+        *intermediate_variations,
 
-    candidates = [
-        domain_name,
-        '-'.join(parts) if len(parts) > 1 else domain_name,
-        f"{domain_name}-backup",
-        f"{domain_name}-data",
-        f"{domain_name}-assets",
-        f"{domain_name}-storage",
-        f"{domain_name}-prod",
-        f"{domain_name}-staging",
-        f"aws-{domain_name}",
-        f"s3-{domain_name}",
+        # Dominio completo CON guiones (pero SIEMPRE comienza con ater)
+        dominio.lower().replace('.', '-'),  # ater-gob-ar ✅ (comienza con ater)
+
+        # Combinaciones subdominio + domain (SOLO si hay subdominio)
+        f"{full_base_dash}-bucket",  # vpn-ater-bucket
+        f"{full_base_dash}-backup",  # vpn-ater-backup
+        f"{full_base_dash}-data",
+        f"{full_base_dash}-assets",
+        f"{full_base_dash}-storage",
+        f"{full_base_dash}-files",
+        f"{full_base_dash}-logs",
+        f"{full_base_dash}-db",
+        f"{full_base_dash}-media",
+        f"{full_base_dash}-uploads",
+        f"{full_base_dash}-download",
+        f"{full_base_dash}-public",
+        f"{full_base_dash}-private",
+        f"{full_base_dash}-prod",
+        f"{full_base_dash}-staging",
+        f"{full_base_dash}-test",
+        f"{full_base_dash}-dev",
+        f"{full_base_dash}-content",
+        f"{full_base_dash}-static",
+        f"{full_base_dash}-archive",
+        f"{full_base_dash}-temp",
+
+        # Variaciones con prefijos comunes (SIEMPRE con la parte única)
+        f"aws-{full_base_dash}",  # aws-ater o aws-vpn-ater
+        f"s3-{full_base_dash}",
+        f"bucket-{full_base_dash}",
+        f"storage-{full_base_dash}",
+        f"data-{full_base_dash}",
     ]
 
-    return list(set(filter(None, candidates)))
+    # ══════════════════════════════════════════════════════════════
+    # TIER 3: Del domain name (MENOS PROBABLE pero ÚTIL) - INCLUIDO POR DEFECTO
+    # REGLA: TODOS comienzan con la parte única
+    # ✅ ater-bucket, ater-gob, aws-ater, etc.
+    # ❌ gob, ar, gob-ar (sin la parte única)
+    # ══════════════════════════════════════════════════════════════
+    tier3 = [
+        # ⭐ Variaciones intermedias (ej: ater, ater-gob, ater-gob-ar)
+        *intermediate_variations,
+
+        # Combinaciones básicas del domain name ÚNICO
+        f"{domain_name}-bucket",  # ater-bucket
+        f"{domain_name}-backup",  # ater-backup
+        f"{domain_name}-data",  # ater-data
+        f"{domain_name}-assets",
+        f"{domain_name}-storage",
+        f"{domain_name}-files",
+        f"{domain_name}-logs",
+        f"{domain_name}-db",
+        f"{domain_name}-media",
+        f"{domain_name}-uploads",
+        f"{domain_name}-download",
+        f"{domain_name}-public",
+        f"{domain_name}-private",
+        f"{domain_name}-prod",
+        f"{domain_name}-staging",
+        f"{domain_name}-test",
+        f"{domain_name}-dev",
+        f"{domain_name}-content",
+        f"{domain_name}-static",
+
+        # Con prefijos comunes (comienzan con parte única)
+        f"bucket-{domain_name}",  # bucket-ater
+        f"aws-{domain_name}",     # aws-ater
+        f"s3-{domain_name}",      # s3-ater
+        f"storage-{domain_name}",
+        f"data-{domain_name}",
+        f"{domain_name}-aws",
+        f"{domain_name}-s3",
+        f"{domain_name}-gcp",
+        f"{domain_name}-azure",
+
+        # Variaciones con números (comienzan con parte única)
+        f"01-{domain_name}",
+        f"prod-{domain_name}",
+        # Variaciones de full_base_dash si hay subdominio
+        f"01-{full_base_dash}" if subdomain else None,
+        f"prod-{full_base_dash}" if subdomain else None,
+    ]
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 4: NO USAR - Ultra genéricos (demasiado ruido)
+    # ══════════════════════════════════════════════════════════════
+    # backup, data, media, files, logs, db, assets, storage (sin empresa)
+    # Estos generan miles de falsos positivos
+
+    # ══════════════════════════════════════════════════════════════
+    # Compilar según tier solicitado
+    # ══════════════════════════════════════════════════════════════
+    candidates = []
+    if tier in ['tier1', 'all']:
+        candidates.extend(tier1)
+    if tier in ['tier2', 'all']:
+        candidates.extend(tier2)
+    if tier in ['tier3', 'all']:
+        candidates.extend(tier3)
+
+    # Remover Nones y duplicados, mantener orden
+    seen = set()
+    unique_candidates = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            unique_candidates.append(c)
+
+    return unique_candidates
 
 
-def _verify_s3_bucket(bucket_name, dominio):
-    """Verifica si bucket S3 existe y es público (usando curl - más rápido)"""
+def _find_buckets_wayback(dominio):
+    """Busca referencias a buckets en Wayback Machine"""
+    buckets = []
+    try:
+        print(f"[wayback] Buscando buckets en histórico de {dominio}...")
+
+        result = subprocess.run(
+            ['waybackurls', dominio],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.stdout:
+            urls = result.stdout.strip().split('\n')
+
+            for url in urls:
+                if 's3' in url.lower():
+                    if 's3://' in url:
+                        bucket = url.split('s3://')[1].split('/')[0]
+                        if bucket and '.' not in bucket:
+                            buckets.append(bucket)
+                    elif 'amazonaws' in url:
+                        parts = url.split('/')
+                        for part in parts:
+                            if 's3' in part and 'amazonaws' in part:
+                                bucket = part.split('.')[0]
+                                if bucket:
+                                    buckets.append(bucket)
+
+    except FileNotFoundError:
+        print("[wayback] waybackurls no instalado")
+    except Exception as e:
+        print(f"[wayback] Error: {e}")
+
+    return buckets
+
+
+def _find_buckets_from_ct(dominio):
+    """Busca buckets en subdominios vía CT logs"""
+    buckets = []
+    try:
+        print(f"[ct-logs] Buscando subdominios de {dominio}...")
+
+        result = subprocess.run(
+            ['curl', '-s', f'https://crt.sh/?q=%.{dominio}&output=json'],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+
+        if result.stdout:
+            try:
+                certs = json.loads(result.stdout)
+                subdomains = set()
+
+                for cert in certs:
+                    name_value = cert.get('name_value', '')
+                    for name in name_value.split('\n'):
+                        name = name.strip()
+                        if name and not name.startswith('*.'):
+                            subdomains.add(name)
+
+                for sub in subdomains:
+                    buckets.append(sub.replace('.', '-'))
+                    buckets.append(sub.replace('.', ''))
+
+            except json.JSONDecodeError:
+                pass
+
+    except Exception as e:
+        print(f"[ct-logs] Error: {e}")
+
+    return buckets
+
+
+def _scan_with_wordlist(dominio):
+    """Fuzzing agresivo de buckets con wordlist"""
+    buckets = []
+
+    suffixes = [
+        '', '-backup', '-backup-data', '-backups', '-bucket', '-aws', '-s3',
+        '-data', '-files', '-assets', '-media', '-logs', '-public', '-private',
+        '-test', '-dev', '-prod', '-staging', '-temp', '-archive',
+        '-documents', '-images', '-storage', '-uploads', '-downloads',
+        '-code', '-repo', '-git', '-source', '-build', '-dist',
+    ]
+
+    prefixes = ['', 'aws-', 's3-', 'bucket-', 'data-']
+
+    domain_base = dominio.split('.')[0]
+
+    candidates = []
+    for prefix in prefixes:
+        for suffix in suffixes:
+            candidates.append(f"{prefix}{domain_base}{suffix}")
+
+    print(f"[fuzzing] Probando {len(candidates)} candidatos...")
+
+    for bucket in candidates:
+        try:
+            result = subprocess.run(
+                ['aws', 's3api', 'head-bucket', '--bucket', bucket],
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            if result.returncode == 0:
+                buckets.append(bucket)
+                print(f"✓ Encontrado: {bucket}")
+        except:
+            pass
+
+    return buckets
+
+
+def _check_bucket_anonymous_access(bucket_name):
+    """Verifica si el bucket permite acceso anónimo (sin credenciales AWS)
+
+    ⭐ MEJORADO: Usa AWS CLI (aws s3 ls --no-sign-request) que es la forma
+    CORRECTA de verificar acceso público anónimo, mucho más confiable que
+    verificar HTTP status codes.
+    """
+    try:
+        # ⭐ FORMA CORRECTA: Intentar listar bucket con AWS CLI sin credenciales
+        print(f"[s3-anon] Verificando acceso anónimo a s3://{bucket_name}/...")
+
+        result = subprocess.run(
+            ['aws', 's3', 'ls', f"s3://{bucket_name}/", '--no-sign-request'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        # Analizar resultado
+        stderr = result.stderr.lower()
+        stdout = result.stdout.lower()
+        returncode = result.returncode
+
+        print(f"[s3-anon] {bucket_name}: returncode={returncode}")
+
+        # ✅ returncode == 0 = Acceso público permitido
+        if returncode == 0:
+            print(f"[s3-anon] ✅ {bucket_name} - ACCESO ANÓNIMO CONFIRMADO (aws s3 ls devolvió 0)")
+            return 'anónimo'  # ← BUCKET ABIERTO AL PÚBLICO
+
+        # ❌ NoSuchBucket = El bucket no existe
+        if 'nosuchbucket' in stderr or 'does not exist' in stderr:
+            print(f"[s3-anon] ❌ {bucket_name} - El bucket no existe (NoSuchBucket)")
+            return 'no_existe'
+
+        # 🔒 Access Denied / AllAccessDisabled = Privado o restringido
+        if 'accessdenied' in stderr or 'allaccessdisabled' in stderr or 'signaturemismatch' in stderr:
+            print(f"[s3-anon] 🔒 {bucket_name} - Acceso denegado (bucket privado)")
+            return 'privado'
+
+        # ❓ Otros errores
+        if returncode != 0:
+            print(f"[s3-anon] ⚠️  {bucket_name} - Error: {result.stderr[:200]}")
+            return 'error'
+
+        return 'desconocido'
+
+    except subprocess.TimeoutExpired:
+        print(f"[s3-anon] ⏱ {bucket_name} - Timeout (aws s3 ls tardó > 10s)")
+        return 'timeout'
+    except FileNotFoundError:
+        print(f"[s3-anon] ⚠️  {bucket_name} - AWS CLI no está instalado")
+        return 'error'
+    except Exception as e:
+        print(f"[s3-anon] ⚠ {bucket_name} - Error: {str(e)[:200]}")
+        return 'error'
+
+def _validate_bucket_domain_correlation(bucket_name, dominio):
+    """
+    Valida si un bucket S3 realmente pertenece/está asociado a un dominio específico.
+
+    Retorna dict con validación y nivel de confianza (0-100)
+    Métodos de validación:
+    1. DNS: ¿El dominio apunta al bucket S3? (+50 puntos)
+    2. Contenido: ¿Hay referencias a dominio/empresa en archivos? (+30 puntos)
+    3. Metadatos: ¿Tags del bucket mencionan dominio? (+15 puntos)
+    4. IP: ¿IP del dominio es rango AWS? (±10 puntos)
+    """
+    validation = {
+        'es_correlacionado': False,
+        'confianza': 0,
+        'metodos_confirmados': [],
+        'evidencias': {},
+        'razon': 'sin_validación'
+    }
+
+    try:
+        # MÉTODO 1: Verificar DNS del dominio
+        print(f"[s3-correlation] Método 1: Verificar DNS de {dominio}")
+        try:
+            dns_result = subprocess.run(
+                ['dig', dominio, 'CNAME', '+short'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            dns_cname = dns_result.stdout.strip()
+            validation['evidencias']['dns_cname'] = dns_cname
+
+            if dns_cname:
+                print(f"[s3-correlation] DNS CNAME: {dns_cname}")
+                # Verificar si apunta a S3 o contiene el nombre del bucket
+                if 's3.amazonaws.com' in dns_cname or bucket_name in dns_cname:
+                    print(f"[s3-correlation] ✅ DNS apunta a S3/bucket")
+                    validation['metodos_confirmados'].append('dns_cname')
+                    validation['confianza'] += 50
+                else:
+                    print(f"[s3-correlation] ❌ DNS no apunta a S3. Apunta a: {dns_cname}")
+                    validation['evidencias']['dns_no_apunta_s3'] = True
+            else:
+                print(f"[s3-correlation] ⚠️  No hay CNAME para {dominio}")
+                validation['evidencias']['sin_cname'] = True
+        except Exception as e:
+            print(f"[s3-correlation] Error en DNS check: {e}")
+
+        # MÉTODO 2: Buscar evidencia en contenido del bucket
+        print(f"[s3-correlation] Método 2: Buscar referencias en contenido del bucket")
+        try:
+            content = subprocess.run(
+                ['curl', '-s', f'https://{bucket_name}.s3.amazonaws.com/', '--max-time', '10'],
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+
+            # Palabras clave a buscar (dominio, empresa, país)
+            domain_parts = dominio.lower().split('.')
+            keywords = [
+                dominio.lower(),
+                domain_parts[0] if domain_parts else '',  # Subdominio (ej: "ws" de "ws.ater.gob.ar")
+                'ater', 'gob.ar', 'argentina', 'gobierno',
+                'entre rios', 'energia', 'tecnologia'
+            ]
+            keywords = [k for k in keywords if k]  # Remover vacíos
+
+            found_keywords = []
+            for keyword in keywords:
+                if keyword in content.stdout.lower():
+                    found_keywords.append(keyword)
+
+            if found_keywords:
+                print(f"[s3-correlation] ✅ Encontradas referencias: {found_keywords}")
+                validation['metodos_confirmados'].append('contenido_keywords')
+                validation['evidencias']['keywords_encontradas'] = found_keywords
+                validation['confianza'] += 30
+            else:
+                print(f"[s3-correlation] ❌ No hay referencias a dominio/empresa en contenido")
+                validation['evidencias']['sin_keywords'] = True
+        except Exception as e:
+            print(f"[s3-correlation] Error consultando contenido: {e}")
+
+        # MÉTODO 3: Verificar propiedades del bucket (tagging, cors, etc)
+        print(f"[s3-correlation] Método 3: Verificar propiedades/metadatos del bucket")
+        try:
+            # Intentar obtener tagging (si es público)
+            tagging = subprocess.run(
+                ['curl', '-s', f'https://{bucket_name}.s3.amazonaws.com/?tagging', '--max-time', '5'],
+                capture_output=True,
+                text=True,
+                timeout=8
+            )
+
+            if 'Tag' in tagging.stdout or '<Key>' in tagging.stdout:
+                tags = []
+                # Extraer tags básicamente
+                for tag in tagging.stdout.split('<Key>')[1:]:
+                    if '</Key>' in tag:
+                        tag_name = tag.split('</Key>')[0]
+                        tags.append(tag_name)
+                if tags:
+                    print(f"[s3-correlation] Tags encontrados: {tags}")
+                    validation['evidencias']['tags'] = tags
+
+                    # Verificar si algún tag menciona el dominio
+                    if any(dominio.split('.')[0].lower() in tag.lower() for tag in tags):
+                        validation['metodos_confirmados'].append('bucket_tags')
+                        validation['confianza'] += 15
+        except:
+            pass
+
+        # MÉTODO 4: Información de la IP (si está disponible)
+        print(f"[s3-correlation] Método 4: Verificar IP del dominio")
+        try:
+            ip_result = subprocess.run(
+                ['dig', dominio, 'A', '+short'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            domain_ip = ip_result.stdout.strip()
+
+            if domain_ip:
+                validation['evidencias']['domain_ip'] = domain_ip
+                print(f"[s3-correlation] IP del dominio: {domain_ip}")
+
+                # Verificar si es rango AWS (generalmente 52.*, 54.*, 35.*)
+                aws_ranges = ['52.', '54.', '35.', '176.', '177.']
+                if any(domain_ip.startswith(range_ip) for range_ip in aws_ranges):
+                    print(f"[s3-correlation] ⚠️  IP es rango AWS (pero no necesariamente S3)")
+                    validation['evidencias']['is_aws_ip'] = True
+                else:
+                    print(f"[s3-correlation] ❌ IP NO es rango AWS")
+                    validation['evidencias']['not_aws_ip'] = True
+                    validation['confianza'] -= 10
+        except Exception as e:
+            print(f"[s3-correlation] Error resolviendo IP: {e}")
+
+        # DECISIÓN FINAL
+        if validation['confianza'] >= 50:
+            validation['es_correlacionado'] = True
+            validation['razon'] = f"Confirmado por {len(validation['metodos_confirmados'])} métodos (confianza: {validation['confianza']}%)"
+        elif validation['confianza'] >= 30:
+            validation['es_correlacionado'] = True  # Débilmente correlacionado
+            validation['razon'] = f"Débilmente confirmado ({validation['confianza']}%) - Revisar manualmente"
+        else:
+            validation['es_correlacionado'] = False
+            validation['razon'] = f"Sin confirmar (confianza: {validation['confianza']}%) - Posible falso positivo"
+
+        print(f"[s3-correlation] VEREDICTO: {validation['razon']}")
+
+    except Exception as e:
+        print(f"[s3-correlation] Error general: {e}")
+        validation['razon'] = f"Error en validación: {str(e)}"
+
+    return validation
+
+def _verify_bucket(bucket_name, dominio):
+    """Verifica si un bucket existe y obtiene info + acceso anónimo
+
+    MEJORADO: Valida correlación entre bucket y dominio
+    Prioridad:
+    1. Verificar acceso anónimo (HTTP sin credenciales)
+    2. Validar que realmente pertenece al dominio
+    3. Solo reportar si correlación es suficientemente fuerte
+    """
     resultado = []
 
     try:
-        # Usar curl en lugar de aws CLI (más rápido y respeta timeouts)
-        url = f"https://{bucket_name}.s3.amazonaws.com/"
+        # 1. PRIMERO: Verificar acceso anónimo (sin credenciales)
+        # Esto nos dice si el bucket existe realmente
+        acceso_anonimo = _check_bucket_anonymous_access(bucket_name)
+
+        # 2. Si HTTP devuelve 404, el bucket NO existe → No reportar
+        if acceso_anonimo == 'no_existe':
+            print(f"[s3-verify] {bucket_name} - No existe (HTTP 404) → IGNORAR")
+            return resultado
+
+        # 3. NUEVO: Validar correlación entre bucket y dominio
+        # Esto evita falsos positivos
+        print(f"[s3-verify] Validando correlación: {bucket_name} ↔ {dominio}")
+        correlation = _validate_bucket_domain_correlation(bucket_name, dominio)
+
+        # 4. SEGUNDO: Verificar con AWS CLI (requiere credenciales)
         result = subprocess.run(
-            ['curl', '-s', '-I', '--max-time', '5', url],
+            ['aws', 's3', 'ls', f"s3://{bucket_name}", '--max-items', '1'],
             capture_output=True,
             text=True,
-            timeout=6
+            timeout=5
         )
 
-        if '200' in result.stdout:
-            # Bucket abierto al público
-            print(f"[s3] OK PÚBLICO: {bucket_name}")
+        # 5. Determinar nivel de acceso y severidad basada en correlación
+        if acceso_anonimo == 'anónimo':
+            # ¡BUCKET ABIERTO AL PÚBLICO!
+
+            # 🚨 FILTRO ANTI-FALSOS POSITIVOS
+            # Rechazar si:
+            # 1. Confianza negativa (claro falso positivo)
+            # 2. IP NO es AWS + confianza muy baja (bucket en otro servicio, no S3)
+            if correlation['confianza'] < 0:
+                print(f"[s3-verify] ❌ {bucket_name} RECHAZADO: Confianza negativa ({correlation['confianza']}%) - FALSO POSITIVO")
+                return resultado
+
+            if correlation['evidencias'].get('not_aws_ip') and correlation['confianza'] < 50:
+                print(f"[s3-verify] ❌ {bucket_name} RECHAZADO: IP no-AWS ({correlation['evidencias'].get('domain_ip')}) + baja correlación ({correlation['confianza']}%) - FALSO POSITIVO")
+                return resultado
+
+            # ⭐ MEJORADO: HTTP 200 anónimo es evidencia REAL de que el bucket es accesible
+            # Reducir threshold a 30% para buckets públicos (menos estricto)
+            # Si alguien puede acceder sin credenciales, ES un hallazgo, aunque la correlación sea débil
+            if correlation['confianza'] < 30:
+                print(f"[s3-verify] ⚠️  {bucket_name} abierto pero CORRELACIÓN MUY BAJA ({correlation['confianza']}%) → REPORTAR COMO HALLAZGO DÉBIL")
+                # Igual lo reportamos pero con severidad más baja
+                # porque HTTP 200 anónimo es real
+            elif correlation['confianza'] < 50:
+                print(f"[s3-verify] ⚠️  {bucket_name} abierto con BAJA CORRELACIÓN ({correlation['confianza']}%) → REPORTAR CON SEVERIDAD MEDIA")
+
+            # Obtener severidad dinámica desde BD basada en confianza
+            # ⭐ MEJORADO: Si correlación < 50%, usar nivel más bajo pero igual reportar
+            confianza_ajustada = max(correlation['confianza'], 30)  # Mínimo 30% para buckets públicos
+            severidad_obj = _get_severidad_por_confianza(confianza_ajustada)
+            severidad_nombre = severidad_obj.get('nombre') if severidad_obj else 'UNKNOWN'
+            severidad_id = severidad_obj.get('id') if severidad_obj else None
+
+            # Etiqueta de confianza para legibilidad
+            if correlation['confianza'] >= 50:
+                confianza_label = 'ALTA'
+            elif correlation['confianza'] >= 30:
+                confianza_label = 'MEDIA'
+            else:
+                confianza_label = 'BAJA'
+
+            print(f"[s3-verify] ✅ REPORTAR: {bucket_name} (acceso=abierto, confianza={correlation['confianza']}%, severidad={severidad_nombre})")
+
+            # ⭐ NUEVO: Generar comandos POC para explotar el bucket
+            poc_commands = {
+                'aws_cli': f"aws s3 ls s3://{bucket_name}/ --no-sign-request",
+                'aws_cli_download': f"aws s3 sync s3://{bucket_name}/ ./{bucket_name}/ --no-sign-request",
+                'curl': f"curl https://{bucket_name}.s3.amazonaws.com/",
+                's3cmd': f"s3cmd ls s3://{bucket_name}/"
+            }
+
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
                 'dominio': dominio,
-                'acceso': 'público',
-                'url': url,
-                'poc': [
-                    f"aws s3 ls s3://{bucket_name}/ --no-sign-request",
-                    f"s3cmd ls s3://{bucket_name}/",
-                    f"curl {url}"
-                ]
+                'acceso': 'anónimo_abierto',  # ← CRÍTICO: ACCESO PÚBLICO
+                'acceso_anonimo': acceso_anonimo,
+                'estado': 'existe',
+                'correlacion_validada': correlation['es_correlacionado'],  # ← NUEVO
+                'confianza_correlacion': correlation['confianza'],  # ← NUEVO (0-100)
+                'confianza_label': confianza_label,  # ← NUEVO (ALTA/MEDIA/BAJA)
+                'metodos_confirmados': correlation['metodos_confirmados'],  # ← NUEVO
+                'evidencias': correlation['evidencias'],  # ← NUEVO (detalles)
+                'razon_correlacion': correlation['razon'],  # ← NUEVO (descripción)
+                'severidad_id': severidad_id,  # ← NUEVO: ID de severidad desde BD
+                'severidad': severidad_nombre,  # ← MEJORADO: Dinámico desde BD
+                'poc_commands': poc_commands  # ⭐ NUEVO: Comandos para explotar el bucket
             })
-        elif '403' in result.stdout:
-            # Existe pero privado
-            pass
-        else:
-            # No existe o error
-            pass
-
-    except subprocess.TimeoutExpired:
-        pass
-    except Exception as e:
-        print(f"[s3] Error verificando {bucket_name}: {e}")
-
-    return resultado
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# AZURE Blob Storage HELPERS
-# ═══════════════════════════════════════════════════════════════════════
-
-def _generate_azure_candidates(dominio):
-    """Genera candidatos de storage accounts Azure (RÁPIDO)"""
-    base = _extract_org_name(dominio)
-
-    candidates = [
-        base,
-        f"{base}storage",
-        f"{base}data",
-        f"{base}backup",
-        f"storage{base}",
-        f"data{base}",
-        f"{base}blob",
-        f"blob{base}",
-        f"azure{base}",
-    ]
-
-    return list(set(filter(None, candidates)))
-
-
-def _verify_azure_blob(storage_account, dominio):
-    """Verifica si Azure Blob Storage existe y es público"""
-    resultado = []
-
-    try:
-        # Azure Blob Storage URL estándar
-        url = f"https://{storage_account}.blob.core.windows.net/"
-
-        # Intentar listar contenedores públicos
-        result = subprocess.run(
-            ['curl', '-s', '-I', '--max-time', '5', url],
-            capture_output=True,
-            text=True,
-            timeout=6
-        )
-
-        if '200' in result.stdout or '403' in result.stdout:
-            # 200 = público, 403 = existe pero privado
-            if '200' in result.stdout:
-                print(f"[azure] OK PÚBLICO: {storage_account}")
-                acceso = 'público'
-            else:
-                print(f"[azure] 🔒 Privado: {storage_account}")
-                acceso = 'privado'
-
-            resultado.append({
-                'tipo': 'azure_blob_storage',
-                'nombre': storage_account,
-                'dominio': dominio,
-                'acceso': acceso,
-                'url': url,
-                'poc': [
-                    f"curl -v {url}",
-                    f"curl -I {url}",
-                    f"az storage container list --account-name {storage_account}"
-                ]
-            })
-
-    except subprocess.TimeoutExpired:
-        pass
-    except Exception as e:
-        print(f"[azure] Error verificando {storage_account}: {e}")
-
-    return resultado
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# GOOGLE Cloud Storage HELPERS
-# ═══════════════════════════════════════════════════════════════════════
-
-def _generate_gcp_candidates(dominio):
-    """Genera candidatos de buckets GCP (RÁPIDO)"""
-    base = _extract_org_name(dominio)
-
-    candidates = [
-        base,
-        f"{base}-bucket",
-        f"{base}-storage",
-        f"{base}-data",
-        f"{base}-backup",
-        f"gcp-{base}",
-        f"cloud-{base}",
-        f"{base}-gcp",
-        f"gs-{base}",
-    ]
-
-    return list(set(filter(None, candidates)))
-
-
-def _verify_gcp_bucket(bucket_name, dominio):
-    """Verifica si GCP bucket existe y es público"""
-    resultado = []
-
-    try:
-        # GCP Cloud Storage URL
-        url = f"https://storage.googleapis.com/{bucket_name}/"
-
-        # Intentar acceder sin autenticación
-        result = subprocess.run(
-            ['curl', '-s', '-I', '--max-time', '5', url],
-            capture_output=True,
-            text=True,
-            timeout=6
-        )
-
-        if '200' in result.stdout:
-            print(f"[gcp] OK PÚBLICO: {bucket_name}")
-            resultado.append({
-                'tipo': 'gcp_cloud_storage',
-                'nombre': bucket_name,
-                'dominio': dominio,
-                'acceso': 'público',
-                'url': url,
-                'poc': [
-                    f"gsutil ls gs://{bucket_name}/",
-                    f"curl {url}",
-                    f"gcloud storage buckets list --filter=name={bucket_name}"
-                ]
-            })
-        elif '403' in result.stdout:
-            print(f"[gcp] 🔒 Privado: {bucket_name}")
-            resultado.append({
-                'tipo': 'gcp_cloud_storage',
-                'nombre': bucket_name,
-                'dominio': dominio,
-                'acceso': 'privado',
-                'url': url,
-                'poc': [
-                    f"gsutil ls gs://{bucket_name}/",
-                    f"curl -v {url}",
-                    f"gcloud storage buckets describe {bucket_name}"
-                ]
-            })
-
-    except subprocess.TimeoutExpired:
-        pass
-    except Exception as e:
-        print(f"[gcp] Error verificando {bucket_name}: {e}")
-
-    return resultado
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# API GATEWAY HELPERS
-# ═══════════════════════════════════════════════════════════════════════
-
-def _generate_api_candidates(dominio, provider='aws'):
-    """Genera candidatos de APIs (AWS API Gateway / Azure API Management)"""
-    base = _extract_org_name(dominio)
-
-    candidates = [
-        base,
-        f"{base}-api",
-        f"{base}-gateway",
-        f"api-{base}",
-        f"gateway-{base}",
-        f"{base}-service",
-        f"service-{base}",
-    ]
-
-    return list(set(filter(None, candidates)))
-
-
-def _verify_aws_api_gateway(api_name, dominio):
-    """Verifica si AWS API Gateway existe"""
-    resultado = []
-
-    # Regiones comunes a probar
-    regiones = ['us-east-1', 'us-west-2', 'eu-west-1', 'ap-southeast-1', 'ap-northeast-1']
-
-    for region in regiones:
-        try:
-            url = f"https://{api_name}.execute-api.{region}.amazonaws.com/"
-
-            result = subprocess.run(
-                ['curl', '-s', '-I', '--max-time', '5', url],
-                capture_output=True,
-                text=True,
-                timeout=6
-            )
-
-            if '200' in result.stdout or '403' in result.stdout or '404' in result.stdout:
-                # API Gateway encontrado (puede retornar 404 si no existe recurso, pero domain existe)
-                acceso = 'público' if '200' in result.stdout else 'privado'
-                print(f"[aws-api] OK ENCONTRADO: {api_name} en {region}")
-                resultado.append({
-                    'tipo': 'aws_api_gateway',
-                    'nombre': api_name,
-                    'region': region,
-                    'dominio': dominio,
-                    'acceso': acceso,
-                    'url': url,
-                    'poc': [
-                        f"curl {url}",
-                        f"curl -v {url}",
-                        f"aws apigateway get-rest-apis --region {region}",
-                        f"aws apigateway get-stages --rest-api-id <API_ID> --region {region}"
-                    ]
-                })
-                break  # Si encontramos en una región, no seguir
-
-        except subprocess.TimeoutExpired:
-            pass
-        except Exception as e:
-            pass
-
-    return resultado
-
-
-def _verify_azure_api_management(api_name, dominio):
-    """Verifica si Azure API Management existe"""
-    resultado = []
-
-    try:
-        url = f"https://{api_name}.azure-api.net/"
-
-        result = subprocess.run(
-            ['curl', '-s', '-I', '--max-time', '5', url],
-            capture_output=True,
-            text=True,
-            timeout=6
-        )
-
-        if '200' in result.stdout:
-            print(f"[azure-api] OK PÚBLICO: {api_name}")
-            acceso = 'público'
-        elif '401' in result.stdout or '403' in result.stdout:
-            print(f"[azure-api] 🔒 Encontrado (privado): {api_name}")
-            acceso = 'privado'
-        else:
-            # No encontrado
+        elif result.returncode == 0:
+            # Acceso con credenciales AWS (BAJO VALOR - No reportar)
+            print(f"[s3-verify] ℹ️  {bucket_name} requiere auth → NO REPORTAR (bajo valor)")
             return resultado
 
-        resultado.append({
-            'tipo': 'azure_api_management',
-            'nombre': api_name,
-            'dominio': dominio,
-            'acceso': acceso,
-            'url': url,
-            'poc': [
-                f"curl {url}",
-                f"curl -v -H 'Ocp-Apim-Subscription-Key: <KEY>' {url}",
-                f"az apim api list --resource-group <RG> --service-name {api_name}"
-            ]
-        })
+        elif 'NoSuchBucket' not in result.stderr:
+            # Existe pero está privado (MÍNIMO VALOR - No reportar)
+            print(f"[s3-verify] ℹ️  {bucket_name} privado → NO REPORTAR (sin acceso)")
+            return resultado
 
     except subprocess.TimeoutExpired:
-        pass
+        print(f"[s3-verify] Timeout verificando {bucket_name}")
     except Exception as e:
-        print(f"[azure-api] Error verificando {api_name}: {e}")
+        print(f"[s3-verify] Error: {e}")
 
     return resultado
 
@@ -1549,12 +1744,12 @@ def _search_github(dominio):
         # Extrae el dominio base (sin www)
         dom_parts = dominio.split('.')
         if dom_parts[0].lower() == 'www' and len(dom_parts) > 2:
-            domain_base = '.'.join(dom_parts[1:])  # www.ater.gob.ar -> ater.gob.ar
+            domain_base = '.'.join(dom_parts[1:])  # www.ater.gob.ar → ater.gob.ar
         else:
             domain_base = dominio
 
         # BÚSQUEDAS INTELIGENTES: Palabra clave + archivos típicos de credenciales
-        # Para "ater.gob.ar" -> buscar "ater" en archivos específicos
+        # Para "ater.gob.ar" → buscar "ater" en archivos específicos
         # Los subdominios NO se buscan individuales (evita falsos positivos)
 
         domain_parts = domain_base.split('.')
@@ -1691,7 +1886,7 @@ def _deduplicate_github_results(hallazgos_raw, dominio=''):
         domain_variants = _generate_domain_variants(dominio)
         print(f"[github] Variantes de dominio (ANTES): {sorted(domain_variants)}")
 
-        # OK ARREGLO 2: Remover palabras cortas que causan falsos positivos
+        # ✅ ARREGLO 2: Remover palabras cortas que causan falsos positivos
         # Mantener solo variantes que:
         # - Contienen un punto (son dominios con múltiples partes)
         # - O tienen más de 3 caracteres (como 'ater')
@@ -2184,12 +2379,12 @@ def _filter_urls_by_extension(urls):
         _, ext = os.path.splitext(path)
         ext = ext.lower()
         
-        # Si está en la lista de EXCLUSIÓN -> descartar
+        # Si está en la lista de EXCLUSIÓN → descartar
         if ext in EXCLUDE_EXTENSIONS:
             descartadas += 1
             continue
         
-        # Si NO está en EXCLUSIÓN -> mantener (imágenes, php, pdf, etc.)
+        # Si NO está en EXCLUSIÓN → mantener (imágenes, php, pdf, etc.)
         urls_filtradas.append(url)
     print(f"[filter_urls] URLs originales: {len(urls)}")
     print(f"[filter_urls] URLs descartadas: {descartadas}")
