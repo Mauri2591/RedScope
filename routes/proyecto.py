@@ -540,6 +540,8 @@ def estado_reglas_ajax():
 
 def _encolar_generacion_ia(check_ids_faltantes, findings):
     """Encola generación de security_rules vía IA para check_ids nuevos, sin duplicar jobs."""
+    if not current_app.config.get('CLAUDE_HABILITAR', False):
+        return
     from tasks.cloud.security_rules_ia import generar_security_rule
 
     findings_by_check = {}

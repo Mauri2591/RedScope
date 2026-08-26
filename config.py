@@ -55,3 +55,4 @@ class Config:
     
     #Anthropic
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+    CLAUDE_HABILITAR = os.getenv("CLAUDE_HABILITAR", "true").lower() == "true"
