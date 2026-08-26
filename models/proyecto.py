@@ -721,7 +721,7 @@ class Proyecto:
         cursor.execute("""
             SELECT id, proyecto_id, cloud_ejecucion_id, security_rules_id,
                 check_id, provider, service, resource_id, region, severidad_id,
-                estados_findings_id, finding_comment, inventory_data, referencias_data, estado_mitigacion
+                estados_findings_id, finding_comment, inventory_data, referencias_data
             FROM findings
             WHERE id = %s AND estado_id = 1
         """, (finding_id,))
