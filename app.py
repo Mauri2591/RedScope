@@ -17,9 +17,32 @@ from routes.debug_conclusiones import debug_bp
 app = Flask(__name__)
 app.config.from_object(Config)
 
-# Middleware para reverse proxy (Apache) - solo en producción
-# if app.config['USE_PROXY_FIX']:
-#     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
+# ==========================================
+# Middleware para desmontar /redscope
+# ==========================================
+class ScriptNameMiddleware:
+    """
+    Cuando Apache envía el path completo (/redscope/proyecto/...),
+    este middleware lo quita para que Flask lo vea como (/proyecto/...)
+    y establece SCRIPT_NAME=/redscope
+    """
+    def __init__(self, app):
+        self.app = app
+
+    def __call__(self, environ, start_response):
+        # Si el path comienza con /redscope, quitarlo
+        if environ['PATH_INFO'].startswith('/redscope'):
+            environ['SCRIPT_NAME'] = '/redscope'
+            environ['PATH_INFO'] = environ['PATH_INFO'][9:]  # quita "/redscope"
+        return self.app(environ, start_response)
+
+app.wsgi_app = ScriptNameMiddleware(app.wsgi_app)
+
+# ==========================================
+# Middleware para reverse proxy (Apache)
+# ==========================================
+if app.config['USE_PROXY_FIX']:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
 
 csrf = CSRFProtect(app)
 app.jinja_env.globals['csrf_token'] = generate_csrf
