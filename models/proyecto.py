@@ -1093,7 +1093,7 @@ class Proyecto:
                     (proyecto_id, usuario_id, security_rules_id, check_id,
                     provider, service, resource_id, region, severidad_id,
                     estados_findings_id, inventory_data, referencias_data, herramienta, estado_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, 'prowler_cli', 8, 1)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, 'prowler_cli', 1)
                 """, (
                     proyecto_id, usuario_id, security_rule_id, check_id,
                     provider, service, resource_id, region, severidad_id,
@@ -1218,7 +1218,7 @@ class Proyecto:
                     (proyecto_id, usuario_id, security_rules_id, check_id,
                     provider, service, resource_id, region, severidad_id,
                     estados_findings_id, inventory_data, referencias_data, herramienta, estado_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, 'prowler_web', 8, 1)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, 'prowler_web', 1)
                 """, (
                     proyecto_id, usuario_id, security_rule_id, check_id,
                     provider, service, resource_id, region, severidad_id,
