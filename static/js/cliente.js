@@ -27,7 +27,7 @@ $(document).ready(function () {
         formAltaCliente.addEventListener("submit", (e) => {
             e.preventDefault();
             let data = new FormData(formAltaCliente);
-            fetch('/cliente/alta', {
+            fetch(BASE_PATH+'/cliente/alta', {
                     method: 'POST',
                     headers: {
                         'X-CSRFToken': csrfToken
@@ -58,7 +58,7 @@ $(document).ready(function () {
         $selectServicio.prop('disabled', false);
         
         $.ajax({
-            url: `/api/tipos-servicio/${idTipoProyecto}`,
+            url: BASE_PATH+`/api/tipos-servicio/${idTipoProyecto}`,
             type: 'GET',
             success: function(data) {
                 $selectServicio.empty();
@@ -80,7 +80,7 @@ $(document).ready(function () {
     $('#formNuevoProyecto').on('submit', function (e) {
         e.preventDefault();
         const data = new FormData(this);
-        fetch('/proyecto/crear', {
+        fetch(BASE_PATH+'/proyecto/crear', {
                 method: 'POST',
                 headers: {
                     'X-CSRFToken': csrfToken
@@ -109,7 +109,7 @@ function abrirModalProyecto(clienteId) {
 
 function inhabilitarCliente(id) {
     if (!confirm('¿Desea inhabilitar este cliente?')) return;
-    fetch(`/cliente/${id}/inhabilitar`, {
+    fetch(BASE_PATH+`/cliente/${id}/inhabilitar`, {
             method: 'POST',
             headers: {
                 'X-CSRFToken': csrfToken

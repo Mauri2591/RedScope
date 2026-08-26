@@ -143,7 +143,7 @@
 
             // Llamada AJAX para traer acciones
             $.ajax({
-                url: `/cloud/acciones/${servicioId}`,
+                url: BASE_PATH+`/cloud/acciones/${servicioId}`,
                 type: 'GET',
                 success: function (response) {
 
@@ -237,7 +237,7 @@
             formAltaServicio.addEventListener("submit", (e) => {
                 e.preventDefault();
                 const data = new FormData(formAltaServicio);
-                fetch(BASE_PATH+'/servicio/alta', {
+                fetch('/servicio/alta', {
                         method: 'POST',
                         headers: {
                             'X-CSRFToken': getCSRFToken()
@@ -335,7 +335,7 @@
 
             $.ajax({
                 type: "POST",
-                url: `/proyecto/${proyectoId}/cloud-config`,
+                url: BASE_PATH+`/proyecto/${proyectoId}/cloud-config`,
                 data: $(this).serialize(),
                 dataType: "json",
                 success: function (response) {
@@ -517,7 +517,7 @@
 
         $.ajax({
             type: "GET",
-            url: `/cloud/resultados/${proyectoId}`,
+            url: BASE_PATH+`/cloud/resultados/${proyectoId}`,
             success: function (response) {
 
                 if (!response.success) return;
@@ -682,20 +682,20 @@
         const proyectoId = document
             .getElementById("cloudWorkspace")
             .dataset.proyectoId;
-        window.location.href =  BASE_PATH + `/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}/hallazgos`;
+        window.location.href = `/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}/hallazgos`;
     }
 
 
     function descargarDocAws(id, tipo) {
-        window.location.href =  BASE_PATH + `/proyecto/${id}/export/docx/aws/${tipo}`;
+        window.location.href = `/proyecto/${id}/export/docx/aws/${tipo}`;
     }
 
     function descargarXlsxAws(id) {
-        window.location.href =  BASE_PATH + `/proyecto/${id}/export/xlsx/aws`;
+        window.location.href = `/proyecto/${id}/export/xlsx/aws`;
     }
 
     function descargarDocOsint(id, tipo) {
-        window.location.href =  BASE_PATH + `/proyecto/${id}/export/docx/osint/${tipo}`;
+        window.location.href = `/proyecto/${id}/export/docx/osint/${tipo}`;
     }
     
 
@@ -814,6 +814,15 @@
             ruleRes.severidades.forEach(s => {
                 selectSeverity.append(`<option value="${s.id}" style="background-color:${s.color}">${s.nombre}</option>`);
             });
+
+            // Estado Mitigacion (readonly text)
+            let inputMitigacion = $("#estado_mitigacion");
+            // Mapear estado_mitigacion a nombre (8=SIN MITIGAR, 9=MITIGADO)
+            const estadosMitigacion = {
+                8: "SIN MITIGAR",
+                9: "MITIGADO"
+            };
+            inputMitigacion.val(estadosMitigacion[findingData.estado_mitigacion] || "DESCONOCIDO");
 
             // Rule
             if (!ruleRes.rule_exists) {
@@ -1014,7 +1023,7 @@
             reference: $("#rule_reference").val()
         }
 
-        fetch(BASE_PATH+"/proyecto/security-rule", {
+        fetch("/proyecto/security-rule", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -1067,7 +1076,7 @@
             region: $("#finding_region").val() || ''
         };
 
-        fetch(BASE_PATH+"/proyecto/finding", {
+        fetch("/proyecto/finding", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -1162,7 +1171,7 @@
         }
         // Encolar cada acción secuencialmente
         for (const accion of data.acciones) {
-            await fetch(BASE_PATH+'/cloud/run-roles', {
+            await fetch('/cloud/run-roles', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1189,7 +1198,7 @@
         if (pendientes.length === 0) return;
 
         const interval = setInterval(() => {
-            fetch(BASE_PATH+'/proyecto/cloud/estado-reglas', {
+            fetch('/proyecto/cloud/estado-reglas', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1343,7 +1352,7 @@
     });
 
     function verHallazgosImportados(proyectoId, herramienta) {
-        window.location.href = BASE_PATH + `/proyecto/${proyectoId}/cloud/importados/${herramienta}/hallazgos`;
+        window.location.href = `/proyecto/${proyectoId}/cloud/importados/${herramienta}/hallazgos`;
     }
 
 
@@ -1380,7 +1389,7 @@
     function verificarSeleccionados() {
         const ids = getSeleccionados();
         if (!ids.length) return;
-        fetch(BASE_PATH+"/proyecto/findings/verificar-masivo", {
+        fetch("/proyecto/findings/verificar-masivo", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -1403,7 +1412,7 @@
         const match = urlPath.match(/importados\/([^/]+)/);
         const herramienta = match ? match[1] : null;
 
-        fetch(BASE_PATH+"/proyecto/findings/eliminar-masivo", {
+        fetch("/proyecto/findings/eliminar-masivo", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -1516,7 +1525,7 @@
 
             try {
                 console.log("Fetching /osint/config-tipos");
-                const response = await fetch(BASE_PATH+'/osint/config-tipos', {
+                const response = await fetch('/osint/config-tipos', {
                     credentials: 'include'
                 });
                 console.log("Response status:", response.status);
@@ -1600,7 +1609,7 @@ function ejecutar_osint(servicioId, nombreServicio) {
     const proyectoId = hallazgosEl.dataset.proyectoId;
     const terminal = document.getElementById('terminalOSINT');
 
-    fetch(BASE_PATH+'/osint/run', {
+    fetch('/osint/run', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
