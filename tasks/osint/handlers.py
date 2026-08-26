@@ -480,7 +480,7 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
                 if result.stdout:
                     nuevos = result.stdout.strip().split('\n')
                     subdominios.update(nuevos)
-                    print(f"[subfinder] {dom} → {len(nuevos)} subdominios")
+                    print(f"[subfinder] {dom} -> {len(nuevos)} subdominios")
             except subprocess.TimeoutExpired:
                 print(f"[subfinder] Timeout para {dom}")
             except Exception as e:
@@ -605,13 +605,13 @@ def mapeo_ips(ejecucion_id, proyecto_id):
     """
     def job():
         import sys
-        print(f"[mapeo_ips]  INICIANDO - proyecto_id={proyecto_id}", flush=True)
+        print(f"[mapeo_ips] *STARTING** INICIANDO - proyecto_id={proyecto_id}", flush=True)
         sys.stdout.flush()
 
-        print(f"[mapeo_ips]  Llamando get_osint_config...", flush=True)
+        print(f"[mapeo_ips] *STARTING** Llamando get_osint_config...", flush=True)
         sys.stdout.flush()
         config = Proyecto.get_osint_config(proyecto_id)
-        print(f"[mapeo_ips]  get_osint_config completado", flush=True)
+        print(f"[mapeo_ips] OK get_osint_config completado", flush=True)
         sys.stdout.flush()
 
         ips_analizadas = []
@@ -622,7 +622,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         }
 
         # 1. Agregar IPs configuradas directamente (filtrar IPs de DNS públicos)
-        print(f"[mapeo_ips]  Procesando IPs configuradas...", flush=True)
+        print(f"[mapeo_ips] *STARTING** Procesando IPs configuradas...", flush=True)
         sys.stdout.flush()
         ips_str = config.get('IPS', '').strip() if config else ''
         if ips_str:
@@ -631,22 +631,22 @@ def mapeo_ips(ejecucion_id, proyecto_id):
             ips_configuradas_filtradas = [ip for ip in ips_configuradas if ip not in PUBLIC_DNS_IPS]
             ips_a_analizar.update(ips_configuradas_filtradas)
             resolution_metadata['ips_configuradas'] = ips_configuradas_filtradas
-            print(f"[mapeo_ips]  IPs configuradas: {ips_configuradas_filtradas}", flush=True)
+            print(f"[mapeo_ips] OK IPs configuradas: {ips_configuradas_filtradas}", flush=True)
         else:
-            print(f"[mapeo_ips]  Sin IPs configuradas", flush=True)
+            print(f"[mapeo_ips] OK Sin IPs configuradas", flush=True)
         sys.stdout.flush()
 
         # 2. Resolver dominios + subdominios del scope
-        print(f"[mapeo_ips]  Extrayendo DOMINIO scope...", flush=True)
+        print(f"[mapeo_ips] *STARTING** Extrayendo DOMINIO scope...", flush=True)
         sys.stdout.flush()
         dominio = config.get('DOMINIO', '').strip() if config else ''
-        print(f"[mapeo_ips]  DOMINIO extraído: len={len(dominio)}", flush=True)
+        print(f"[mapeo_ips] OK DOMINIO extraído: len={len(dominio)}", flush=True)
         sys.stdout.flush()
 
-        print(f"[mapeo_ips]  Extrayendo SUBDOMINIO scope...", flush=True)
+        print(f"[mapeo_ips] *STARTING** Extrayendo SUBDOMINIO scope...", flush=True)
         sys.stdout.flush()
         subdominio = config.get('SUBDOMINIO', '').strip() if config else ''
-        print(f"[mapeo_ips]  SUBDOMINIO extraído: len={len(subdominio)}", flush=True)
+        print(f"[mapeo_ips] OK SUBDOMINIO extraído: len={len(subdominio)}", flush=True)
         sys.stdout.flush()
 
         dominios_scope = []
@@ -655,10 +655,10 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         if subdominio:
             dominios_scope.extend(_parse_multiline_config(subdominio))
 
-        print(f"[mapeo_ips]  Dominios del scope a resolver: {dominios_scope}", flush=True)
+        print(f"[mapeo_ips] *STARTING** Dominios del scope a resolver: {dominios_scope}", flush=True)
         sys.stdout.flush()
 
-        print(f"[mapeo_ips]  Resolviendo {len(dominios_scope)} dominios scope...", flush=True)
+        print(f"[mapeo_ips] *STARTING** Resolviendo {len(dominios_scope)} dominios scope...", flush=True)
         sys.stdout.flush()
         for idx, dom in enumerate(dominios_scope, 1):
             try:
@@ -669,21 +669,21 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                 ips_a_analizar.update(resolution_result['ips'])
                 resolution_metadata['dominios_resueltos'][dom] = resolution_result['by_resolver']
 
-                print(f"[mapeo_ips]  {dom} → {resolution_result['ips']}", flush=True)
+                print(f"[mapeo_ips] OK {dom} -> {resolution_result['ips']}", flush=True)
                 sys.stdout.flush()
             except Exception as e:
-                print(f"[mapeo_ips]  Error resolviendo {dom}: {e}", flush=True)
+                print(f"[mapeo_ips] ERROR resolviendo {dom}: {e}", flush=True)
                 sys.stdout.flush()
 
         # 2b. Resolver subdominios descubiertos (opcional)
-        print(f"[mapeo_ips]  Llamando get_discovered_subdomains...", flush=True)
+        print(f"[mapeo_ips] *STARTING** Llamando get_discovered_subdomains...", flush=True)
         sys.stdout.flush()
         try:
             subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-            print(f"[mapeo_ips]  get_discovered_subdomains completado", flush=True)
+            print(f"[mapeo_ips] OK get_discovered_subdomains completado", flush=True)
             sys.stdout.flush()
             if subdominios_descubiertos and isinstance(subdominios_descubiertos, (list, tuple)):
-                print(f"[mapeo_ips]  Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...", flush=True)
+                print(f"[mapeo_ips] *STARTING** Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...", flush=True)
                 sys.stdout.flush()
                 for idx, subdom in enumerate(subdominios_descubiertos, 1):
                     if not subdom:
@@ -695,35 +695,35 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                         if resolution_result and resolution_result.get('ips'):
                             ips_a_analizar.update(resolution_result['ips'])
                             resolution_metadata['dominios_resueltos'][subdom] = resolution_result['by_resolver']
-                            print(f"[mapeo_ips]  {subdom} → {resolution_result['ips']}", flush=True)
+                            print(f"[mapeo_ips] OK {subdom} -> {resolution_result['ips']}", flush=True)
                             sys.stdout.flush()
                     except Exception as e:
-                        print(f"[mapeo_ips]  Error en subdominio {subdom}: {str(e)[:60]}", flush=True)
+                        print(f"[mapeo_ips] ERROR en subdominio {subdom}: {str(e)[:60]}", flush=True)
                         sys.stdout.flush()
             else:
-                print(f"[mapeo_ips]  Sin subdominios descubiertos", flush=True)
+                print(f"[mapeo_ips] OK Sin subdominios descubiertos", flush=True)
                 sys.stdout.flush()
         except AttributeError:
-            print(f"[mapeo_ips] ℹ️ get_discovered_subdomains no disponible (primera ejecución)", flush=True)
+            print(f"[mapeo_ips] INFO get_discovered_subdomains no disponible (primera ejecución)", flush=True)
             sys.stdout.flush()
         except Exception as e:
-            print(f"[mapeo_ips]  Error resolviendo subdominios descubiertos: {str(e)[:100]}", flush=True)
+            print(f"[mapeo_ips] ERROR resolviendo subdominios descubiertos: {str(e)[:100]}", flush=True)
             sys.stdout.flush()
 
         if not ips_a_analizar:
-            print(f"[mapeo_ips] ⚠️ No hay IPs ni dominios configurados para analizar", flush=True)
+            print(f"[mapeo_ips] WARN No hay IPs ni dominios configurados para analizar", flush=True)
             sys.stdout.flush()
             raise Exception("No hay IPs ni dominios configurados para analizar")
 
-        print(f"[mapeo_ips]  Total IPs a analizar: {len(ips_a_analizar)}", flush=True)
+        print(f"[mapeo_ips] OK Total IPs a analizar: {len(ips_a_analizar)}", flush=True)
         sys.stdout.flush()
 
         # 3. Hacer reverse DNS + Geolocalización para cada IP
-        print(f"[mapeo_ips]  Preparando mapeo de IP→dominios...", flush=True)
+        print(f"[mapeo_ips] *STARTING** Preparando mapeo de IP->dominios...", flush=True)
         sys.stdout.flush()
         ips_success = []
 
-        # Crear mapeo de IP → dominios que la resolvieron (sin duplicados)
+        # Crear mapeo de IP -> dominios que la resolvieron (sin duplicados)
         ip_to_dominios = {}
         for dom, resolvers_data in resolution_metadata['dominios_resueltos'].items():
             for ips_list in resolvers_data.values():
@@ -734,20 +734,20 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
         # Convertir sets a listas ordenadas
         ip_to_dominios = {ip: sorted(list(doms)) for ip, doms in ip_to_dominios.items()}
-        print(f"[mapeo_ips]  Mapeo IP→dominios completado", flush=True)
+        print(f"[mapeo_ips] OK Mapeo IP->dominios completado", flush=True)
         sys.stdout.flush()
 
         # Obtener dominio objetivo para validar hostnames
-        print(f"[mapeo_ips]  Extrayendo dominio objetivo...", flush=True)
+        print(f"[mapeo_ips] *STARTING** Extrayendo dominio objetivo...", flush=True)
         sys.stdout.flush()
         dominio_objetivo = None
         dominios_config = _parse_multiline_config(dominio) if dominio else []
         if dominios_config:
             dominio_objetivo = dominios_config[0]
-        print(f"[mapeo_ips]  Dominio objetivo: {dominio_objetivo}", flush=True)
+        print(f"[mapeo_ips] OK Dominio objetivo: {dominio_objetivo}", flush=True)
         sys.stdout.flush()
 
-        print(f"[mapeo_ips]  Analizando {len(ips_a_analizar)} IPs (Reverse DNS + Geolocalización)...", flush=True)
+        print(f"[mapeo_ips] *STARTING** Analizando {len(ips_a_analizar)} IPs (Reverse DNS + Geolocalización)...", flush=True)
         sys.stdout.flush()
         for idx, ip in enumerate(sorted(ips_a_analizar), 1):
             try:
@@ -797,16 +797,16 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                         'hostname_validation': hostname_validation['razon'],
                         'geo': geo_data
                     })
-                    print(f"[mapeo_ips]  {ip} ({hostname}) - {geo_data['pais']}, {geo_data['ciudad']} [VÁLIDO]", flush=True)
+                    print(f"[mapeo_ips] OK {ip} ({hostname}) - {geo_data['pais']}, {geo_data['ciudad']} [VÁLIDO]", flush=True)
                     print(f"              Hostname info: {hostname_validation.get('razon', 'N/A')}", flush=True)
                     sys.stdout.flush()
                 else:
                     # IPs sin from_domains (no resueltas desde dominio scope)
-                    print(f"[mapeo_ips] ⊘ {ip} ({hostname}) - No fue resuelto desde dominio scope", flush=True)
+                    print(f"[mapeo_ips] -- {ip} ({hostname}) - No fue resuelto desde dominio scope", flush=True)
                     sys.stdout.flush()
 
             except Exception as e:
-                print(f"[mapeo_ips]  Error analizando {ip}: {e}", flush=True)
+                print(f"[mapeo_ips] ERROR analizando {ip}: {e}", flush=True)
                 sys.stdout.flush()
                 geo_data_fallback = _geolocate_ip(ip)
                 ips_analizadas.append({
@@ -819,7 +819,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                     'geo': geo_data_fallback
                 })
 
-        print(f"[mapeo_ips]  Compilando resultados finales...", flush=True)
+        print(f"[mapeo_ips] *STARTING** Compilando resultados finales...", flush=True)
         sys.stdout.flush()
         result = {
             "tipo": "mapeo_ips",
@@ -828,7 +828,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
             "ips_success": ips_success,  # ← IPs válidas con geolocalización
             "ips_todas": ips_analizadas   # ← Todas las IPs analizadas (debug)
         }
-        print(f"[mapeo_ips]  COMPLETADO - Total: {len(ips_a_analizar)} IPs, Válidas: {len(ips_success)}", flush=True)
+        print(f"[mapeo_ips] OK COMPLETADO - Total: {len(ips_a_analizar)} IPs, Válidas: {len(ips_success)}", flush=True)
         sys.stdout.flush()
         return result
 
@@ -852,26 +852,26 @@ def recon_cloud(ejecucion_id, proyecto_id):
     """
     def job():
         import sys
-        print(f"[recon_cloud]  INICIANDO - proyecto_id={proyecto_id}", flush=True)
+        print(f"[recon_cloud] *STARTING** INICIANDO - proyecto_id={proyecto_id}", flush=True)
         sys.stdout.flush()
 
-        print(f"[recon_cloud]  Llamando get_osint_config...", flush=True)
+        print(f"[recon_cloud] *STARTING** Llamando get_osint_config...", flush=True)
         sys.stdout.flush()
         config = Proyecto.get_osint_config(proyecto_id)
-        print(f"[recon_cloud]  get_osint_config completado", flush=True)
+        print(f"[recon_cloud] OK get_osint_config completado", flush=True)
         sys.stdout.flush()
 
         # 1. DOMINIO del scope (estado_id=1)
-        print(f"[recon_cloud]  Extrayendo DOMINIO scope...", flush=True)
+        print(f"[recon_cloud] *STARTING** Extrayendo DOMINIO scope...", flush=True)
         sys.stdout.flush()
         dominio_scope = config.get('DOMINIO', '').strip() if config else ''
-        print(f"[recon_cloud]  DOMINIO extraído: len={len(dominio_scope)}", flush=True)
+        print(f"[recon_cloud] OK DOMINIO extraído: len={len(dominio_scope)}", flush=True)
         sys.stdout.flush()
 
-        print(f"[recon_cloud]  Parseando DOMINIO scope...", flush=True)
+        print(f"[recon_cloud] *STARTING** Parseando DOMINIO scope...", flush=True)
         sys.stdout.flush()
         dominios_config = _parse_multiline_config(dominio_scope) if dominio_scope else []
-        print(f"[recon_cloud]  DOMINIO parseado: {dominios_config}", flush=True)
+        print(f"[recon_cloud] OK DOMINIO parseado: {dominios_config}", flush=True)
         sys.stdout.flush()
 
         if dominios_config:
@@ -881,16 +881,16 @@ def recon_cloud(ejecucion_id, proyecto_id):
         sys.stdout.flush()
 
         # 2. SUBDOMINIO del scope (estado_id=1)
-        print(f"[recon_cloud]  Extrayendo SUBDOMINIO scope...", flush=True)
+        print(f"[recon_cloud] *STARTING** Extrayendo SUBDOMINIO scope...", flush=True)
         sys.stdout.flush()
         subdominio_scope = config.get('SUBDOMINIO', '').strip() if config else ''
-        print(f"[recon_cloud]  SUBDOMINIO extraído: len={len(subdominio_scope)}", flush=True)
+        print(f"[recon_cloud] OK SUBDOMINIO extraído: len={len(subdominio_scope)}", flush=True)
         sys.stdout.flush()
 
-        print(f"[recon_cloud]  Parseando SUBDOMINIO scope...", flush=True)
+        print(f"[recon_cloud] *STARTING** Parseando SUBDOMINIO scope...", flush=True)
         sys.stdout.flush()
         subdominios_config = _parse_multiline_config(subdominio_scope) if subdominio_scope else []
-        print(f"[recon_cloud]  SUBDOMINIO parseado: {subdominios_config}", flush=True)
+        print(f"[recon_cloud] OK SUBDOMINIO parseado: {subdominios_config}", flush=True)
         sys.stdout.flush()
 
         if subdominios_config:
@@ -898,10 +898,10 @@ def recon_cloud(ejecucion_id, proyecto_id):
         sys.stdout.flush()
 
         # 3. Resultados de discovery_subdominios (estado_id=1)
-        print(f"[recon_cloud]  Llamando get_discovered_subdomains...", flush=True)
+        print(f"[recon_cloud] *STARTING** Llamando get_discovered_subdomains...", flush=True)
         sys.stdout.flush()
         dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-        print(f"[recon_cloud]  get_discovered_subdomains completado", flush=True)
+        print(f"[recon_cloud] OK get_discovered_subdomains completado", flush=True)
         sys.stdout.flush()
 
         if dominios_descubiertos:
@@ -911,10 +911,10 @@ def recon_cloud(ejecucion_id, proyecto_id):
         sys.stdout.flush()
 
         # Combinar: scope + descubiertos
-        print(f"[recon_cloud]  Combinando dominios...", flush=True)
+        print(f"[recon_cloud] *STARTING** Combinando dominios...", flush=True)
         sys.stdout.flush()
         todos_los_dominios = dominios_config + subdominios_config + dominios_descubiertos
-        print(f"[recon_cloud]  Dominios combinados: {len(todos_los_dominios)}", flush=True)
+        print(f"[recon_cloud] OK Dominios combinados: {len(todos_los_dominios)}", flush=True)
         sys.stdout.flush()
 
         if not todos_los_dominios:
@@ -923,8 +923,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
         # ═══════════════════════════════════════════════════════════════
         # GENERAR CASCADAS DE DOMINIOS
         # SCOPE (DOMINIO + SUBDOMINIO) + DISCOVERY (estado_id=1)
-        # Ej: ater.gob.ar → [ater.gob.ar, ater.gob, ater]
-        # Ej: vpn.ater.gob.ar → [vpn.ater.gob.ar, vpn.ater.gob, vpn.ater]
+        # Ej: ater.gob.ar -> [ater.gob.ar, ater.gob, ater]
+        # Ej: vpn.ater.gob.ar -> [vpn.ater.gob.ar, vpn.ater.gob, vpn.ater]
         # ═══════════════════════════════════════════════════════════════
         def _generate_domain_cascades(dominio):
             """Genera variaciones en cascada de un dominio reduciendo desde el final."""
@@ -939,32 +939,32 @@ def recon_cloud(ejecucion_id, proyecto_id):
         dominios_expandidos = []
 
         # Cascadas para SCOPE (DOMINIO + SUBDOMINIO con estado_id=1)
-        print(f"[recon_cloud]  Generando cascadas para SCOPE...", flush=True)
+        print(f"[recon_cloud] *STARTING** Generando cascadas para SCOPE...", flush=True)
         sys.stdout.flush()
         print(f"[recon_cloud] ════ Generando cascadas para SCOPE ════", flush=True)
         for dom in dominios_config + subdominios_config:
             cascadas = _generate_domain_cascades(dom)
             dominios_expandidos.extend(cascadas)
-            print(f"[recon_cloud] Cascadas: {dom} → {cascadas}", flush=True)
-        print(f"[recon_cloud]  Cascadas SCOPE completadas", flush=True)
+            print(f"[recon_cloud] Cascadas: {dom} -> {cascadas}", flush=True)
+        print(f"[recon_cloud] OK Cascadas SCOPE completadas", flush=True)
         sys.stdout.flush()
 
         # Cascadas para DISCOVERY (estado_id=1)
         if dominios_descubiertos:
-            print(f"[recon_cloud]  Generando cascadas para DISCOVERY...", flush=True)
+            print(f"[recon_cloud] *STARTING** Generando cascadas para DISCOVERY...", flush=True)
             sys.stdout.flush()
             print(f"[recon_cloud] ════ Generando cascadas para DISCOVERY ════", flush=True)
             for dom in dominios_descubiertos:
                 cascadas = _generate_domain_cascades(dom)
                 dominios_expandidos.extend(cascadas)
-                print(f"[recon_cloud] Cascadas: {dom} → {cascadas}", flush=True)
-            print(f"[recon_cloud]  Cascadas DISCOVERY completadas", flush=True)
+                print(f"[recon_cloud] Cascadas: {dom} -> {cascadas}", flush=True)
+            print(f"[recon_cloud] OK Cascadas DISCOVERY completadas", flush=True)
             sys.stdout.flush()
 
-        print(f"[recon_cloud]  Eliminando duplicados...", flush=True)
+        print(f"[recon_cloud] *STARTING** Eliminando duplicados...", flush=True)
         sys.stdout.flush()
         todos_los_dominios = list(set(dominios_expandidos))  # Eliminar duplicados
-        print(f"[recon_cloud]  Total dominios a escanear (con cascadas): {len(todos_los_dominios)}", flush=True)
+        print(f"[recon_cloud] OK Total dominios a escanear (con cascadas): {len(todos_los_dominios)}", flush=True)
         sys.stdout.flush()
 
         # Extraer dominio raíz para variaciones
@@ -984,7 +984,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
         # ═══════════════════════════════════════════════════════════════
         # AWS: S3 Buckets
         # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud]  INICIANDO AWS S3 Buckets...", flush=True)
+        print(f"[recon_cloud] *STARTING** INICIANDO AWS S3 Buckets...", flush=True)
         sys.stdout.flush()
         print(f"[recon_cloud] ════ AWS S3 Buckets ════", flush=True)
         s3_count = 0
@@ -1004,13 +1004,13 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         r['proveedor'] = 'AWS'
                     recursos.extend(resultado)
 
-        print(f"[recon_cloud]  AWS S3 completado", flush=True)
+        print(f"[recon_cloud] OK AWS S3 completado", flush=True)
         sys.stdout.flush()
 
         # ═══════════════════════════════════════════════════════════════
         # AWS: API Gateway
         # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud]  INICIANDO AWS API Gateway...", flush=True)
+        print(f"[recon_cloud] *STARTING** INICIANDO AWS API Gateway...", flush=True)
         sys.stdout.flush()
         print(f"[recon_cloud] ════ AWS API Gateway ════", flush=True)
         api_count = 0
@@ -1028,13 +1028,13 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         r['proveedor'] = 'AWS'
                     recursos.extend(resultado)
 
-        print(f"[recon_cloud]  AWS API Gateway completado", flush=True)
+        print(f"[recon_cloud] OK AWS API Gateway completado", flush=True)
         sys.stdout.flush()
 
         # ═══════════════════════════════════════════════════════════════
         # AZURE: Blob Storage
         # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud]  INICIANDO Azure Blob Storage...", flush=True)
+        print(f"[recon_cloud] *STARTING** INICIANDO Azure Blob Storage...", flush=True)
         sys.stdout.flush()
         print(f"[recon_cloud] ════ Azure Blob Storage ════", flush=True)
         blob_count = 0
@@ -1052,13 +1052,13 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         r['proveedor'] = 'Azure'
                     recursos.extend(resultado)
 
-        print(f"[recon_cloud]  Azure Blob Storage completado", flush=True)
+        print(f"[recon_cloud] OK Azure Blob Storage completado", flush=True)
         sys.stdout.flush()
 
         # ═══════════════════════════════════════════════════════════════
         # AZURE: API Management
         # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud]  INICIANDO Azure API Management...", flush=True)
+        print(f"[recon_cloud] *STARTING** INICIANDO Azure API Management...", flush=True)
         sys.stdout.flush()
         print(f"[recon_cloud] ════ Azure API Management ════", flush=True)
         apim_count = 0
@@ -1076,13 +1076,13 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         r['proveedor'] = 'Azure'
                     recursos.extend(resultado)
 
-        print(f"[recon_cloud]  Azure API Management completado", flush=True)
+        print(f"[recon_cloud] OK Azure API Management completado", flush=True)
         sys.stdout.flush()
 
         # ═══════════════════════════════════════════════════════════════
         # GOOGLE: Cloud Storage
         # ═══════════════════════════════════════════════════════════════
-        print(f"[recon_cloud]  INICIANDO Google Cloud Storage...", flush=True)
+        print(f"[recon_cloud] *STARTING** INICIANDO Google Cloud Storage...", flush=True)
         sys.stdout.flush()
         print(f"[recon_cloud] ════ Google Cloud Storage ════", flush=True)
         gcp_count = 0
@@ -1100,10 +1100,10 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         r['proveedor'] = 'GCP'
                     recursos.extend(resultado)
 
-        print(f"[recon_cloud]  Google Cloud Storage completado", flush=True)
+        print(f"[recon_cloud] OK Google Cloud Storage completado", flush=True)
         sys.stdout.flush()
 
-        print(f"[recon_cloud]  Preparando resultado final...", flush=True)
+        print(f"[recon_cloud] *STARTING** Preparando resultado final...", flush=True)
         sys.stdout.flush()
 
         resultado_final = {
@@ -1117,7 +1117,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
             "recursos": recursos
         }
 
-        print(f"[recon_cloud]  COMPLETADO - Encontrados {len(recursos)} recursos en {len(todos_los_dominios)} dominios", flush=True)
+        print(f"[recon_cloud] OK COMPLETADO - Encontrados {len(recursos)} recursos en {len(todos_los_dominios)} dominios", flush=True)
         sys.stdout.flush()
 
         return resultado_final
@@ -1189,7 +1189,7 @@ def _verify_s3_bucket(bucket_name, dominio):
 
         if '200' in result.stdout:
             # Bucket abierto al público
-            print(f"[s3]  PÚBLICO: {bucket_name}")
+            print(f"[s3] OK PÚBLICO: {bucket_name}")
             resultado.append({
                 'tipo': 's3_bucket',
                 'nombre': bucket_name,
@@ -1259,7 +1259,7 @@ def _verify_azure_blob(storage_account, dominio):
         if '200' in result.stdout or '403' in result.stdout:
             # 200 = público, 403 = existe pero privado
             if '200' in result.stdout:
-                print(f"[azure]  PÚBLICO: {storage_account}")
+                print(f"[azure] OK PÚBLICO: {storage_account}")
                 acceso = 'público'
             else:
                 print(f"[azure] 🔒 Privado: {storage_account}")
@@ -1326,7 +1326,7 @@ def _verify_gcp_bucket(bucket_name, dominio):
         )
 
         if '200' in result.stdout:
-            print(f"[gcp]  PÚBLICO: {bucket_name}")
+            print(f"[gcp] OK PÚBLICO: {bucket_name}")
             resultado.append({
                 'tipo': 'gcp_cloud_storage',
                 'nombre': bucket_name,
@@ -1404,7 +1404,7 @@ def _verify_aws_api_gateway(api_name, dominio):
             if '200' in result.stdout or '403' in result.stdout or '404' in result.stdout:
                 # API Gateway encontrado (puede retornar 404 si no existe recurso, pero domain existe)
                 acceso = 'público' if '200' in result.stdout else 'privado'
-                print(f"[aws-api]  ENCONTRADO: {api_name} en {region}")
+                print(f"[aws-api] OK ENCONTRADO: {api_name} en {region}")
                 resultado.append({
                     'tipo': 'aws_api_gateway',
                     'nombre': api_name,
@@ -1444,7 +1444,7 @@ def _verify_azure_api_management(api_name, dominio):
         )
 
         if '200' in result.stdout:
-            print(f"[azure-api]  PÚBLICO: {api_name}")
+            print(f"[azure-api] OK PÚBLICO: {api_name}")
             acceso = 'público'
         elif '401' in result.stdout or '403' in result.stdout:
             print(f"[azure-api] 🔒 Encontrado (privado): {api_name}")
@@ -1549,12 +1549,12 @@ def _search_github(dominio):
         # Extrae el dominio base (sin www)
         dom_parts = dominio.split('.')
         if dom_parts[0].lower() == 'www' and len(dom_parts) > 2:
-            domain_base = '.'.join(dom_parts[1:])  # www.ater.gob.ar → ater.gob.ar
+            domain_base = '.'.join(dom_parts[1:])  # www.ater.gob.ar -> ater.gob.ar
         else:
             domain_base = dominio
 
         # BÚSQUEDAS INTELIGENTES: Palabra clave + archivos típicos de credenciales
-        # Para "ater.gob.ar" → buscar "ater" en archivos específicos
+        # Para "ater.gob.ar" -> buscar "ater" en archivos específicos
         # Los subdominios NO se buscan individuales (evita falsos positivos)
 
         domain_parts = domain_base.split('.')
@@ -1691,7 +1691,7 @@ def _deduplicate_github_results(hallazgos_raw, dominio=''):
         domain_variants = _generate_domain_variants(dominio)
         print(f"[github] Variantes de dominio (ANTES): {sorted(domain_variants)}")
 
-        #  ARREGLO 2: Remover palabras cortas que causan falsos positivos
+        # OK ARREGLO 2: Remover palabras cortas que causan falsos positivos
         # Mantener solo variantes que:
         # - Contienen un punto (son dominios con múltiples partes)
         # - O tienen más de 3 caracteres (como 'ater')
@@ -2184,12 +2184,12 @@ def _filter_urls_by_extension(urls):
         _, ext = os.path.splitext(path)
         ext = ext.lower()
         
-        # Si está en la lista de EXCLUSIÓN → descartar
+        # Si está en la lista de EXCLUSIÓN -> descartar
         if ext in EXCLUDE_EXTENSIONS:
             descartadas += 1
             continue
         
-        # Si NO está en EXCLUSIÓN → mantener (imágenes, php, pdf, etc.)
+        # Si NO está en EXCLUSIÓN -> mantener (imágenes, php, pdf, etc.)
         urls_filtradas.append(url)
     print(f"[filter_urls] URLs originales: {len(urls)}")
     print(f"[filter_urls] URLs descartadas: {descartadas}")
