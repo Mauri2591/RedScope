@@ -1014,8 +1014,9 @@ class Proyecto:
                 resource_id = item.get('ResourceId', '')
                 region = item.get('Region', '')
 
-                # Usar severity_id directo. Si falta, default MEDIUM (3)
-                severidad_id = item.get('Severity', 3)
+                # Mapear severity text a ID (Prowler devuelve 'high', 'medium', 'critical', 'low')
+                severity_text = str(item.get('Severity', 'medium')).lower()
+                severidad_id = severidad_map.get(severity_text, 3)
                 
                 # ========================
                 # Guardar o actualizar security_rule
@@ -1158,8 +1159,9 @@ class Proyecto:
                 resource_id = resources[0].get('uid', '') if resources else ''
                 service = resources[0].get('group', {}).get('name', '') if resources else ''
 
-                # Usar severity_id directo. Si falta, default MEDIUM (3)
-                severidad_id = item.get('severity_id', 3)
+                # Mapear severity text a ID (OCSF puede devolver 'high', 'medium', 'critical', 'low')
+                severity_text = str(item.get('severity_id', item.get('severity', 'medium'))).lower()
+                severidad_id = severidad_map.get(severity_text, 3)
                 
                 # Usar parser para extraer datos correctamente
                 parsed = ProwlerDataExtractor.parse_prowler_item(item)
@@ -1518,5 +1520,3 @@ class Proyecto:
         cursor.close()
         conn.close()
         return servicios
-
-   
