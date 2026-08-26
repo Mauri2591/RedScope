@@ -1681,15 +1681,25 @@ function iniciarPollingOSINT(ejecucionId) {
                 terminal.textContent = output;
                 terminal.scrollTop = terminal.scrollHeight;
 
-                // Actualizar tabla
-cargarEjecucionesOSINT();
+                // ✅ Actualizar tabla SIEMPRE
+                cargarEjecucionesOSINT();
+
                 if (status.estado === 'COMPLETED' || status.estado === 'FAILED') {
                     clearInterval(interval);
                     const terminalBox = document.querySelector('.borde-terminal-salida');
                     if (terminalBox) terminalBox.classList.remove('borde-terminal-running');
+                    
+                    // ✅ AGREGADO: Actualizar resultados finales
+                    cargarResultadosOSINT();
+                }
+            })
+            .catch(err => {
+                console.error('[OSINT POLLING ERROR]', err);
+                if (terminal) {
+                    terminal.textContent += '\n[ERROR EN POLLING] ' + err.message;
                 }
             });
-    }, 500);
+    }, 2000);
 }
 
 function ejecutar_todos_osint() {
