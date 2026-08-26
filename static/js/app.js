@@ -706,7 +706,7 @@
     // ← AGREGAR AQUÍ:
     async function cargarFindingsImportados(proyectoId) {
         try {
-            const response = await fetch(`/proyecto/${proyectoId}/cloud/import-findings/lista`);
+            const response = await fetch(BASE_PATH+`/proyecto/${proyectoId}/cloud/import-findings/lista`);
             const data = await response.json();
 
             const tbody = document.querySelector("#tablaImportados tbody");
