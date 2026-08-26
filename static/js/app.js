@@ -682,20 +682,20 @@
         const proyectoId = document
             .getElementById("cloudWorkspace")
             .dataset.proyectoId;
-        window.location.href = `/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}/hallazgos`;
+        window.location.href =  BASE_PATH + `/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}/hallazgos`;
     }
 
 
     function descargarDocAws(id, tipo) {
-        window.location.href = `/proyecto/${id}/export/docx/aws/${tipo}`;
+        window.location.href =  BASE_PATH + `/proyecto/${id}/export/docx/aws/${tipo}`;
     }
 
     function descargarXlsxAws(id) {
-        window.location.href = `/proyecto/${id}/export/xlsx/aws`;
+        window.location.href =  BASE_PATH + `/proyecto/${id}/export/xlsx/aws`;
     }
 
     function descargarDocOsint(id, tipo) {
-        window.location.href = `/proyecto/${id}/export/docx/osint/${tipo}`;
+        window.location.href =  BASE_PATH + `/proyecto/${id}/export/docx/osint/${tipo}`;
     }
     
 
@@ -1352,7 +1352,7 @@
     });
 
     function verHallazgosImportados(proyectoId, herramienta) {
-        window.location.href = `/proyecto/${proyectoId}/cloud/importados/${herramienta}/hallazgos`;
+        window.location.href = BASE_PATH + `/proyecto/${proyectoId}/cloud/importados/${herramienta}/hallazgos`;
     }
 
 
