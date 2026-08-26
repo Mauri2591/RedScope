@@ -16,7 +16,6 @@ import dns.exception
 # HELPERS GLOBALES OSINT
 # ══════════════════════════════════════════════════════════════════
 
-
 def _get_severidad_por_confianza(confianza_score):
     """
     Mapea confianza (0-100) a severidad de BD.
@@ -39,12 +38,10 @@ def _get_severidad_por_confianza(confianza_score):
         score_normalizado = (confianza_score / 100) * 10
 
         # Ordenar por score
-        severidades_sorted = sorted(
-            severidades, key=lambda x: x.get('score', 0))
+        severidades_sorted = sorted(severidades, key=lambda x: x.get('score', 0))
 
         # Buscar severidad cuyo score sea <= score_normalizado
-        # Comienza con la más baja
-        severidad_seleccionada = severidades_sorted[0]
+        severidad_seleccionada = severidades_sorted[0]  # Comienza con la más baja
         for sev in severidades_sorted:
             if sev.get('score', 0) <= score_normalizado:
                 severidad_seleccionada = sev
@@ -55,13 +52,11 @@ def _get_severidad_por_confianza(confianza_score):
         print(f"[severidad] Error: {e}")
         return None
 
-
 def _parse_multiline_config(value):
     """Limpia y parsea valores multilinea de configuración"""
     if not value:
         return []
     return [item.strip() for item in value.replace('\r\n', '\n').split('\n') if item.strip()]
-
 
 def _find_gau_path():
     """Busca el ejecutable 'gau' en múltiples ubicaciones"""
@@ -91,7 +86,6 @@ def _find_gau_path():
 
     return None
 
-
 def _run_osint_job(ejecucion_id, fn):
     """Wrapper para todos los jobs OSINT."""
     try:
@@ -106,7 +100,6 @@ def _run_osint_job(ejecucion_id, fn):
 # HELPERS DNS MEJORADO (Multi-Resolver)
 # ══════════════════════════════════════════════════════════════════
 
-
 # IPs de resolvers DNS públicos a filtrar (no son del objetivo)
 PUBLIC_DNS_IPS = {
     '8.8.8.8', '8.8.4.4',  # Google
@@ -117,7 +110,6 @@ PUBLIC_DNS_IPS = {
     '1.8.8.8', '64.6.64.6', '64.6.65.6',  # Verisign
     '9.9.9.10',  # Quad9 sin filtro
 }
-
 
 def _resolve_domain_multi_resolver(domain):
     """
@@ -296,8 +288,7 @@ def _geolocate_ip(ip):
         print(f"[geo] ipapi.co fallo para {ip}: {str(e)[:60]}")
 
     try:
-        result = subprocess.run(['geoiplookup', ip],
-                                capture_output=True, text=True, timeout=2)
+        result = subprocess.run(['geoiplookup', ip], capture_output=True, text=True, timeout=2)
         if result.returncode == 0 and result.stdout:
             parts = result.stdout.strip().split(',')
             return {
@@ -313,8 +304,7 @@ def _geolocate_ip(ip):
         print(f"[geo] geoiplookup fallo para {ip}: {str(e)[:60]}")
 
     try:
-        result = subprocess.run(
-            ['whois', ip], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(['whois', ip], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
             geo = {
                 'pais': 'unknown',
@@ -354,11 +344,9 @@ def _geolocate_ip(ip):
                 for addr in address_lines:
                     if geo['ciudad'] == 'unknown':
                         if '(' in addr and '-' in addr:
-                            parts = [p.strip()
-                                     for p in addr.split('-') if p.strip()]
+                            parts = [p.strip() for p in addr.split('-') if p.strip()]
                             if parts:
-                                candidate = parts[-1] if len(
-                                    parts) > 1 else parts[0]
+                                candidate = parts[-1] if len(parts) > 1 else parts[0]
                                 if '(' in candidate:
                                     candidate = candidate.split('(')[0].strip()
                                 if candidate and len(candidate) > 2 and not any(c.isdigit() for c in candidate[:3]):
@@ -395,7 +383,7 @@ def _reverse_dns_multi_resolver(ip):
         ('9.9.9.9', 'Quad9'),
         ('208.67.222.222', 'OpenDNS'),
     ]
-
+ 
     try:
         for resolver_ip, resolver_name in resolvers:
             for attempt in range(3):
@@ -406,8 +394,7 @@ def _reverse_dns_multi_resolver(ip):
                     resolver.lifetime = resolver.timeout
                     rev_name = dns.reversename.from_address(ip)
                     answers = resolver.resolve(rev_name, 'PTR')
-                    reverses_by_resolver[resolver_name] = [
-                        str(rdata).rstrip('.') for rdata in answers]
+                    reverses_by_resolver[resolver_name] = [str(rdata).rstrip('.') for rdata in answers]
                     break
                 except dns.exception.Timeout:
                     pass
@@ -417,10 +404,9 @@ def _reverse_dns_multi_resolver(ip):
                     pass
     except:
         pass
-
+ 
     try:
-        result = subprocess.run(
-            ['nslookup', ip], capture_output=True, text=True, timeout=10)
+        result = subprocess.run(['nslookup', ip], capture_output=True, text=True, timeout=10)
         for line in result.stdout.split('\n'):
             if 'name =' in line.lower():
                 hostname = line.split('=')[1].strip().rstrip('.')
@@ -429,15 +415,14 @@ def _reverse_dns_multi_resolver(ip):
                 break
     except:
         pass
-
+ 
     all_hostnames = set()
     for hostnames in reverses_by_resolver.values():
         if isinstance(hostnames, list):
             all_hostnames.update(hostnames)
-
-    all_hostnames = {h for h in all_hostnames if h and h !=
-                     'unknown' and not h.startswith('.')}
-
+ 
+    all_hostnames = {h for h in all_hostnames if h and h != 'unknown' and not h.startswith('.')}
+ 
     return {
         'hostnames': sorted(list(all_hostnames)),
         'by_resolver': reverses_by_resolver,
@@ -447,7 +432,6 @@ def _reverse_dns_multi_resolver(ip):
 # ══════════════════════════════════════════════════════════════════
 # HANDLERS OSINT
 # ══════════════════════════════════════════════════════════════════
-
 
 def discovery_subdominios(ejecucion_id, proyecto_id):
     """Descubrimiento de subdominios con subfinder
@@ -461,23 +445,19 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
     def job():
         # 1. Obtener scope: DOMINIO + SUBDOMINIO + SERVICIOS
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
-        todos_los_dominios = scope['dominio'] + \
-            scope['subdominio'] + scope['servicios']
+        todos_los_dominios = scope['dominio'] + scope['subdominio'] + scope['servicios']
 
         # 2. Fallback: Obtener dominios de mapeo_ips
         dominios_from_ips = []
         if not todos_los_dominios:
-            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
-                proyecto_id)
+            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
             todos_los_dominios = dominios_from_ips
 
         if not todos_los_dominios:
-            raise Exception(
-                "No hay dominios configurados (scope vacío y mapeo_ips sin resultados)")
+            raise Exception("No hay dominios configurados (scope vacío y mapeo_ips sin resultados)")
 
         subdominios = set()
-        print(
-            f"[discovery_subdominios] Escaneando {len(todos_los_dominios)} dominios con subfinder")
+        print(f"[discovery_subdominios] Escaneando {len(todos_los_dominios)} dominios con subfinder")
 
         for dom in sorted(todos_los_dominios):
             try:
@@ -518,7 +498,6 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
 
     _run_osint_job(ejecucion_id, job)
 
-
 def enumeracion_servicios(ejecucion_id, proyecto_id):
     """Enumeración de servicios con nmap - usa puertos de BD
 
@@ -533,46 +512,36 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
         dominio_config = config.get('DOMINIO', '').strip()
 
         # 1. Obtener dominios del scope inicial (OPCIONAL)
-        dominios_scope = _parse_multiline_config(
-            dominio_config) if dominio_config else []
+        dominios_scope = _parse_multiline_config(dominio_config) if dominio_config else []
         if dominios_scope:
-            print(
-                f"[enumeracion_servicios] Dominios del scope encontrados: {dominios_scope}")
+            print(f"[enumeracion_servicios] Dominios del scope encontrados: {dominios_scope}")
         else:
             print(f"[enumeracion_servicios] Sin dominios configurados en DOMINIO")
 
         # 2. Fallback: Obtener dominios descubiertos por reverse DNS (mapeo_ips)
-        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
-            proyecto_id)
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
         if dominios_from_ips:
-            print(
-                f"[enumeracion_servicios] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
+            print(f"[enumeracion_servicios] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
 
         # 3. Fallback: Obtener subdominios descubiertos
-        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
-            proyecto_id)
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
         if subdominios_descubiertos:
-            print(
-                f"[enumeracion_servicios] Subdominios descubiertos: {len(subdominios_descubiertos)}")
+            print(f"[enumeracion_servicios] Subdominios descubiertos: {len(subdominios_descubiertos)}")
 
         # 4. Combinar todas las fuentes de dominios
-        todos_los_dominios = list(
-            set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
+        todos_los_dominios = list(set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
 
         # 5. Validar que hay dominios para escanear
         if not todos_los_dominios:
-            raise Exception(
-                "No hay dominios para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
+            raise Exception("No hay dominios para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
 
         servicios = []
         puertos_dict = OsintEjecucion.top_100_common_ports()
         if not puertos_dict:
-            puertos_dict = {'80': 'http', '443': 'https',
-                            '22': 'ssh', '3306': 'mysql'}
+            puertos_dict = {'80': 'http', '443': 'https', '22': 'ssh', '3306': 'mysql'}
 
         puertos_str = ','.join(puertos_dict.keys())
-        print(
-            f"[nmap] Escaneando {len(puertos_dict)} puertos comunes en {len(todos_los_dominios)} dominios")
+        print(f"[nmap] Escaneando {len(puertos_dict)} puertos comunes en {len(todos_los_dominios)} dominios")
 
         for dom in todos_los_dominios:
             try:
@@ -625,7 +594,6 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
 
     _run_osint_job(ejecucion_id, job)
 
-
 def mapeo_ips(ejecucion_id, proyecto_id):
     """
     Mapeo y resolución de IPs mejorado con múltiples resolvers DNS + Geolocalización.
@@ -650,12 +618,10 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         if ips_str:
             ips_configuradas = _parse_multiline_config(ips_str)
             # Filtrar IPs de resolvers DNS públicos
-            ips_configuradas_filtradas = [
-                ip for ip in ips_configuradas if ip not in PUBLIC_DNS_IPS]
+            ips_configuradas_filtradas = [ip for ip in ips_configuradas if ip not in PUBLIC_DNS_IPS]
             ips_a_analizar.update(ips_configuradas_filtradas)
             resolution_metadata['ips_configuradas'] = ips_configuradas_filtradas
-            print(
-                f"[mapeo_ips] IPs configuradas: {ips_configuradas_filtradas}")
+            print(f"[mapeo_ips] IPs configuradas: {ips_configuradas_filtradas}")
 
         # 2. Resolver dominios + subdominios del scope
         dominio = config.get('DOMINIO', '').strip() if config else ''
@@ -671,8 +637,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
         for dom in dominios_scope:
             try:
-                print(
-                    f"[mapeo_ips] Resolviendo {dom} con múltiples resolvers...")
+                print(f"[mapeo_ips] Resolviendo {dom} con múltiples resolvers...")
                 resolution_result = _resolve_domain_multi_resolver(dom)
 
                 ips_a_analizar.update(resolution_result['ips'])
@@ -684,35 +649,27 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
         # 2b. Resolver subdominios descubiertos (opcional)
         try:
-            subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
-                proyecto_id)
+            subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
             if subdominios_descubiertos and isinstance(subdominios_descubiertos, (list, tuple)):
-                print(
-                    f"[mapeo_ips] Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...")
+                print(f"[mapeo_ips] Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...")
                 for subdom in subdominios_descubiertos:
                     if not subdom:
                         continue
                     try:
-                        resolution_result = _resolve_domain_multi_resolver(
-                            subdom)
+                        resolution_result = _resolve_domain_multi_resolver(subdom)
                         if resolution_result and resolution_result.get('ips'):
                             ips_a_analizar.update(resolution_result['ips'])
                             resolution_metadata['dominios_resueltos'][subdom] = resolution_result['by_resolver']
-                            print(
-                                f"[mapeo_ips] {subdom} → {resolution_result['ips']}")
+                            print(f"[mapeo_ips] {subdom} → {resolution_result['ips']}")
                     except Exception as e:
-                        print(
-                            f"[mapeo_ips] Error en subdominio {subdom}: {str(e)[:60]}")
+                        print(f"[mapeo_ips] Error en subdominio {subdom}: {str(e)[:60]}")
         except AttributeError:
-            print(
-                f"[mapeo_ips] get_discovered_subdomains no disponible (primera ejecución)")
+            print(f"[mapeo_ips] get_discovered_subdomains no disponible (primera ejecución)")
         except Exception as e:
-            print(
-                f"[mapeo_ips] Error resolviendo subdominios descubiertos: {str(e)[:100]}")
+            print(f"[mapeo_ips] Error resolviendo subdominios descubiertos: {str(e)[:100]}")
 
         if not ips_a_analizar:
-            raise Exception(
-                "No hay IPs ni dominios configurados para analizar")
+            raise Exception("No hay IPs ni dominios configurados para analizar")
 
         print(f"[mapeo_ips] Total IPs a analizar: {len(ips_a_analizar)}")
 
@@ -729,8 +686,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                     ip_to_dominios[ip].add(dom)
 
         # Convertir sets a listas ordenadas
-        ip_to_dominios = {ip: sorted(list(doms))
-                          for ip, doms in ip_to_dominios.items()}
+        ip_to_dominios = {ip: sorted(list(doms)) for ip, doms in ip_to_dominios.items()}
 
         # Obtener dominio objetivo para validar hostnames
         dominio_objetivo = None
@@ -751,8 +707,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                 geo_data = _geolocate_ip(ip)
 
                 # ✨ NUEVO: Validar que el hostname pertenece al dominio objetivo
-                hostname_validation = _validate_hostname_belongs_to_domain(
-                    hostname, dominio_objetivo, ip)
+                hostname_validation = _validate_hostname_belongs_to_domain(hostname, dominio_objetivo, ip)
 
                 # Validar que sea una IP del objetivo
                 # Es válido si: tiene from_domains (fue resuelto desde un dominio scope)
@@ -786,14 +741,11 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                         'hostname_validation': hostname_validation['razon'],
                         'geo': geo_data
                     })
-                    print(
-                        f"[mapeo_ips] ✓ {ip} ({hostname}) - {geo_data['pais']}, {geo_data['ciudad']} [VÁLIDO]")
-                    print(
-                        f"              Hostname info: {hostname_validation.get('razon', 'N/A')}")
+                    print(f"[mapeo_ips] ✓ {ip} ({hostname}) - {geo_data['pais']}, {geo_data['ciudad']} [VÁLIDO]")
+                    print(f"              Hostname info: {hostname_validation.get('razon', 'N/A')}")
                 else:
                     # IPs sin from_domains (no resueltas desde dominio scope)
-                    print(
-                        f"[mapeo_ips] ⊘ {ip} ({hostname}) - No fue resuelto desde dominio scope")
+                    print(f"[mapeo_ips] ⊘ {ip} ({hostname}) - No fue resuelto desde dominio scope")
 
             except Exception as e:
                 print(f"[mapeo_ips] Error analizando {ip}: {e}")
@@ -818,7 +770,6 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
     _run_osint_job(ejecucion_id, job)
 
-
 def recon_cloud(ejecucion_id, proyecto_id):
     """Reconocimiento MULTICLOUD de almacenamiento público
 
@@ -835,25 +786,21 @@ def recon_cloud(ejecucion_id, proyecto_id):
         dominio_scope = config.get('DOMINIO', '').strip() if config else ''
 
         # 1. Obtener dominios de configuración
-        dominios_config = _parse_multiline_config(
-            dominio_scope) if dominio_scope else []
+        dominios_config = _parse_multiline_config(dominio_scope) if dominio_scope else []
         if dominios_config:
             print(f"[recon_cloud] Dominios del scope: {dominios_config}")
         else:
             print(f"[recon_cloud] Sin DOMINIO configurado, buscando fallbacks...")
 
         # 2. FALLBACK: Dominios de mapeo_ips
-        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
-            proyecto_id) if not dominios_config else []
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id) if not dominios_config else []
         if dominios_from_ips:
             print(f"[recon_cloud] Dominios de mapeo_ips: {dominios_from_ips}")
 
         # 3. FALLBACK: Subdominios descubiertos
-        dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
-            proyecto_id)
+        dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
         if dominios_descubiertos:
-            print(
-                f"[recon_cloud] Subdominios descubiertos: {len(dominios_descubiertos)}")
+            print(f"[recon_cloud] Subdominios descubiertos: {len(dominios_descubiertos)}")
 
         dominios_principales = list(set(dominios_config + dominios_from_ips))
 
@@ -867,8 +814,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
             partes = primer_dominio.split('.')
             dominio_raiz = partes[0] if len(partes) >= 2 else primer_dominio
 
-        print(
-            f"[recon_cloud] MULTICLOUD: Buscando almacenamiento en {len(dominios_principales)} dominios")
+        print(f"[recon_cloud] MULTICLOUD: Buscando almacenamiento en {len(dominios_principales)} dominios")
         print(f"[recon_cloud] Proveedor raíz identificado: '{dominio_raiz}'")
 
         recursos = []
@@ -879,8 +825,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
         print(f"[recon_cloud] ════ AWS S3 ════")
         for dom in dominios_principales:
             candidatos_s3 = _generate_s3_candidates(dom)
-            print(
-                f"[recon_cloud] AWS: Probando {len(candidatos_s3)} candidatos S3 para {dom}...")
+            print(f"[recon_cloud] AWS: Probando {len(candidatos_s3)} candidatos S3 para {dom}...")
 
             for bucket in candidatos_s3:
                 resultado = _verify_s3_bucket(bucket, dom)
@@ -894,8 +839,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
         print(f"[recon_cloud] ════ Azure Blob Storage ════")
         for dom in dominios_principales:
             candidatos_azure = _generate_azure_candidates(dom)
-            print(
-                f"[recon_cloud] Azure: Probando {len(candidatos_azure)} candidatos para {dom}...")
+            print(f"[recon_cloud] Azure: Probando {len(candidatos_azure)} candidatos para {dom}...")
 
             for storage_account in candidatos_azure:
                 resultado = _verify_azure_blob(storage_account, dom)
@@ -909,8 +853,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
         print(f"[recon_cloud] ════ Google Cloud Storage ════")
         for dom in dominios_principales:
             candidatos_gcp = _generate_gcp_candidates(dom)
-            print(
-                f"[recon_cloud] GCP: Probando {len(candidatos_gcp)} candidatos para {dom}...")
+            print(f"[recon_cloud] GCP: Probando {len(candidatos_gcp)} candidatos para {dom}...")
 
             for bucket in candidatos_gcp:
                 resultado = _verify_gcp_bucket(bucket, dom)
@@ -1466,26 +1409,22 @@ def _check_bucket_anonymous_access(bucket_name):
 
         # ✅ returncode == 0 = Acceso público permitido
         if returncode == 0:
-            print(
-                f"[s3-anon] ✅ {bucket_name} - ACCESO ANÓNIMO CONFIRMADO (aws s3 ls devolvió 0)")
+            print(f"[s3-anon] ✅ {bucket_name} - ACCESO ANÓNIMO CONFIRMADO (aws s3 ls devolvió 0)")
             return 'anónimo'  # ← BUCKET ABIERTO AL PÚBLICO
 
         # ❌ NoSuchBucket = El bucket no existe
         if 'nosuchbucket' in stderr or 'does not exist' in stderr:
-            print(
-                f"[s3-anon] ❌ {bucket_name} - El bucket no existe (NoSuchBucket)")
+            print(f"[s3-anon] ❌ {bucket_name} - El bucket no existe (NoSuchBucket)")
             return 'no_existe'
 
         # 🔒 Access Denied / AllAccessDisabled = Privado o restringido
         if 'accessdenied' in stderr or 'allaccessdisabled' in stderr or 'signaturemismatch' in stderr:
-            print(
-                f"[s3-anon] 🔒 {bucket_name} - Acceso denegado (bucket privado)")
+            print(f"[s3-anon] 🔒 {bucket_name} - Acceso denegado (bucket privado)")
             return 'privado'
 
         # ❓ Otros errores
         if returncode != 0:
-            print(
-                f"[s3-anon] ⚠️  {bucket_name} - Error: {result.stderr[:200]}")
+            print(f"[s3-anon] ⚠️  {bucket_name} - Error: {result.stderr[:200]}")
             return 'error'
 
         return 'desconocido'
@@ -1499,7 +1438,6 @@ def _check_bucket_anonymous_access(bucket_name):
     except Exception as e:
         print(f"[s3-anon] ⚠ {bucket_name} - Error: {str(e)[:200]}")
         return 'error'
-
 
 def _validate_bucket_domain_correlation(bucket_name, dominio):
     """
@@ -1541,8 +1479,7 @@ def _validate_bucket_domain_correlation(bucket_name, dominio):
                     validation['metodos_confirmados'].append('dns_cname')
                     validation['confianza'] += 50
                 else:
-                    print(
-                        f"[s3-correlation] ❌ DNS no apunta a S3. Apunta a: {dns_cname}")
+                    print(f"[s3-correlation] ❌ DNS no apunta a S3. Apunta a: {dns_cname}")
                     validation['evidencias']['dns_no_apunta_s3'] = True
             else:
                 print(f"[s3-correlation] ⚠️  No hay CNAME para {dominio}")
@@ -1554,8 +1491,7 @@ def _validate_bucket_domain_correlation(bucket_name, dominio):
         print(f"[s3-correlation] Método 2: Buscar referencias en contenido del bucket")
         try:
             content = subprocess.run(
-                ['curl', '-s',
-                    f'https://{bucket_name}.s3.amazonaws.com/', '--max-time', '10'],
+                ['curl', '-s', f'https://{bucket_name}.s3.amazonaws.com/', '--max-time', '10'],
                 capture_output=True,
                 text=True,
                 timeout=15
@@ -1565,8 +1501,7 @@ def _validate_bucket_domain_correlation(bucket_name, dominio):
             domain_parts = dominio.lower().split('.')
             keywords = [
                 dominio.lower(),
-                # Subdominio (ej: "ws" de "ws.ater.gob.ar")
-                domain_parts[0] if domain_parts else '',
+                domain_parts[0] if domain_parts else '',  # Subdominio (ej: "ws" de "ws.ater.gob.ar")
                 'ater', 'gob.ar', 'argentina', 'gobierno',
                 'entre rios', 'energia', 'tecnologia'
             ]
@@ -1578,14 +1513,12 @@ def _validate_bucket_domain_correlation(bucket_name, dominio):
                     found_keywords.append(keyword)
 
             if found_keywords:
-                print(
-                    f"[s3-correlation] ✅ Encontradas referencias: {found_keywords}")
+                print(f"[s3-correlation] ✅ Encontradas referencias: {found_keywords}")
                 validation['metodos_confirmados'].append('contenido_keywords')
                 validation['evidencias']['keywords_encontradas'] = found_keywords
                 validation['confianza'] += 30
             else:
-                print(
-                    f"[s3-correlation] ❌ No hay referencias a dominio/empresa en contenido")
+                print(f"[s3-correlation] ❌ No hay referencias a dominio/empresa en contenido")
                 validation['evidencias']['sin_keywords'] = True
         except Exception as e:
             print(f"[s3-correlation] Error consultando contenido: {e}")
@@ -1595,8 +1528,7 @@ def _validate_bucket_domain_correlation(bucket_name, dominio):
         try:
             # Intentar obtener tagging (si es público)
             tagging = subprocess.run(
-                ['curl', '-s',
-                    f'https://{bucket_name}.s3.amazonaws.com/?tagging', '--max-time', '5'],
+                ['curl', '-s', f'https://{bucket_name}.s3.amazonaws.com/?tagging', '--max-time', '5'],
                 capture_output=True,
                 text=True,
                 timeout=8
@@ -1638,8 +1570,7 @@ def _validate_bucket_domain_correlation(bucket_name, dominio):
                 # Verificar si es rango AWS (generalmente 52.*, 54.*, 35.*)
                 aws_ranges = ['52.', '54.', '35.', '176.', '177.']
                 if any(domain_ip.startswith(range_ip) for range_ip in aws_ranges):
-                    print(
-                        f"[s3-correlation] ⚠️  IP es rango AWS (pero no necesariamente S3)")
+                    print(f"[s3-correlation] ⚠️  IP es rango AWS (pero no necesariamente S3)")
                     validation['evidencias']['is_aws_ip'] = True
                 else:
                     print(f"[s3-correlation] ❌ IP NO es rango AWS")
@@ -1667,7 +1598,6 @@ def _validate_bucket_domain_correlation(bucket_name, dominio):
 
     return validation
 
-
 def _verify_bucket(bucket_name, dominio):
     """Verifica si un bucket existe y obtiene info + acceso anónimo
 
@@ -1686,8 +1616,7 @@ def _verify_bucket(bucket_name, dominio):
 
         # 2. Si HTTP devuelve 404, el bucket NO existe → No reportar
         if acceso_anonimo == 'no_existe':
-            print(
-                f"[s3-verify] {bucket_name} - No existe (HTTP 404) → IGNORAR")
+            print(f"[s3-verify] {bucket_name} - No existe (HTTP 404) → IGNORAR")
             return resultado
 
         # 3. NUEVO: Validar correlación entre bucket y dominio
@@ -1712,34 +1641,28 @@ def _verify_bucket(bucket_name, dominio):
             # 1. Confianza negativa (claro falso positivo)
             # 2. IP NO es AWS + confianza muy baja (bucket en otro servicio, no S3)
             if correlation['confianza'] < 0:
-                print(
-                    f"[s3-verify] ❌ {bucket_name} RECHAZADO: Confianza negativa ({correlation['confianza']}%) - FALSO POSITIVO")
+                print(f"[s3-verify] ❌ {bucket_name} RECHAZADO: Confianza negativa ({correlation['confianza']}%) - FALSO POSITIVO")
                 return resultado
 
             if correlation['evidencias'].get('not_aws_ip') and correlation['confianza'] < 50:
-                print(
-                    f"[s3-verify] ❌ {bucket_name} RECHAZADO: IP no-AWS ({correlation['evidencias'].get('domain_ip')}) + baja correlación ({correlation['confianza']}%) - FALSO POSITIVO")
+                print(f"[s3-verify] ❌ {bucket_name} RECHAZADO: IP no-AWS ({correlation['evidencias'].get('domain_ip')}) + baja correlación ({correlation['confianza']}%) - FALSO POSITIVO")
                 return resultado
 
             # ⭐ MEJORADO: HTTP 200 anónimo es evidencia REAL de que el bucket es accesible
             # Reducir threshold a 30% para buckets públicos (menos estricto)
             # Si alguien puede acceder sin credenciales, ES un hallazgo, aunque la correlación sea débil
             if correlation['confianza'] < 30:
-                print(
-                    f"[s3-verify] ⚠️  {bucket_name} abierto pero CORRELACIÓN MUY BAJA ({correlation['confianza']}%) → REPORTAR COMO HALLAZGO DÉBIL")
+                print(f"[s3-verify] ⚠️  {bucket_name} abierto pero CORRELACIÓN MUY BAJA ({correlation['confianza']}%) → REPORTAR COMO HALLAZGO DÉBIL")
                 # Igual lo reportamos pero con severidad más baja
                 # porque HTTP 200 anónimo es real
             elif correlation['confianza'] < 50:
-                print(
-                    f"[s3-verify] ⚠️  {bucket_name} abierto con BAJA CORRELACIÓN ({correlation['confianza']}%) → REPORTAR CON SEVERIDAD MEDIA")
+                print(f"[s3-verify] ⚠️  {bucket_name} abierto con BAJA CORRELACIÓN ({correlation['confianza']}%) → REPORTAR CON SEVERIDAD MEDIA")
 
             # Obtener severidad dinámica desde BD basada en confianza
             # ⭐ MEJORADO: Si correlación < 50%, usar nivel más bajo pero igual reportar
-            # Mínimo 30% para buckets públicos
-            confianza_ajustada = max(correlation['confianza'], 30)
+            confianza_ajustada = max(correlation['confianza'], 30)  # Mínimo 30% para buckets públicos
             severidad_obj = _get_severidad_por_confianza(confianza_ajustada)
-            severidad_nombre = severidad_obj.get(
-                'nombre') if severidad_obj else 'UNKNOWN'
+            severidad_nombre = severidad_obj.get('nombre') if severidad_obj else 'UNKNOWN'
             severidad_id = severidad_obj.get('id') if severidad_obj else None
 
             # Etiqueta de confianza para legibilidad
@@ -1750,8 +1673,7 @@ def _verify_bucket(bucket_name, dominio):
             else:
                 confianza_label = 'BAJA'
 
-            print(
-                f"[s3-verify] ✅ REPORTAR: {bucket_name} (acceso=abierto, confianza={correlation['confianza']}%, severidad={severidad_nombre})")
+            print(f"[s3-verify] ✅ REPORTAR: {bucket_name} (acceso=abierto, confianza={correlation['confianza']}%, severidad={severidad_nombre})")
 
             # ⭐ NUEVO: Generar comandos POC para explotar el bucket
             poc_commands = {
@@ -1768,31 +1690,24 @@ def _verify_bucket(bucket_name, dominio):
                 'acceso': 'anónimo_abierto',  # ← CRÍTICO: ACCESO PÚBLICO
                 'acceso_anonimo': acceso_anonimo,
                 'estado': 'existe',
-                # ← NUEVO
-                'correlacion_validada': correlation['es_correlacionado'],
-                # ← NUEVO (0-100)
-                'confianza_correlacion': correlation['confianza'],
-                # ← NUEVO (ALTA/MEDIA/BAJA)
-                'confianza_label': confianza_label,
-                # ← NUEVO
-                'metodos_confirmados': correlation['metodos_confirmados'],
+                'correlacion_validada': correlation['es_correlacionado'],  # ← NUEVO
+                'confianza_correlacion': correlation['confianza'],  # ← NUEVO (0-100)
+                'confianza_label': confianza_label,  # ← NUEVO (ALTA/MEDIA/BAJA)
+                'metodos_confirmados': correlation['metodos_confirmados'],  # ← NUEVO
                 'evidencias': correlation['evidencias'],  # ← NUEVO (detalles)
-                # ← NUEVO (descripción)
-                'razon_correlacion': correlation['razon'],
+                'razon_correlacion': correlation['razon'],  # ← NUEVO (descripción)
                 'severidad_id': severidad_id,  # ← NUEVO: ID de severidad desde BD
                 'severidad': severidad_nombre,  # ← MEJORADO: Dinámico desde BD
                 'poc_commands': poc_commands  # ⭐ NUEVO: Comandos para explotar el bucket
             })
         elif result.returncode == 0:
             # Acceso con credenciales AWS (BAJO VALOR - No reportar)
-            print(
-                f"[s3-verify] ℹ️  {bucket_name} requiere auth → NO REPORTAR (bajo valor)")
+            print(f"[s3-verify] ℹ️  {bucket_name} requiere auth → NO REPORTAR (bajo valor)")
             return resultado
 
         elif 'NoSuchBucket' not in result.stderr:
             # Existe pero está privado (MÍNIMO VALOR - No reportar)
-            print(
-                f"[s3-verify] ℹ️  {bucket_name} privado → NO REPORTAR (sin acceso)")
+            print(f"[s3-verify] ℹ️  {bucket_name} privado → NO REPORTAR (sin acceso)")
             return resultado
 
     except subprocess.TimeoutExpired:
@@ -1802,7 +1717,6 @@ def _verify_bucket(bucket_name, dominio):
 
     return resultado
 
-
 def escaneo_repositorios(ejecucion_id, proyecto_id):
     """Búsqueda de secretos en repositorios públicos con fallback automático"""
     def job():
@@ -1810,42 +1724,32 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
         dominio_scope = config.get('DOMINIO', '').strip() if config else ''
 
         # 1. Obtener dominios de configuración inicial (OPCIONAL)
-        dominios_config = _parse_multiline_config(
-            dominio_scope) if dominio_scope else []
+        dominios_config = _parse_multiline_config(dominio_scope) if dominio_scope else []
         if dominios_config:
-            print(
-                f"[escaneo_repositorios] Dominios del scope: {dominios_config}")
+            print(f"[escaneo_repositorios] Dominios del scope: {dominios_config}")
         else:
-            print(
-                f"[escaneo_repositorios] Sin DOMINIO configurado, buscando fallbacks...")
+            print(f"[escaneo_repositorios] Sin DOMINIO configurado, buscando fallbacks...")
 
         # 2. FALLBACK 1: Dominios válidos de mapeo_ips (si DOMINIO vacío)
-        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
-            proyecto_id) if not dominios_config else []
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id) if not dominios_config else []
         if dominios_from_ips:
-            print(
-                f"[escaneo_repositorios] Dominios de mapeo_ips: {dominios_from_ips}")
+            print(f"[escaneo_repositorios] Dominios de mapeo_ips: {dominios_from_ips}")
 
         # 3. Subdominios descubiertos (solo para información, NO para búsqueda en GitHub)
         # Los subdominios son internos - GitHub indexa código, no subdominios específicos
-        dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
-            proyecto_id)
+        dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
         if dominios_descubiertos:
-            print(
-                f"[escaneo_repositorios] Subdominios descubiertos (solo info): {len(dominios_descubiertos)}")
+            print(f"[escaneo_repositorios] Subdominios descubiertos (solo info): {len(dominios_descubiertos)}")
 
         # 4. Buscar SOLO dominios raíz (config + mapeo_ips)
         # NO incluir subdominios descubiertos (evita falsos positivos masivos)
         dominios_para_buscar = list(set(dominios_config + dominios_from_ips))
 
         if not dominios_para_buscar:
-            raise Exception(
-                "No hay dominios raíz para escanear (DOMINIO vacío, mapeo_ips sin resultados)")
+            raise Exception("No hay dominios raíz para escanear (DOMINIO vacío, mapeo_ips sin resultados)")
 
-        print(
-            f"[escaneo_repositorios] Dominios raíz a buscar: {len(dominios_para_buscar)}")
-        print(
-            f"[escaneo_repositorios] Subdominios descubiertos (solo info): {len(dominios_descubiertos)}")
+        print(f"[escaneo_repositorios] Dominios raíz a buscar: {len(dominios_para_buscar)}")
+        print(f"[escaneo_repositorios] Subdominios descubiertos (solo info): {len(dominios_descubiertos)}")
 
         hallazgos_raw = []
         for dom in dominios_para_buscar:
@@ -1856,8 +1760,7 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
             hallazgos_raw.extend(_search_trufflehog(dom))
 
         # Deduplicar y agrupar por repositorio (con filtro de relevancia)
-        hallazgos_dedup = _deduplicate_github_results(
-            hallazgos_raw, dominios_para_buscar)
+        hallazgos_dedup = _deduplicate_github_results(hallazgos_raw, dominios_para_buscar)
 
         return {
             "tipo": "escaneo_repositorios",
@@ -1890,8 +1793,7 @@ def _search_github(dominio):
         # Extrae el dominio base (sin www)
         dom_parts = dominio.split('.')
         if dom_parts[0].lower() == 'www' and len(dom_parts) > 2:
-            # www.ater.gob.ar → ater.gob.ar
-            domain_base = '.'.join(dom_parts[1:])
+            domain_base = '.'.join(dom_parts[1:])  # www.ater.gob.ar → ater.gob.ar
         else:
             domain_base = dominio
 
@@ -1909,8 +1811,7 @@ def _search_github(dominio):
             f'filename:config.json {keyword}',             # config.json
             f'filename:secrets.json {keyword}',            # secrets.json
             f'filename:credentials.json {keyword}',        # credentials.json
-            # Postman collections
-            f'filename:.postman_collection.json {keyword}',
+            f'filename:.postman_collection.json {keyword}',# Postman collections
             f'filename:docker-compose.yml {keyword}',      # docker-compose
 
             # 2. Búsquedas generales - Credenciales y secretos
@@ -1944,29 +1845,23 @@ def _search_github(dominio):
             f'"{keyword}apps"',                            # aterapps
             f'"{keyword}-api"',                            # ater-api
             f'"customer-{keyword}"',                       # customer-ater
-            # ater-api (sin comillas)
-            f'{keyword}-api',
-            # customer-ater (sin comillas)
-            f'customer-{keyword}',
+            f'{keyword}-api',                              # ater-api (sin comillas)
+            f'customer-{keyword}',                         # customer-ater (sin comillas)
 
             # 4. Búsquedas por dominio COMPLETO + palabras sensibles
             f'"{domain_base}"',                            # "ater.gob.ar"
-            # "ater.gob.ar" secret
-            f'"{domain_base}" secret',
-            # "ater.gob.ar" password
-            f'"{domain_base}" password',
-            # "ater.gob.ar" token
-            f'"{domain_base}" token',
+            f'"{domain_base}" secret',                     # "ater.gob.ar" secret
+            f'"{domain_base}" password',                   # "ater.gob.ar" password
+            f'"{domain_base}" token',                      # "ater.gob.ar" token
             f'"{domain_base}" api',                        # "ater.gob.ar" api
-            # "ater.gob.ar" credentials
-            f'"{domain_base}" credentials',
+            f'"{domain_base}" credentials',                # "ater.gob.ar" credentials
         ]
 
         for search_query in searches:
             try:
                 # URL encode la query
                 encoded_query = urllib.parse.quote(search_query)
-
+                
                 result = subprocess.run(
                     ['curl', '-s', '-H', f'Authorization: token {GITHUB_TOKEN}',
                      f'https://api.github.com/search/code?q={encoded_query}&per_page=10'],
@@ -2038,24 +1933,20 @@ def _deduplicate_github_results(hallazgos_raw, dominio=''):
     domain_variants = set()
     if dominio:
         domain_variants = _generate_domain_variants(dominio)
-        print(
-            f"[github] Variantes de dominio (ANTES): {sorted(domain_variants)}")
+        print(f"[github] Variantes de dominio (ANTES): {sorted(domain_variants)}")
 
         # ✅ ARREGLO 2: Remover palabras cortas que causan falsos positivos
         # Mantener solo variantes que:
         # - Contienen un punto (son dominios con múltiples partes)
         # - O tienen más de 3 caracteres (como 'ater')
-        domain_variants = {
-            v for v in domain_variants if '.' in v or len(v) > 3}
-        print(
-            f"[github] Variantes de dominio (DESPUÉS): {sorted(domain_variants)}")
+        domain_variants = {v for v in domain_variants if '.' in v or len(v) > 3}
+        print(f"[github] Variantes de dominio (DESPUÉS): {sorted(domain_variants)}")
 
     for item in hallazgos_raw:
         if item.get('tipo') != 'github_repo':
             continue
 
-        repo = item.get('repo', '').replace(
-            '[', '').replace('](', '/').replace(')', '')
+        repo = item.get('repo', '').replace('[', '').replace('](', '/').replace(')', '')
         if not repo:
             continue
 
@@ -2102,13 +1993,11 @@ def _deduplicate_github_results(hallazgos_raw, dominio=''):
         repo_lower = repo.lower()
 
         # Variantes válidas exactas
-        valid_variants = ['aterapps', 'ater-api',
-                          'customer-ater', 'ater.gob.ar']
+        valid_variants = ['aterapps', 'ater-api', 'customer-ater', 'ater.gob.ar']
         is_valid = any(var in repo_lower for var in valid_variants)
 
         # Palabras que contienen "ater" pero no son ATER
-        false_positives = ['aternos', 'water', 'crater',
-                           'eater', 'eatery', 'beat', 'theatre']
+        false_positives = ['aternos', 'water', 'crater', 'eater', 'eatery', 'beat', 'theatre']
         is_false_positive = any(fp in repo_lower for fp in false_positives)
 
         # Clasificar
@@ -2137,7 +2026,6 @@ def _search_trufflehog(dominio):
     print(f"[osint] Búsqueda de secretos via GitHub API completada en _search_github")
     return []
 
-
 def analisis_dns(ejecucion_id, proyecto_id):
     """Análisis de registros DNS con dig
 
@@ -2151,18 +2039,15 @@ def analisis_dns(ejecucion_id, proyecto_id):
     def job():
         # 1. Obtener TODO el scope: DOMINIO + SUBDOMINIO + SERVICIOS
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
-        todos_los_dominios = scope['dominio'] + \
-            scope['subdominio'] + scope['servicios']
+        todos_los_dominios = scope['dominio'] + scope['subdominio'] + scope['servicios']
 
         # 2. SIEMPRE obtener subdominios descubiertos si existen (lógica INCLUSIVA)
-        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
-            proyecto_id)
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
         todos_los_dominios.extend(subdominios_descubiertos)
 
         # 3. Fallback: Si no hay nada, usar dominios de mapeo_ips
         if not todos_los_dominios:
-            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
-                proyecto_id)
+            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
             todos_los_dominios.extend(dominios_from_ips)
 
         if not todos_los_dominios:
@@ -2178,8 +2063,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
         tipos = ['A', 'MX', 'NS', 'TXT', 'SOA', 'CNAME']
 
         print(f"[analisis_dns] Analizando {len(todos_los_dominios)} dominios")
-        print(
-            f"  - Scope: {len(scope['dominio']) + len(scope['subdominio']) + len(scope['servicios'])}")
+        print(f"  - Scope: {len(scope['dominio']) + len(scope['subdominio']) + len(scope['servicios'])}")
         print(f"  - Discovery subdominios: {len(subdominios_descubiertos)}")
 
         for dom in todos_los_dominios:
@@ -2193,8 +2077,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
                         timeout=10
                     )
                     if result.stdout.strip():
-                        registros[dom][tipo] = result.stdout.strip().split(
-                            '\n')
+                        registros[dom][tipo] = result.stdout.strip().split('\n')
                 except Exception as e:
                     print(f"[dig] Error: {tipo} en {dom}: {e}")
 
@@ -2208,7 +2091,6 @@ def analisis_dns(ejecucion_id, proyecto_id):
 
     _run_osint_job(ejecucion_id, job)
 
-
 def busqueda_endpoints(ejecucion_id, proyecto_id):
     """Búsqueda de endpoints - múltiples estrategias (waybackurls, fuzzing, GitHub)
 
@@ -2221,15 +2103,13 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
         dominios_scope = OsintEjecucion.get_dominio_from_config(proyecto_id)
 
         # 2. SIEMPRE agregar subdominios descubiertos (lógica INCLUSIVA)
-        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
-            proyecto_id)
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
 
         todos_los_dominios = dominios_scope + subdominios_descubiertos
 
         # 3. Fallback: dominios de mapeo_ips si no hay nada
         if not todos_los_dominios:
-            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
-                proyecto_id)
+            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
             todos_los_dominios = dominios_from_ips
         else:
             dominios_from_ips = []
@@ -2241,8 +2121,7 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
             raise Exception("No hay dominios para buscar endpoints")
 
         endpoints = set()
-        print(
-            f"[busqueda_endpoints] Buscando endpoints en {len(todos_los_dominios)} dominios...")
+        print(f"[busqueda_endpoints] Buscando endpoints en {len(todos_los_dominios)} dominios...")
         print(f"  - Dominios scope: {len(dominios_scope)}")
         print(f"  - Subdominios descubiertos: {len(subdominios_descubiertos)}")
 
@@ -2285,8 +2164,7 @@ def _search_waybackurls(dominio):
             endpoints.update([url for url in urls if url])
             print(f"[waybackurls] Encontrados {len(endpoints)} endpoints")
     except FileNotFoundError:
-        print(
-            f"[waybackurls] No instalado (instalar: go install github.com/tomnomnom/waybackurls@latest)")
+        print(f"[waybackurls] No instalado (instalar: go install github.com/tomnomnom/waybackurls@latest)")
     except subprocess.TimeoutExpired:
         print(f"[waybackurls] Timeout")
     except Exception as e:
@@ -2324,8 +2202,7 @@ def _fuzz_common_endpoints(dominio):
         '/api/auth', '/api/login', '/api/token',
     ]
 
-    print(
-        f"[fuzzing] Probando {len(common_paths)} endpoints comunes en {dominio} (siguiendo redirects)...")
+    print(f"[fuzzing] Probando {len(common_paths)} endpoints comunes en {dominio} (siguiendo redirects)...")
 
     # Status codes que indican que el endpoint REALMENTE EXISTE (después de seguir redirects)
     # 200: OK, 401/403: Acceso denegado (pero existe), 405: Método no permitido
@@ -2350,8 +2227,7 @@ def _fuzz_common_endpoints(dominio):
                         # Capturar todas las líneas HTTP (para tomar la última)
                         parts = line.split()
                         if len(parts) >= 2:
-                            # Sobreescribe con la última
-                            status_code = parts[1]
+                            status_code = parts[1]  # Sobreescribe con la última
 
                 # Solo agregar si el status code FINAL indica que existe
                 # Ignora 404 (no existe) y 301/302 (redirect loop)
@@ -2366,8 +2242,7 @@ def _fuzz_common_endpoints(dominio):
         except:
             pass
 
-    print(
-        f"[fuzzing] Encontrados {len(endpoints)} endpoints accesibles (no 404)")
+    print(f"[fuzzing] Encontrados {len(endpoints)} endpoints accesibles (no 404)")
     return endpoints
 
 
@@ -2420,7 +2295,6 @@ def _search_github_endpoints(dominio):
 
     return endpoints
 
-
 def urls_historicas(ejecucion_id, proyecto_id):
     """Búsqueda de URLs históricas con GAU - múltiples fuentes públicas
 
@@ -2441,26 +2315,21 @@ def urls_historicas(ejecucion_id, proyecto_id):
         dominio_config = config.get('DOMINIO', '').strip()
 
         # 1. Obtener dominios del scope inicial (OPCIONAL)
-        dominios_scope = _parse_multiline_config(
-            dominio_config) if dominio_config else []
+        dominios_scope = _parse_multiline_config(dominio_config) if dominio_config else []
         if dominios_scope:
             print(f"[gau] Dominios del scope encontrados: {dominios_scope}")
         else:
             print(f"[gau] Sin dominios configurados en DOMINIO")
 
         # 2. Fallback: Obtener dominios descubiertos por reverse DNS (mapeo_ips)
-        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
-            proyecto_id)
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
         if dominios_from_ips:
-            print(
-                f"[gau] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
+            print(f"[gau] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
 
         # 3. Fallback: Obtener subdominios descubiertos
-        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
-            proyecto_id)
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
         if subdominios_descubiertos:
-            print(
-                f"[gau] Subdominios descubiertos: {len(subdominios_descubiertos)}")
+            print(f"[gau] Subdominios descubiertos: {len(subdominios_descubiertos)}")
 
         # 4. Obtener IPs válidas desde mapeo_ips
         ips_validas = _get_valid_ips_from_mapeo(proyecto_id)
@@ -2468,28 +2337,24 @@ def urls_historicas(ejecucion_id, proyecto_id):
             print(f"[gau] IPs válidas desde mapeo_ips: {ips_validas}")
 
         # 5. Combinar todas las fuentes de dominios
-        todos_los_dominios = list(
-            set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
+        todos_los_dominios = list(set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
 
         # 6. Validar que hay algo para escanear
         if not todos_los_dominios and not ips_validas:
-            raise Exception(
-                "No hay dominios ni IPs para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
+            raise Exception("No hay dominios ni IPs para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
 
         urls = set()
 
         # 7. Buscar URLs de dominios
         if todos_los_dominios:
-            print(
-                f"[gau] Buscando URLs históricas en {len(todos_los_dominios)} dominios...")
+            print(f"[gau] Buscando URLs históricas en {len(todos_los_dominios)} dominios...")
             for dom in todos_los_dominios:
                 print(f"[gau] Escaneando dominio: {dom}...")
                 urls.update(_search_gau(dom))
 
         # 8. Buscar URLs de IPs válidas
         if ips_validas:
-            print(
-                f"[gau] Buscando URLs históricas en {len(ips_validas)} IPs...")
+            print(f"[gau] Buscando URLs históricas en {len(ips_validas)} IPs...")
             for ip in ips_validas:
                 print(f"[gau] Escaneando IP: {ip}...")
                 urls.update(_search_gau(ip))
@@ -2514,71 +2379,67 @@ def urls_historicas(ejecucion_id, proyecto_id):
 def _get_valid_ips_from_mapeo(proyecto_id):
     """Obtiene IPs válidas (es_valido=true) del resultado de mapeo_ips"""
     try:
-        resultado = OsintEjecucion.get_latest_resultado(
-            proyecto_id, 'mapeo_ips')
+        resultado = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
         if not resultado:
             return []
 
         ips_success = resultado.get('ips_success', [])
-        ips = [ip_data['ip']
-               for ip_data in ips_success if ip_data.get('es_valido')]
+        ips = [ip_data['ip'] for ip_data in ips_success if ip_data.get('es_valido')]
         return ips
     except Exception as e:
         print(f"[mapeo_ips] Error obteniendo IPs válidas: {e}")
         return []
 
-
 def _filter_urls_by_extension(urls):
     """
     Filtra URLs descartando SOLO extensiones inútiles para pentest.
-
+    
     DESCARTA:
     - .gif, .png, .ico, .svg (iconos y gráficos)
     - .css, .js, .woff, .woff2, .ttf, .eot (recursos frontend)
-
+    
     MANTIENE TODO LO DEMÁS:
     - .jpg, .jpeg (imágenes para extraer metadatos)
     - .php, .html, .pdf, .doc, .docx, .xlsx, etc.
     - URLs sin extensión (directorios, APIs)
     - Cualquier otra cosa que NO esté en la lista de exclusión
     """
-
+    
     # SOLO extensiones INÚTILES para pentest
     EXCLUDE_EXTENSIONS = {
         '.gif', '.png', '.ico', '.svg',  # Imágenes que no aportan info
         '.css', '.js',                    # Código frontend
-        '.woff', '.woff2', '.ttf', '.eot'  # Fuentes
+        '.woff', '.woff2', '.ttf', '.eot' # Fuentes
     }
-
+    
     urls_filtradas = []
     descartadas = 0
-
+    
     for url in urls:
         if not url or not isinstance(url, str):
             continue
-
+            
         # Obtener extensión (ignorar parámetros GET)
         path = url.split('?')[0] if '?' in url else url
         path = path.split('#')[0] if '#' in path else path
-
+        
         # Obtener extensión
         import os
         _, ext = os.path.splitext(path)
         ext = ext.lower()
-
+        
         # Si está en la lista de EXCLUSIÓN → descartar
         if ext in EXCLUDE_EXTENSIONS:
             descartadas += 1
             continue
-
+        
         # Si NO está en EXCLUSIÓN → mantener (imágenes, php, pdf, etc.)
         urls_filtradas.append(url)
     print(f"[filter_urls] URLs originales: {len(urls)}")
     print(f"[filter_urls] URLs descartadas: {descartadas}")
-    print(f"[filter_urls] URLs finales: {len(urls_filtradas)}")
-
+    print(f"[filter_urls] URLs finales: {len(urls_filtradas)}")    
+    
     return urls_filtradas
-
 
 def _search_gau(target):
     """Busca URLs históricas usando GAU (múltiples fuentes)
@@ -2594,14 +2455,12 @@ def _search_gau(target):
         # Busca el comando gau
         gau_path = _find_gau_path()
         if not gau_path:
-            print(
-                f"[gau] No encontrado. Intenta: go install github.com/lc/gau/v2/cmd/gau@latest")
+            print(f"[gau] No encontrado. Intenta: go install github.com/lc/gau/v2/cmd/gau@latest")
             return urls
 
         # Ejecuta con filtros para evitar descargar archivos multimedia
         result = subprocess.run(
-            [gau_path, '--blacklist',
-                'jpg,jpeg,png,gif,svg,css,js,woff,woff2,ttf,eot', target],
+            [gau_path, '--blacklist', 'jpg,jpeg,png,gif,svg,css,js,woff,woff2,ttf,eot', target],
             capture_output=True,
             text=True,
             timeout=300
@@ -2610,26 +2469,22 @@ def _search_gau(target):
         if result.stdout:
             urls_raw = result.stdout.strip().split('\n')
             urls.update([url for url in urls_raw if url])
-            print(
-                f"[gau] Encontradas {len(urls)} URLs históricas para {target}")
-
+            print(f"[gau] Encontradas {len(urls)} URLs históricas para {target}")
+            
             # ✨ NUEVO: Filtrar extensiones inútiles
             urls_filtradas = set(_filter_urls_by_extension(list(urls)))
-            print(
-                f"[gau] Después de filtrado: {len(urls_filtradas)} URLs válidas")
-
+            print(f"[gau] Después de filtrado: {len(urls_filtradas)} URLs válidas")
+            
             return urls_filtradas
         else:
             print(f"[gau] No se encontraron URLs para {target}")
-
+            
     except subprocess.TimeoutExpired:
-        print(
-            f"[gau] Timeout para {target} (dominios muy grandes pueden tardar >5 min)")
+        print(f"[gau] Timeout para {target} (dominios muy grandes pueden tardar >5 min)")
     except Exception as e:
         print(f"[gau] Error en {target}: {e}")
 
     return urls
-
 
 def google_dorking(ejecucion_id, proyecto_id):
     """Google Dorking - búsquedas especializadas con resultados reales
@@ -2645,40 +2500,31 @@ def google_dorking(ejecucion_id, proyecto_id):
         dominio_config = config.get('DOMINIO', '').strip()
 
         # 1. Obtener dominios del scope inicial (OPCIONAL)
-        dominios_scope = _parse_multiline_config(
-            dominio_config) if dominio_config else []
+        dominios_scope = _parse_multiline_config(dominio_config) if dominio_config else []
         if dominios_scope:
-            print(
-                f"[google_dorking] Dominios del scope encontrados: {dominios_scope}")
+            print(f"[google_dorking] Dominios del scope encontrados: {dominios_scope}")
         else:
             print(f"[google_dorking] Sin dominios configurados en DOMINIO")
 
         # 2. Fallback: Obtener dominios descubiertos por reverse DNS (mapeo_ips)
-        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
-            proyecto_id)
+        dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(proyecto_id)
         if dominios_from_ips:
-            print(
-                f"[google_dorking] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
+            print(f"[google_dorking] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
 
         # 3. Fallback: Obtener subdominios descubiertos
-        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
-            proyecto_id)
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
         if subdominios_descubiertos:
-            print(
-                f"[google_dorking] Subdominios descubiertos: {len(subdominios_descubiertos)}")
+            print(f"[google_dorking] Subdominios descubiertos: {len(subdominios_descubiertos)}")
 
         # 4. Combinar todas las fuentes de dominios
-        todos_los_dominios = list(
-            set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
+        todos_los_dominios = list(set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
 
         # 5. Validar que hay dominios para escanear
         if not todos_los_dominios:
-            raise Exception(
-                "No hay dominios para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
+            raise Exception("No hay dominios para escanear (DOMINIO no configurado, mapeo_ips vacío y sin subdominios descubiertos)")
 
         resultados = []
-        print(
-            f"[google_dorking] Ejecutando dorks en {len(todos_los_dominios)} dominios...")
+        print(f"[google_dorking] Ejecutando dorks en {len(todos_los_dominios)} dominios...")
 
         for dom in todos_los_dominios:
             # Dorks comunes para encontrar información sensible
@@ -2727,8 +2573,7 @@ def _ejecutar_google_dork(dominio, dork_query):
         search_url = f'https://www.google.com/search?q={dork_query}'
 
         result = subprocess.run(
-            ['curl', '-s', '-H',
-                f'User-Agent: {headers["User-Agent"]}', search_url],
+            ['curl', '-s', '-H', f'User-Agent: {headers["User-Agent"]}', search_url],
             capture_output=True,
             text=True,
             timeout=10
