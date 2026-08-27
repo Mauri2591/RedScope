@@ -143,7 +143,7 @@
 
             // Llamada AJAX para traer acciones
             $.ajax({
-                url: BASE_PATH+`/cloud/acciones/${servicioId}`,
+                url: BASE_PATH + `/cloud/acciones/${servicioId}`,
                 type: 'GET',
                 success: function (response) {
 
@@ -261,7 +261,7 @@
 
 
     document.addEventListener("DOMContentLoaded", function () {
-        
+
 
         const authSwitch = document.getElementById("authSwitch");
         const roleSection = document.getElementById("roleSection");
@@ -295,7 +295,7 @@
         $('#formAltaProyecto').on('submit', function (e) {
             e.preventDefault();
             $.ajax({
-                url: BASE_PATH+"/proyecto/crear",
+                url: BASE_PATH + "/proyecto/crear",
                 type: "POST",
                 data: $(this).serialize(),
                 success: function (response) {
@@ -335,7 +335,7 @@
 
             $.ajax({
                 type: "POST",
-                url: BASE_PATH+`/proyecto/${proyectoId}/cloud-config`,
+                url: BASE_PATH + `/proyecto/${proyectoId}/cloud-config`,
                 data: $(this).serialize(),
                 dataType: "json",
                 success: function (response) {
@@ -414,7 +414,7 @@
             for (const opt of opciones.toArray()) {
                 await $.ajax({
                     type: 'POST',
-                    url: BASE_PATH+'/cloud/run-roles',
+                    url: BASE_PATH + '/cloud/run-roles',
                     contentType: 'application/json',
                     headers: {
                         'X-CSRFToken': csrfToken
@@ -442,7 +442,7 @@
 
             $.ajax({
                 type: "POST",
-                url: BASE_PATH+"/cloud/run-roles",
+                url: BASE_PATH + "/cloud/run-roles",
                 contentType: "application/json",
                 headers: {
                     "X-CSRFToken": csrfToken
@@ -485,7 +485,7 @@
 
         const interval = setInterval(async () => {
 
-            const response = await fetch(BASE_PATH+`/cloud/resultados/${proyectoId}`);
+            const response = await fetch(BASE_PATH + `/cloud/resultados/${proyectoId}`);
             if (!response.ok) return;
 
             const data = await response.json();
@@ -517,7 +517,7 @@
 
         $.ajax({
             type: "GET",
-            url: BASE_PATH+`/cloud/resultados/${proyectoId}`,
+            url: BASE_PATH + `/cloud/resultados/${proyectoId}`,
             success: function (response) {
 
                 if (!response.success) return;
@@ -555,7 +555,7 @@
         const container = document.getElementById('cloudWorkspace');
         const proyectoId = container.dataset.proyectoId;
 
-        const response = await fetch(BASE_PATH+`/cloud/resultados/${proyectoId}`);
+        const response = await fetch(BASE_PATH + `/cloud/resultados/${proyectoId}`);
 
         if (!response.ok) return;
 
@@ -682,22 +682,22 @@
         const proyectoId = document
             .getElementById("cloudWorkspace")
             .dataset.proyectoId;
-        window.location.href = BASE_PATH+`/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}/hallazgos`;
+        window.location.href = BASE_PATH + `/proyecto/${proyectoId}/cloud/ejecucion/${cloud_ejecuciones_id}/hallazgos`;
     }
 
 
     function descargarDocAws(id, tipo) {
-        window.location.href = BASE_PATH+`/proyecto/${id}/export/docx/aws/${tipo}`;
+        window.location.href = BASE_PATH + `/proyecto/${id}/export/docx/aws/${tipo}`;
     }
 
     function descargarXlsxAws(id) {
-        window.location.href = BASE_PATH+`/proyecto/${id}/export/xlsx/aws`;
+        window.location.href = BASE_PATH + `/proyecto/${id}/export/xlsx/aws`;
     }
 
     function descargarDocOsint(id, tipo) {
-        window.location.href = BASE_PATH+`/proyecto/${id}/export/docx/osint/${tipo}`;
+        window.location.href = BASE_PATH + `/proyecto/${id}/export/docx/osint/${tipo}`;
     }
-    
+
 
     function gestionarCheck(CLOUD_EJECUCION_ID) {
         alert(CLOUD_EJECUCION_ID)
@@ -706,7 +706,7 @@
     // ← AGREGAR AQUÍ:
     async function cargarFindingsImportados(proyectoId) {
         try {
-            const response = await fetch(BASE_PATH+`/proyecto/${proyectoId}/cloud/import-findings/lista`);
+            const response = await fetch(BASE_PATH + `/proyecto/${proyectoId}/cloud/import-findings/lista`);
             const data = await response.json();
 
             const tbody = document.querySelector("#tablaImportados tbody");
@@ -755,7 +755,7 @@
 
         try {
             const [findingRes, ruleRes_temp] = await Promise.all([
-                fetch(BASE_PATH+`/proyecto/finding/detail/${finding_id}`).then(r => r.json()),
+                fetch(BASE_PATH + `/proyecto/finding/detail/${finding_id}`).then(r => r.json()),
                 // ruleRes lo cargamos después de tener el check_id
             ]);
 
@@ -765,7 +765,7 @@
             const check_id = findingData.check_id;
 
             // Ahora cargamos la rule con el check_id real
-            const ruleRes = await fetch(BASE_PATH+`/proyecto/security-rule/${check_id}`).then(r => r.json());
+            const ruleRes = await fetch(BASE_PATH + `/proyecto/security-rule/${check_id}`).then(r => r.json());
 
             // Setear hiddens
             $("#check_id").val(check_id);
@@ -795,9 +795,9 @@
             // Referencias del finding importado (de referencias_data)
             if (findingData.referencias_data) {
                 try {
-                    const refsData = typeof findingData.referencias_data === 'string'
-                        ? JSON.parse(findingData.referencias_data)
-                        : findingData.referencias_data;
+                    const refsData = typeof findingData.referencias_data === 'string' ?
+                        JSON.parse(findingData.referencias_data) :
+                        findingData.referencias_data;
 
                     if (refsData.referencias && Array.isArray(refsData.referencias)) {
                         const refLinks = refsData.referencias.map(ref => `${ref.titulo}: ${ref.url}`).join('\n');
@@ -885,7 +885,7 @@
         const herramienta = match ? match[1] : null;
         console.log("[DEBUG] Herramienta extraída:", herramienta);
 
-        fetch(BASE_PATH+`/proyecto/finding/eliminar/${finding_id}`, {
+        fetch(BASE_PATH + `/proyecto/finding/eliminar/${finding_id}`, {
                 method: 'POST',
                 headers: {
                     "Content-Type": "application/json",
@@ -1087,7 +1087,7 @@
             .then(res => res.json())
             .then(res => {
                 const finding_id = res.finding_id;
-                return fetch(BASE_PATH+`/proyecto/finding/${finding_id}/verificar`, {
+                return fetch(BASE_PATH + `/proyecto/finding/${finding_id}/verificar`, {
                     method: "POST",
                     headers: {
                         "X-CSRFToken": getCSRFToken()
@@ -1163,7 +1163,7 @@
         const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
         // Traer todas las acciones
-        const res = await fetch(BASE_PATH+`/cloud/acciones/all/${proyectoId}`);
+        const res = await fetch(BASE_PATH + `/cloud/acciones/all/${proyectoId}`);
         const data = await res.json();
         if (!data.success || !data.acciones.length) {
             alert("No se encontraron acciones para ejecutar");
@@ -1307,7 +1307,7 @@
         const extensionesValidas = {
             "prowler_web": [".json"],
             "prowler_cli": [".json"],
-            "scoutsuite_cli": [".js", ".json"],  // ScoutSuite CLI exporta .js
+            "scoutsuite_cli": [".js", ".json"], // ScoutSuite CLI exporta .js
             "scoutsuite_web": [".json"]
         };
 
@@ -1327,7 +1327,7 @@
         };
         reader.readAsText(archivo);
 
-        fetch(BASE_PATH+`/proyecto/${proyectoId}/cloud/import-findings`, {
+        fetch(BASE_PATH + `/proyecto/${proyectoId}/cloud/import-findings`, {
                 method: "POST",
                 headers: {
                     "X-CSRFToken": $('meta[name="csrf-token"]').attr("content")
@@ -1352,7 +1352,7 @@
     });
 
     function verHallazgosImportados(proyectoId, herramienta) {
-        window.location.href = BASE_PATH+`/proyecto/${proyectoId}/cloud/importados/${herramienta}/hallazgos`;
+        window.location.href = BASE_PATH + `/proyecto/${proyectoId}/cloud/importados/${herramienta}/hallazgos`;
     }
 
 
@@ -1412,7 +1412,7 @@
         const match = urlPath.match(/importados\/([^/]+)/);
         const herramienta = match ? match[1] : null;
 
-        fetch(BASE_PATH+"/proyecto/findings/eliminar-masivo", {
+        fetch(BASE_PATH + "/proyecto/findings/eliminar-masivo", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -1434,7 +1434,7 @@
 
     function abrirFiltroMitre() {
         const proyectoId = document.getElementById('hallazgosWorkspace').dataset.proyectoId;
-        fetch(BASE_PATH+`/proyecto/${proyectoId}/cloud/mitre-tecnicas`)
+        fetch(BASE_PATH + `/proyecto/${proyectoId}/cloud/mitre-tecnicas`)
             .then(r => r.json())
             .then(data => {
                 mitreTecnicas = data;
@@ -1482,7 +1482,7 @@
         document.getElementById('contenedorResultadosMitre').style.display = 'none';
         document.getElementById('sinResultadosMitre').style.display = 'none';
 
-        fetch(BASE_PATH+`/proyecto/${proyectoId}/cloud/mitre-findings/${tecnica}`)
+        fetch(BASE_PATH + `/proyecto/${proyectoId}/cloud/mitre-findings/${tecnica}`)
             .then(r => r.json())
             .then(data => {
                 const tbody = document.getElementById('tbodyMitreFindings');
@@ -1513,7 +1513,7 @@
     }
 
 
-    
+
     // ===============================
     // OSINT CONFIGURATION
     // ===============================
@@ -1525,23 +1525,37 @@
 
             try {
                 console.log("Fetching /osint/config-tipos");
-                const response = await fetch('/osint/config-tipos', {
+                const response = await fetch(BASE_PATH + '/osint/config-tipos', {
                     credentials: 'include'
                 });
-                console.log("Response status:", response.status);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
 
                 const tipos = await response.json();
                 console.log("Tipos recibidos:", tipos);
 
+                if (!Array.isArray(tipos) || tipos.length === 0) {
+                    container.innerHTML = '<div class="alert alert-warning">No hay tipos de configuración disponibles</div>';
+                    return;
+                }
+
                 container.innerHTML = tipos.map(tipo => {
                     return `<div class="mb-3">
-                        <label for="config_${tipo.id}" class="form-label"><strong>${tipo.nombre}</strong><br><small class="text-muted">${tipo.descripcion}</small></label>
-                        <textarea class="form-control" id="config_${tipo.id}" name="${tipo.id}" rows="2" placeholder="${tipo.placeholder}"></textarea>
-                        </div>`;
+                    <label for="config_${tipo.id}" class="form-label">
+                        <strong>${tipo.nombre}</strong><br>
+                        <small class="text-muted">${tipo.descripcion}</small>
+                    </label>
+                    <textarea class="form-control" id="config_${tipo.id}" name="${tipo.id}" rows="2" placeholder="${tipo.placeholder || ''}"></textarea>
+                </div>`;
                 }).join('');
             } catch (err) {
                 console.error("Error cargando config tipos:", err);
-                container.innerHTML = '<div class="alert alert-danger">Error: ' + err.message + '</div>';
+                container.innerHTML = `<div class="alert alert-danger">
+                <strong>Error:</strong> ${err.message}<br>
+                <small>Endpoint: /osint/config-tipos</small>
+            </div>`;
             }
         });
     } else {
@@ -1565,7 +1579,7 @@
             const proyectoId = document.getElementById('osint_proyecto_id').value;
             const formData = new FormData(this);
 
-            fetch(BASE_PATH+`/proyecto/${proyectoId}/osint-config`, {
+            fetch(BASE_PATH + `/proyecto/${proyectoId}/osint-config`, {
                     method: "POST",
                     headers: {
                         "X-CSRFToken": getCSRFToken()
@@ -1589,153 +1603,153 @@
 
 
     // ===============================
-// OSINT - EJECUTAR SERVICIOS
-// ===============================
-$(document).on('click', '.btn-servicio-osint', function (e) {
-    e.preventDefault();
-    
-    const servicioId = $(this).val();
-    const servicioNombre = $(this).text().trim();
-    
-    if (!confirm(`¿Ejecutar "${servicioNombre}"?`)) return;
-    
-    ejecutar_osint(servicioId, servicioNombre);
-});
+    // OSINT - EJECUTAR SERVICIOS
+    // ===============================
+    $(document).on('click', '.btn-servicio-osint', function (e) {
+        e.preventDefault();
 
-function ejecutar_osint(servicioId, nombreServicio) {
-    const hallazgosEl = document.getElementById('hallazgosWorkspace');
-    if (!hallazgosEl) return;
+        const servicioId = $(this).val();
+        const servicioNombre = $(this).text().trim();
 
-    const proyectoId = hallazgosEl.dataset.proyectoId;
-    const terminal = document.getElementById('terminalOSINT');
+        if (!confirm(`¿Ejecutar "${servicioNombre}"?`)) return;
 
-    fetch('/osint/run', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': getCSRFToken()
-        },
-        body: JSON.stringify({
-            proyecto_id: proyectoId,
-            servicio_osint_id: servicioId
-        })
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            mostrarToast();
-
-            if (terminal) {
-                terminal.textContent = `[${new Date().toLocaleTimeString()}] Iniciando: ${nombreServicio}\n`;
-                terminal.textContent += 'Ejecutando...\n';
-            }
-
-            const terminalBox = document.querySelector('.borde-terminal-salida');
-            if (terminalBox) terminalBox.classList.add('borde-terminal-running');
-
-            iniciarPollingOSINT(data.ejecucion_id);
-        } else {
-            alert("Error: " + data.message);
-        }
+        ejecutar_osint(servicioId, servicioNombre);
     });
-}
 
-function iniciarPollingOSINT(ejecucionId) {
-    let ultimoResultado = '';
-    const terminal = document.getElementById('terminalOSINT');
+    function ejecutar_osint(servicioId, nombreServicio) {
+        const hallazgosEl = document.getElementById('hallazgosWorkspace');
+        if (!hallazgosEl) return;
 
-    const interval = setInterval(() => {
-        fetch(BASE_PATH+`/osint/status/${ejecucionId}`)
-            .then(r => r.json())
-            .then(status => {
-                if (!terminal) return;
+        const proyectoId = hallazgosEl.dataset.proyectoId;
+        const terminal = document.getElementById('terminalOSINT');
 
-                let output = '';
-
-                // Estado general
-                output += `Estado: ${status.estado}\n`;
-                output += `Fecha Inicio: ${status.fecha_inicio || 'N/A'}\n`;
-                if (status.fecha_fin) output += `Fecha Fin: ${status.fecha_fin}\n`;
-                output += '═'.repeat(50) + '\n\n';
-
-                // Mostrar resultado
-                if (status.resultado) {
-                    try {
-                        const resultado = JSON.parse(status.resultado);
-                        output += JSON.stringify(resultado, null, 2);
-                        ultimoResultado = status.resultado;
-                    } catch {
-                        output += status.resultado;
-                        ultimoResultado = status.resultado;
-                    }
-                } else {
-                    output += 'Cargando...';
-                }
-
-                // Mostrar error si existe
-                if (status.error) {
-                    output += '\n\n ERROR:\n';
-                    output += status.error;
-                }
-
-                terminal.textContent = output;
-                terminal.scrollTop = terminal.scrollHeight;
-
-                // ✅ Actualizar tabla SIEMPRE
-                cargarEjecucionesOSINT();
-
-                if (status.estado === 'COMPLETED' || status.estado === 'FAILED') {
-                    clearInterval(interval);
-                    const terminalBox = document.querySelector('.borde-terminal-salida');
-                    if (terminalBox) terminalBox.classList.remove('borde-terminal-running');
-                    
-                    // ✅ AGREGADO: Actualizar resultados finales
-                    cargarResultadosOSINT();
-                }
+        fetch('/osint/run', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                body: JSON.stringify({
+                    proyecto_id: proyectoId,
+                    servicio_osint_id: servicioId
+                })
             })
-            .catch(err => {
-                console.error('[OSINT POLLING ERROR]', err);
-                if (terminal) {
-                    terminal.textContent += '\n[ERROR EN POLLING] ' + err.message;
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    mostrarToast();
+
+                    if (terminal) {
+                        terminal.textContent = `[${new Date().toLocaleTimeString()}] Iniciando: ${nombreServicio}\n`;
+                        terminal.textContent += 'Ejecutando...\n';
+                    }
+
+                    const terminalBox = document.querySelector('.borde-terminal-salida');
+                    if (terminalBox) terminalBox.classList.add('borde-terminal-running');
+
+                    iniciarPollingOSINT(data.ejecucion_id);
+                } else {
+                    alert("Error: " + data.message);
                 }
             });
-    }, 2000);
-}
+    }
 
-function ejecutar_todos_osint() {
-    if (!confirm("¿Desea ejecutar todos los Servicios OSINT?")) return;
-    document.querySelectorAll('.btn-servicio-osint').forEach(btn => btn.click());
-}
+    function iniciarPollingOSINT(ejecucionId) {
+        let ultimoResultado = '';
+        const terminal = document.getElementById('terminalOSINT');
 
-async function cargarEjecucionesOSINT() {
-    const hallazgosEl = document.getElementById('hallazgosWorkspace');
-    if (!hallazgosEl) return;
+        const interval = setInterval(() => {
+            fetch(BASE_PATH + `/osint/status/${ejecucionId}`)
+                .then(r => r.json())
+                .then(status => {
+                    if (!terminal) return;
 
-    const proyectoId = hallazgosEl.dataset.proyectoId;
-    const tbody = document.querySelector('#tablaEscaneos tbody');
-    if (!tbody) return;
+                    let output = '';
 
-    try {
-        const response = await fetch(BASE_PATH+`/osint/ejecuciones/${proyectoId}`);
-        const ejecuciones = await response.json();
+                    // Estado general
+                    output += `Estado: ${status.estado}\n`;
+                    output += `Fecha Inicio: ${status.fecha_inicio || 'N/A'}\n`;
+                    if (status.fecha_fin) output += `Fecha Fin: ${status.fecha_fin}\n`;
+                    output += '═'.repeat(50) + '\n\n';
 
-        let html = '';
-        let hayRunning = false;
+                    // Mostrar resultado
+                    if (status.resultado) {
+                        try {
+                            const resultado = JSON.parse(status.resultado);
+                            output += JSON.stringify(resultado, null, 2);
+                            ultimoResultado = status.resultado;
+                        } catch {
+                            output += status.resultado;
+                            ultimoResultado = status.resultado;
+                        }
+                    } else {
+                        output += 'Cargando...';
+                    }
 
-        ejecuciones.forEach(exec => {
-            let badgeClass = 'bg-secondary';
-            let badgeText = exec.estado;
+                    // Mostrar error si existe
+                    if (status.error) {
+                        output += '\n\n ERROR:\n';
+                        output += status.error;
+                    }
 
-            if (exec.estado === 'COMPLETED') {
-                badgeClass = 'bg-success';
-            } else if (exec.estado === 'FAILED') {
-                badgeClass = 'bg-danger';
-            } else if (exec.estado === 'RUNNING') {
-                badgeClass = 'bg-primary';
-                hayRunning = true;
-            }
+                    terminal.textContent = output;
+                    terminal.scrollTop = terminal.scrollHeight;
 
-            html += `
+                    // ✅ Actualizar tabla SIEMPRE
+                    cargarEjecucionesOSINT();
+
+                    if (status.estado === 'COMPLETED' || status.estado === 'FAILED') {
+                        clearInterval(interval);
+                        const terminalBox = document.querySelector('.borde-terminal-salida');
+                        if (terminalBox) terminalBox.classList.remove('borde-terminal-running');
+
+                        // ✅ AGREGADO: Actualizar resultados finales
+                        cargarResultadosOSINT();
+                    }
+                })
+                .catch(err => {
+                    console.error('[OSINT POLLING ERROR]', err);
+                    if (terminal) {
+                        terminal.textContent += '\n[ERROR EN POLLING] ' + err.message;
+                    }
+                });
+        }, 2000);
+    }
+
+    function ejecutar_todos_osint() {
+        if (!confirm("¿Desea ejecutar todos los Servicios OSINT?")) return;
+        document.querySelectorAll('.btn-servicio-osint').forEach(btn => btn.click());
+    }
+
+    async function cargarEjecucionesOSINT() {
+        const hallazgosEl = document.getElementById('hallazgosWorkspace');
+        if (!hallazgosEl) return;
+
+        const proyectoId = hallazgosEl.dataset.proyectoId;
+        const tbody = document.querySelector('#tablaEscaneos tbody');
+        if (!tbody) return;
+
+        try {
+            const response = await fetch(BASE_PATH + `/osint/ejecuciones/${proyectoId}`);
+            const ejecuciones = await response.json();
+
+            let html = '';
+            let hayRunning = false;
+
+            ejecuciones.forEach(exec => {
+                let badgeClass = 'bg-secondary';
+                let badgeText = exec.estado;
+
+                if (exec.estado === 'COMPLETED') {
+                    badgeClass = 'bg-success';
+                } else if (exec.estado === 'FAILED') {
+                    badgeClass = 'bg-danger';
+                } else if (exec.estado === 'RUNNING') {
+                    badgeClass = 'bg-primary';
+                    hayRunning = true;
+                }
+
+                html += `
                 <tr>
                     <td>${exec.nombre}</td>
                     <td>
@@ -1750,88 +1764,87 @@ async function cargarEjecucionesOSINT() {
                     </td>
                 </tr>
             `;
-        });
-
-        tbody.innerHTML = html;
-
-        // Si hay RUNNING, recargar cada 2 segundos
-        if (hayRunning && !window.pollingOSINT) {
-            window.pollingOSINT = setInterval(() => {
-                cargarEjecucionesOSINT();
-            }, 2000);
-        } else if (!hayRunning && window.pollingOSINT) {
-            clearInterval(window.pollingOSINT);
-            window.pollingOSINT = null;
-        }
-    } catch (err) {
-        console.error('[OSINT] Error cargando ejecuciones:', err);
-    }
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-    if (document.getElementById('hallazgosWorkspace')) {
-        cargarEjecucionesOSINT();
-        cargarResultadosOSINT();
-    }
-});
-
-function cargarResultadosOSINT() {
-    const hallazgosEl = document.getElementById('hallazgosWorkspace');
-    if (!hallazgosEl) {
-        console.log('[OSINT] hallazgosWorkspace NO encontrado');
-        return;
-    }
-
-    const proyectoId = hallazgosEl.dataset.proyectoId;
-    const terminal = document.getElementById('terminalOSINT');
-    
-    console.log('[OSINT] Cargando resultados. proyectoId:', proyectoId);
-    console.log('[OSINT] Terminal element:', terminal);
-
-    if (!terminal) {
-        console.log('[OSINT] terminalOSINT NO encontrado');
-        return;
-    }
-
-    fetch(BASE_PATH+`/osint/ejecuciones/${proyectoId}`)
-        .then(r => r.json())
-        .then(ejecuciones => {
-            console.log('[OSINT] Ejecuciones obtenidas:', ejecuciones);
-            let output = '';
-
-            ejecuciones.forEach((exec, idx) => {
-                output += `${'═'.repeat(50)}\n`;
-                output += `[${idx + 1}] ${exec.nombre} - ${exec.estado}\n`;
-                output += `Fecha: ${exec.fecha_creacion}\n`;
-                output += `${'─'.repeat(50)}\n`;
-
-                if (exec.resultado) {
-                    try {
-                        const resultado = JSON.parse(exec.resultado);
-                        output += JSON.stringify(resultado, null, 2);
-                    } catch {
-                        output += exec.resultado;
-                    }
-                } else if (exec.error) {
-                    output += `ERROR: ${exec.error}`;
-                } else {
-                    output += 'Sin resultados';
-                }
-
-                output += '\n\n';
             });
 
-            terminal.textContent = output || '';
-            terminal.scrollTop = terminal.scrollHeight;
-            console.log('[OSINT] Terminal actualizada');
-        })
-        .catch(err => {
-            console.error('[OSINT] Error:', err);
-            terminal.textContent = 'Error: ' + err.message;
-        });
-}
+            tbody.innerHTML = html;
+
+            // Si hay RUNNING, recargar cada 2 segundos
+            if (hayRunning && !window.pollingOSINT) {
+                window.pollingOSINT = setInterval(() => {
+                    cargarEjecucionesOSINT();
+                }, 2000);
+            } else if (!hayRunning && window.pollingOSINT) {
+                clearInterval(window.pollingOSINT);
+                window.pollingOSINT = null;
+            }
+        } catch (err) {
+            console.error('[OSINT] Error cargando ejecuciones:', err);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        if (document.getElementById('hallazgosWorkspace')) {
+            cargarEjecucionesOSINT();
+            cargarResultadosOSINT();
+        }
+    });
+
+    function cargarResultadosOSINT() {
+        const hallazgosEl = document.getElementById('hallazgosWorkspace');
+        if (!hallazgosEl) {
+            console.log('[OSINT] hallazgosWorkspace NO encontrado');
+            return;
+        }
+
+        const proyectoId = hallazgosEl.dataset.proyectoId;
+        const terminal = document.getElementById('terminalOSINT');
+
+        console.log('[OSINT] Cargando resultados. proyectoId:', proyectoId);
+        console.log('[OSINT] Terminal element:', terminal);
+
+        if (!terminal) {
+            console.log('[OSINT] terminalOSINT NO encontrado');
+            return;
+        }
+
+        fetch(BASE_PATH + `/osint/ejecuciones/${proyectoId}`)
+            .then(r => r.json())
+            .then(ejecuciones => {
+                console.log('[OSINT] Ejecuciones obtenidas:', ejecuciones);
+                let output = '';
+
+                ejecuciones.forEach((exec, idx) => {
+                    output += `${'═'.repeat(50)}\n`;
+                    output += `[${idx + 1}] ${exec.nombre} - ${exec.estado}\n`;
+                    output += `Fecha: ${exec.fecha_creacion}\n`;
+                    output += `${'─'.repeat(50)}\n`;
+
+                    if (exec.resultado) {
+                        try {
+                            const resultado = JSON.parse(exec.resultado);
+                            output += JSON.stringify(resultado, null, 2);
+                        } catch {
+                            output += exec.resultado;
+                        }
+                    } else if (exec.error) {
+                        output += `ERROR: ${exec.error}`;
+                    } else {
+                        output += 'Sin resultados';
+                    }
+
+                    output += '\n\n';
+                });
+
+                terminal.textContent = output || '';
+                terminal.scrollTop = terminal.scrollHeight;
+                console.log('[OSINT] Terminal actualizada');
+            })
+            .catch(err => {
+                console.error('[OSINT] Error:', err);
+                terminal.textContent = 'Error: ' + err.message;
+            });
+    }
 
     function editarProyecto(params) {
         alert(params)
     }
-
