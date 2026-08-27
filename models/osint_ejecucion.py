@@ -567,7 +567,8 @@ class OsintEjecucion:
             'Analisis de DNS': 'analisis_dns',
             'Busqueda de Endpoints': 'busqueda_endpoints',
             'Google Dorking': 'google_dorking',
-            'URLs Historicas': 'urls_historicas'
+            'URLs Historicas': 'urls_historicas',
+            'Sensitive Data Extraction' : 'sensitive_data_extraction'
         }
 
         servicios_map = OsintEjecucion.get_servicios_map()
