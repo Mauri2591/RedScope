@@ -3018,121 +3018,90 @@ def _ejecutar_google_dork(dominio, dork_query):
 # ════════════════════════════════════════════════════════════════════════════════
 
 PALABRAS_CLAVE = [
-    # API Keys & Tokens
+    # API Keys & Tokens - ESPECÍFICOS
     'api_key', 'apikey', 'api-key', 'api_secret', 'apisecret',
     'token', 'access_token', 'bearer', 'refresh_token', 'auth_token',
     'authorization', 'x-api-key', 'x-auth-token', 'x-access-token',
 
     # Contraseñas
-    'password', 'passwd', 'pwd', 'pass', 'pw', 'contraseña',
+    'password', 'passwd', 'pwd', 'pass', 'contraseña',
     'db_password', 'db_pass', 'mysql_password', 'postgres_password',
     'admin_password', 'root_password', 'user_password',
 
-    # Secretos
+    # Secretos - ESPECÍFICOS
     'secret', 'client_secret', 'app_secret', 'shared_secret', 'secret_key',
     'api_secret', 'consumer_secret', 'signing_secret', 'webhook_secret',
     'signing_key', 'encryption_key', 'secret_token',
 
-    # AWS
-    'aws_', 'AKIA', 'aws_access_key', 'aws_secret', 'aws_session_token',
-    'aws_access_key_id', 'aws_secret_access_key', 'aws_key', 'aws_secret_key',
-    'access_key_id', 'secret_access_key',
+    # AWS - ESPECÍFICOS
+    'aws_access_key', 'aws_secret', 'aws_session_token',
+    'aws_access_key_id', 'aws_secret_access_key', 'AKIA',
 
-    # Google & Cloud
-    'google_', 'gcp_', 'firebase_', 'firebase_key', 'firebase_token',
+    # Google & Cloud - ESPECÍFICOS
     'google_api_key', 'google_oauth', 'google_access_token',
-    'firebase_app_id', 'firebase_database_url',
+    'firebase_key', 'firebase_token', 'firebase_app_id', 'firebase_database_url',
+    'gcp_', 'firebase_',
 
-    # Microsoft Azure
-    'azure_', 'azure_key', 'azure_connection_string', 'azure_storage_key',
-    'storage_connection_string', 'cosmosdb_key',
+    # Microsoft Azure - ESPECÍFICOS
+    'azure_key', 'azure_connection_string', 'azure_storage_key',
 
-    # Heroku, Stripe, Twilio, SendGrid, etc.
+    # Cloud Services - ESPECÍFICOS
     'heroku_api_key', 'heroku_auth_token',
-    'stripe_key', 'stripe_secret', 'stripe_api_key', 'sk_live_', 'pk_live_',
+    'stripe_key', 'stripe_secret', 'sk_live_', 'pk_live_',
     'twilio_auth_token', 'twilio_api_key', 'twilio_account_sid',
     'sendgrid_api_key', 'sendgrid_key',
     'mailgun_api_key', 'mailgun_key',
-    'github_token', 'github_key', 'github_pat', 'github_oauth',
+    'github_token', 'github_key', 'github_pat',
     'gitlab_token', 'gitlab_key',
-    'bitbucket_token',
-    'slack_token', 'slack_webhook', 'slack_bot_token', 'slack_api_key',
+    'slack_token', 'slack_webhook', 'slack_bot_token',
     'discord_token', 'discord_webhook', 'discord_bot_token',
-    'telegram_bot_token', 'telegram_api_key',
-    'api_token', 'api_auth',
+    'telegram_bot_token',
 
-    # Bases de Datos
+    # Bases de Datos - ESPECÍFICOS
     'database_url', 'db_url', 'database_uri', 'db_uri',
     'mongodb', 'mongodb+srv', 'mongo_url',
-    'postgresql', 'postgres_url', 'pg_url', 'postgres_connection',
-    'mysql_url', 'mysql_connection', 'mysql_host', 'mysql_user', 'mysql_password',
+    'postgresql', 'postgres_url', 'pg_url',
+    'mysql_url', 'mysql_host', 'mysql_user',
     'redis_url', 'redis_password', 'redis_auth',
-    'mariadb_url', 'oracle_url',
-    'sql_server', 'sqlserver_url', 'connection_string',
+    'connection_string',
 
-    # Encriptación & Criptografía
-    'SECRET', 'AES-256', 'AES-128', 'RSA', 'ENCRYPT', 'CIPHER',
-    'encryption', 'decrypt', 'encrypted_key', 'cipher_key',
-    'private_key', 'privatekey', 'private-key', 'rsa_private_key',
+    # Encriptación - ESPECÍFICOS (solo palabras que realmente indican secretos)
+    'SECRET', 'ENCRYPT', 'RSA', 'AES-256', 'AES-128',
+    'private_key', 'privatekey', 'private-key',
     'public_key', 'publickey', 'public-key',
-    'certificate', 'cert_', 'ssl_key', 'tls_key',
-    'passphrase', 'key_pass',
+    'certificate', 'ssl_key', 'tls_key',
+    'passphrase', 'pem', 'ppk',
 
-    # Webhooks & URLs Internas
-    'webhook', 'webhook_url', 'webhook_uri', 'webhook_secret',
-    'callback_url', 'redirect_uri', 'return_url',
-    'internal_', 'localhost', '127.0.0.1', 'staging_', 'dev_', 'test_url',
-    'admin_url', 'debug_url', 'console_url',
+    # Webhooks & URLs Internas - ESPECÍFICOS
+    'webhook', 'webhook_url', 'webhook_secret',
+    'callback_url', 'redirect_uri',
 
-    # OAuth & Autenticación
-    'oauth', 'oauth_token', 'oauth_secret', 'oauth_key',
-    'oauth2', 'openid', 'saml', 'ldap', 'iam_',
-    'client_id', 'client_secret', 'consumer_key', 'consumer_secret',
-    'credentials', 'credential', 'auth', 'authenticate',
+    # OAuth & Auth - ESPECÍFICOS
+    'oauth', 'oauth_token', 'oauth_secret',
+    'oauth2', 'openid', 'client_id', 'client_secret', 'consumer_key', 'consumer_secret',
+    'iam_', 'auth_',
 
-    # SSH & Keys
-    'ssh_key', 'ssh_password', 'ssh_user', 'private_key',
-    'rsa_key', 'dsa_key', 'ed25519', 'openssh',
-    'pem', 'ppk', 'key_file',
+    # SSH & Keys - ESPECÍFICOS
+    'ssh_key', 'ssh_password', 'rsa_key', 'dsa_key', 'ed25519',
 
-    # JWT & Sessions
+    # JWT & Sessions - ESPECÍFICOS
     'jwt', 'jwt_secret', 'jwt_key', 'jwt_token',
     'session_key', 'session_secret', 'session_token',
-    'refresh_secret', 'access_secret',
 
-    # Servicios Específicos
+    # Servicios - ESPECÍFICOS
     'datadog_', 'pagerduty_', 'newrelic_', 'sentry_',
-    'sumologic_', 'splunk_', 'elastic_', 'elasticsearch_',
-    'grafana_', 'prometheus_', 'influx_',
-    'jira_token', 'confluence_token', 'bitbucket_token',
-    'docker_', 'kubernetes_', 'k8s_',
-    'vault_token', 'consul_token', 'nomad_token',
+    'splunk_', 'elastic_', 'grafana_', 'prometheus_',
+    'jira_token', 'confluence_token',
+    'docker_', 'kubernetes_', 'vault_token',
 
-    # Desarrollo & Testing
-    'debug_key', 'debug_token', 'debug_mode', 'debug_secret',
-    'test_key', 'test_secret', 'test_token', 'test_api_key',
-    'dev_key', 'dev_secret', 'development_key',
-    'staging_key', 'staging_secret', 'staging_token',
-    'qa_key', 'qa_secret', 'qa_token',
+    # Patrones de asignación - ESPECÍFICOS
+    'password=', 'token=', 'api_key=', 'apikey=',
+    'secret=', 'key=', 'auth=', 'bearer=',
+    ':token', ':secret', ':password', ':key', ':auth',
 
-    # Valores que indican secretos
-    'key=', 'secret=', 'token=', 'auth=', 'password=',
-    'api_key=', 'apikey=', 'bearer=', 'authorization=',
-    ':key', ':secret', ':token', ':password', ':auth',
-    '= "', "= '",  # Asignación de valores
-    ': "', ": '",  # JSON/YAML
-
-    # Patterns adicionales
-    'credential', 'credentials', 'config', 'configuration',
-    'private', 'secret', 'sensitive', 'confidential',
-    'access', 'authenticate', 'login', 'signin',
-
-    # Otros servicios/palabras en español
-    'clave', 'contraseña', 'secreto', 'token',
-    'credencial', 'autenticacion', 'autenticación',
-
-    # Base64 & Encoding indicators
-    'base64', 'encoded', 'encrypted', 'hashed',
+    # Español - ESPECÍFICOS
+    'clave', 'contraseña', 'secreto', 'credencial',
+    'token', 'autenticación',
 ]
 
 
