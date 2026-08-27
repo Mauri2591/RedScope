@@ -19,12 +19,11 @@ import traceback
 import sys
 from bs4 import BeautifulSoup
 import re
+from urllib.parse import urljoin
 
 # ══════════════════════════════════════════════════════════════════
 # HELPERS GLOBALES OSINT
 # ══════════════════════════════════════════════════════════════════
-
-
 def _get_severidad_por_confianza(confianza_score):
     """
     Mapea confianza (0-100) a severidad de BD.
@@ -3017,124 +3016,87 @@ def _ejecutar_google_dork(dominio, dork_query):
 # Handler SENSITIVE DATA EXTRACTION
 # ════════════════════════════════════════════════════════════════════════════════
 
-PALABRAS_CLAVE = [
-    # API Keys & Tokens - ESPECÍFICOS
+# Lista global de palabras clave
+_PALABRAS_CLAVE = [
+    # API Keys & Tokens
     'api_key', 'apikey', 'api-key', 'api_secret', 'apisecret',
     'token', 'access_token', 'bearer', 'refresh_token', 'auth_token',
     'authorization', 'x-api-key', 'x-auth-token', 'x-access-token',
 
     # Contraseñas
-    'password', 'passwd', 'pwd', 'pass', 'contraseña',
+    'password', 'passwd', 'pwd', 'pass', 'pw', 'contraseña',
     'db_password', 'db_pass', 'mysql_password', 'postgres_password',
     'admin_password', 'root_password', 'user_password',
 
-    # Secretos - ESPECÍFICOS
+    # Secretos
     'secret', 'client_secret', 'app_secret', 'shared_secret', 'secret_key',
     'api_secret', 'consumer_secret', 'signing_secret', 'webhook_secret',
     'signing_key', 'encryption_key', 'secret_token',
 
-    # AWS - ESPECÍFICOS
-    'aws_access_key', 'aws_secret', 'aws_session_token',
-    'aws_access_key_id', 'aws_secret_access_key', 'AKIA',
+    # AWS
+    'aws_', 'AKIA', 'aws_access_key', 'aws_secret', 'aws_session_token',
+    'aws_access_key_id', 'aws_secret_access_key', 'aws_key', 'aws_secret_key',
+    'access_key_id', 'secret_access_key',
 
-    # Google & Cloud - ESPECÍFICOS
+    # Google & Cloud
+    'google_', 'gcp_', 'firebase_', 'firebase_key', 'firebase_token',
     'google_api_key', 'google_oauth', 'google_access_token',
-    'firebase_key', 'firebase_token', 'firebase_app_id', 'firebase_database_url',
-    'gcp_', 'firebase_',
+    'firebase_app_id', 'firebase_database_url',
 
-    # Microsoft Azure - ESPECÍFICOS
-    'azure_key', 'azure_connection_string', 'azure_storage_key',
+    # Microsoft Azure
+    'azure_', 'azure_key', 'azure_connection_string', 'azure_storage_key',
 
-    # Cloud Services - ESPECÍFICOS
-    'heroku_api_key', 'heroku_auth_token',
-    'stripe_key', 'stripe_secret', 'sk_live_', 'pk_live_',
-    'twilio_auth_token', 'twilio_api_key', 'twilio_account_sid',
-    'sendgrid_api_key', 'sendgrid_key',
-    'mailgun_api_key', 'mailgun_key',
-    'github_token', 'github_key', 'github_pat',
-    'gitlab_token', 'gitlab_key',
-    'slack_token', 'slack_webhook', 'slack_bot_token',
-    'discord_token', 'discord_webhook', 'discord_bot_token',
-    'telegram_bot_token',
+    # Cloud Services
+    'heroku_api_key', 'stripe_key', 'stripe_secret', 'twilio_auth_token',
+    'sendgrid_api_key', 'mailgun_api_key', 'mailgun_private_key',
+    'github_token', 'github_api_key', 'gitlab_token', 'gitlab_private_key',
+    'slack_token', 'slack_api_key', 'slack_webhook', 'slack_bot_token',
+    'discord_token', 'discord_webhook', 'telegram_bot_token',
 
-    # Bases de Datos - ESPECÍFICOS
-    'database_url', 'db_url', 'database_uri', 'db_uri',
-    'mongodb', 'mongodb+srv', 'mongo_url',
-    'postgresql', 'postgres_url', 'pg_url',
-    'mysql_url', 'mysql_host', 'mysql_user',
-    'redis_url', 'redis_password', 'redis_auth',
-    'connection_string',
+    # Databases
+    'database_url', 'db_url', 'mongodb', 'mongodb+srv',
+    'postgresql', 'mysql_url', 'redis_url', 'connection_string',
+    'DATABASE_URL', 'DB_HOST', 'DB_USER', 'DB_PASS',
 
-    # Encriptación - ESPECÍFICOS (solo palabras que realmente indican secretos)
-    'SECRET', 'ENCRYPT', 'RSA', 'AES-256', 'AES-128',
-    'private_key', 'privatekey', 'private-key',
-    'public_key', 'publickey', 'public-key',
-    'certificate', 'ssl_key', 'tls_key',
-    'passphrase', 'pem', 'ppk',
+    # Encryption & Cryptography
+    'SECRET', 'AES-256', 'AES-128', 'RSA', 'ENCRYPT', 'CIPHER',
+    'encryption', 'decrypt', 'encrypted_key', 'cipher_key',
+    'private_key', 'public_key', 'certificate', 'passphrase',
+    'PrivateKeyId', 'private_key_id', 'pem', 'ppk',
 
-    # Webhooks & URLs Internas - ESPECÍFICOS
-    'webhook', 'webhook_url', 'webhook_secret',
-    'callback_url', 'redirect_uri',
+    # Webhooks & URLs
+    'webhook', 'callback_url', 'redirect_uri', 'internal_',
+    'localhost', '127.0.0.1', '192.168', 'staging_', 'dev_', '.local',
 
-    # OAuth & Auth - ESPECÍFICOS
-    'oauth', 'oauth_token', 'oauth_secret',
-    'oauth2', 'openid', 'client_id', 'client_secret', 'consumer_key', 'consumer_secret',
-    'iam_', 'auth_',
+    # OAuth & Auth
+    'oauth', 'oauth2', 'openid', 'saml', 'ldap',
+    'client_id', 'client_secret', 'credentials', 'auth_', 'authenticate',
 
-    # SSH & Keys - ESPECÍFICOS
+    # SSH & Keys
     'ssh_key', 'ssh_password', 'rsa_key', 'dsa_key', 'ed25519',
 
-    # JWT & Sessions - ESPECÍFICOS
-    'jwt', 'jwt_secret', 'jwt_key', 'jwt_token',
-    'session_key', 'session_secret', 'session_token',
+    # JWT & Sessions
+    'jwt', 'jwt_secret', 'session_key', 'session_secret', 'session_token',
 
-    # Servicios - ESPECÍFICOS
-    'datadog_', 'pagerduty_', 'newrelic_', 'sentry_',
+    # Monitoring & Services
+    'datadog_', 'pagerduty_', 'newrelic_', 'sentry_', 'sumologic_',
     'splunk_', 'elastic_', 'grafana_', 'prometheus_',
-    'jira_token', 'confluence_token',
-    'docker_', 'kubernetes_', 'vault_token',
+    'jira_token', 'confluence_token', 'docker_', 'kubernetes_',
 
-    # Patrones de asignación - ESPECÍFICOS
-    'password=', 'token=', 'api_key=', 'apikey=',
-    'secret=', 'key=', 'auth=', 'bearer=',
-    ':token', ':secret', ':password', ':key', ':auth',
+    # Development
+    'debug_key', 'debug_token', 'test_key', 'test_secret',
+    'staging_key', 'qa_key', 'mock_', 'fake_',
 
-    # Español - ESPECÍFICOS
-    'clave', 'contraseña', 'secreto', 'credencial',
-    'token', 'autenticación',
+    # Patterns
+    'key=', 'secret=', 'token=', 'auth=', 'password=', 'api_key=',
+    'credential', 'credentials', 'config', 'private', 'sensitive',
+    'confidential', 'access', 'login', 'base64', 'encoded'
 ]
 
 
-def _es_potencial_secreto(linea):
-    """Revalidación: descarta falsos positivos (código minificado, funciones, etc.)"""
-    indicadores_codigo = [
-        'function', 'return', 'var ', 'let ', 'const ', 'if(', 'for(',
-        'while(', 'switch(', 'try{', 'catch(', 'class ', 'new ',
-        'this.', '.prototype', '=>', 'function(', 'Y.', 'YUI',
-        'unmask', 'toggle', 'document.', 'getElementById'
-    ]
-
-    # Si contiene 2+ indicadores de código, es minificación
-    count = sum(1 for ind in indicadores_codigo if ind.lower()
-                in linea.lower())
-    if count >= 2:
-        return False
-
-    # Si es muy larga, probablemente minificada
-    if len(linea) > 300:
-        return False
-
-    # Si tiene muchos caracteres especiales, es minificado
-    special_chars = sum(1 for c in linea if c in '{}()[]<>/*\\')
-    if len(linea) > 0 and (special_chars / len(linea)) > 0.3:
-        return False
-
-    return True
-
 def sensitive_data_extraction(ejecucion_id, proyecto_id):
     """Extracción de datos sensibles con TruffleHog + palabras clave"""
-    print(
-        f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
+    print(f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
         # FASE 1: URLs desde SCOPE
@@ -3143,28 +3105,24 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         config = Proyecto.get_osint_config(proyecto_id)
         urls_scope = {}
 
-        dominios_scope = _parse_multiline_config(
-            config.get('DOMINIO', '').strip() if config else '')
+        dominios_scope = _parse_multiline_config(config.get('DOMINIO', '').strip() if config else '')
         for dom in dominios_scope:
             urls_scope[f"http://{dom}"] = dom
             urls_scope[f"https://{dom}"] = dom
 
-        subdominios_scope = _parse_multiline_config(
-            config.get('SUBDOMINIO', '').strip() if config else '')
+        subdominios_scope = _parse_multiline_config(config.get('SUBDOMINIO', '').strip() if config else '')
         for subdom in subdominios_scope:
             urls_scope[f"http://{subdom}"] = subdom
             urls_scope[f"https://{subdom}"] = subdom
 
-        ips_scope = _parse_multiline_config(
-            config.get('IPS', '').strip() if config else '')
+        ips_scope = _parse_multiline_config(config.get('IPS', '').strip() if config else '')
         for ip in ips_scope:
             urls_scope[f"http://{ip}:80"] = ip
             urls_scope[f"https://{ip}:443"] = ip
             urls_scope[f"http://{ip}:8080"] = ip
             urls_scope[f"https://{ip}:8443"] = ip
 
-        servicios_scope = _parse_multiline_config(
-            config.get('SERVICIOS', '').strip() if config else '')
+        servicios_scope = _parse_multiline_config(config.get('SERVICIOS', '').strip() if config else '')
         for servicio in servicios_scope:
             if ':' in servicio:
                 host, puerto = servicio.rsplit(':', 1)
@@ -3178,14 +3136,12 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         urls_descubrimiento = {}
         if not urls_scope:
             print(f"[sensitive_data] FASE 2: FALLBACK a Descubrimientos")
-            subdominios_desc = OsintEjecucion.get_discovered_subdomains(
-                proyecto_id)
+            subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
             for subdom in subdominios_desc[:20]:
                 urls_descubrimiento[f"http://{subdom}"] = subdom
                 urls_descubrimiento[f"https://{subdom}"] = subdom
 
-            endpoints_desc = OsintEjecucion.get_discovered_endpoints(
-                proyecto_id)
+            endpoints_desc = OsintEjecucion.get_discovered_endpoints(proyecto_id)
             for endpoint in endpoints_desc[:30]:
                 if endpoint.startswith('http'):
                     urls_descubrimiento[endpoint] = endpoint
@@ -3214,7 +3170,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             "hallazgos": hallazgos
         }
 
-    _run_osint_job(ejecucion_id, job)
+    return _run_osint_job(ejecucion_id, job)
 
 
 def _analizar_url(url):
@@ -3304,21 +3260,11 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
             print(f"  TruffleHog error: {e}")
 
     # Método 2: Palabras clave (sempre funciona)
-    for palabra in PALABRAS_CLAVE:
-        # Usar word boundaries para palabras puramente alfabéticas
-        if palabra.isalpha():
-            # Palabra alfabética: usar \b para evitar falsos positivos
-            # \bpass\b = encuentra "pass=", "pass:", pero NO "eDarkWifipassticket"
-            pattern = r'\b' + re.escape(palabra) + r'\b'
-        else:
-            # Contiene números/caracteres especiales: búsqueda exacta
-            # Ej: "api_key=", "aws_", "key="
-            pattern = re.escape(palabra)
-
-        if re.search(pattern, contenido, re.IGNORECASE):
+    for palabra in _PALABRAS_CLAVE:
+        if palabra.lower() in contenido.lower():
             # Extraer línea donde aparece
             for linea in contenido.split('\n'):
-                if re.search(pattern, linea, re.IGNORECASE):
+                if palabra.lower() in linea.lower():
                     # Limpiar y limitar tamaño
                     linea_limpia = linea.strip()[:200]
                     secretos.append({
@@ -3335,8 +3281,7 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
 def _check_tool_installed(tool_name):
     """Verifica si una herramienta está instalada"""
     try:
-        result = subprocess.run(['which', tool_name],
-                                capture_output=True, timeout=2)
+        result = subprocess.run(['which', tool_name], capture_output=True, timeout=2)
         return result.returncode == 0
     except:
         return False
