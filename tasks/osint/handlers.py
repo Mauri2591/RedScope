@@ -3105,6 +3105,32 @@ PALABRAS_CLAVE = [
 ]
 
 
+def _es_potencial_secreto(linea):
+    """Revalidación: descarta falsos positivos (código minificado, funciones, etc.)"""
+    indicadores_codigo = [
+        'function', 'return', 'var ', 'let ', 'const ', 'if(', 'for(',
+        'while(', 'switch(', 'try{', 'catch(', 'class ', 'new ',
+        'this.', '.prototype', '=>', 'function(', 'Y.', 'YUI',
+        'unmask', 'toggle', 'document.', 'getElementById'
+    ]
+
+    # Si contiene 2+ indicadores de código, es minificación
+    count = sum(1 for ind in indicadores_codigo if ind.lower()
+                in linea.lower())
+    if count >= 2:
+        return False
+
+    # Si es muy larga, probablemente minificada
+    if len(linea) > 300:
+        return False
+
+    # Si tiene muchos caracteres especiales, es minificado
+    special_chars = sum(1 for c in linea if c in '{}()[]<>/*\\')
+    if len(linea) > 0 and (special_chars / len(linea)) > 0.3:
+        return False
+
+    return True
+
 def sensitive_data_extraction(ejecucion_id, proyecto_id):
     """Extracción de datos sensibles con TruffleHog + palabras clave"""
     print(
@@ -3288,7 +3314,7 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
             # Contiene números/caracteres especiales: búsqueda exacta
             # Ej: "api_key=", "aws_", "key="
             pattern = re.escape(palabra)
-        
+
         if re.search(pattern, contenido, re.IGNORECASE):
             # Extraer línea donde aparece
             for linea in contenido.split('\n'):
@@ -3304,6 +3330,7 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
                     break  # Solo primera ocurrencia por línea/palabra
 
     return secretos
+
 
 def _check_tool_installed(tool_name):
     """Verifica si una herramienta está instalada"""
