@@ -352,7 +352,7 @@ def _geolocate_ip(ip):
     except Exception as e:
         print(f"[geo] ipapi.co fallo para {ip}: {str(e)[:60]}")
 
-    # ═════════════════════════════════════════════════════════════════
+       # ═════════════════════════════════════════════════════════════════
     # MÉTODO 2: geoiplookup
     # ═════════════════════════════════════════════════════════════════
     try:
@@ -360,7 +360,9 @@ def _geolocate_ip(ip):
         result = subprocess.run(['geoiplookup', ip], capture_output=True, text=True, timeout=2)
         if result.returncode == 0 and result.stdout:
             parts = result.stdout.strip().split(',')
-            return {
+            
+            # Construir dict primero
+            geo_data = {
                 'pais': parts[2].strip() if len(parts) > 2 else 'unknown',
                 'ciudad': parts[1].strip() if len(parts) > 1 else 'unknown',
                 'isp': 'unknown',
@@ -369,6 +371,15 @@ def _geolocate_ip(ip):
                 'longitud': float(parts[4]) if len(parts) > 4 else None,
                 'fuente': 'maxmind'
             }
+            
+            # CRITICAL FIX: Solo retornar si encontró país real
+            if geo_data['pais'] != 'unknown':
+                print(f"[geo] geoiplookup encontró país: {geo_data['pais']} → retornando")
+                return geo_data
+            else:
+                print(f"[geo] geoiplookup retornó pais='unknown' → continuando a whois")
+                # NO RETORNA - continúa a la siguiente sección (whois)
+
     except Exception as e:
         print(f"[geo] geoiplookup fallo para {ip}: {str(e)[:60]}")
 
@@ -781,6 +792,14 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         dominios_config = _parse_multiline_config(dominio) if dominio else []
         if dominios_config:
             dominio_objetivo = dominios_config[0]
+            
+        # ★ FILTRO CRÍTICO: Eliminar IPs de DNS públicas antes de analizar
+        ips_a_analizar = {ip for ip in ips_a_analizar if ip not in PUBLIC_DNS_IPS}
+
+        print(f"[mapeo_ips] IPs después de filtrar DNS públicas: {len(ips_a_analizar)}")
+
+        # 3. Hacer reverse DNS + Geolocalización para cada IP
+        ips_success = []
 
         for ip in sorted(ips_a_analizar):
             try:
