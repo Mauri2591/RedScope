@@ -24,6 +24,8 @@ from urllib.parse import urljoin
 # ══════════════════════════════════════════════════════════════════
 # HELPERS GLOBALES OSINT
 # ══════════════════════════════════════════════════════════════════
+
+
 def _get_severidad_por_confianza(confianza_score):
     """
     Mapea confianza (0-100) a severidad de BD.
@@ -3016,216 +3018,295 @@ def _ejecutar_google_dork(dominio, dork_query):
 # Handler SENSITIVE DATA EXTRACTION
 # ════════════════════════════════════════════════════════════════════════════════
 
-# Lista global de palabras clave
-_PALABRAS_CLAVE = [
-    # API Keys & Tokens
+PALABRAS_CLAVE = [
+    # API Keys & Tokens - MÁS ESPECÍFICOS
     'api_key', 'apikey', 'api-key', 'api_secret', 'apisecret',
-    'token', 'access_token', 'bearer', 'refresh_token', 'auth_token',
+    'access_token', 'bearer', 'refresh_token', 'auth_token',
     'authorization', 'x-api-key', 'x-auth-token', 'x-access-token',
 
-    # Contraseñas
-    'password', 'passwd', 'pwd', 'pass', 'pw', 'contraseña',
-    'db_password', 'db_pass', 'mysql_password', 'postgres_password',
+    # Contraseñas - SOLO CON CONTEXTO
+    'password', 'passwd', 'db_password', 'db_pass',
     'admin_password', 'root_password', 'user_password',
+    'mysql_password', 'postgres_password',
 
-    # Secretos
+    # Secretos - MÁS ESPECÍFICOS
     'secret', 'client_secret', 'app_secret', 'shared_secret', 'secret_key',
     'api_secret', 'consumer_secret', 'signing_secret', 'webhook_secret',
-    'signing_key', 'encryption_key', 'secret_token',
+    'encryption_key', 'secret_token',
 
-    # AWS
-    'aws_', 'AKIA', 'aws_access_key', 'aws_secret', 'aws_session_token',
-    'aws_access_key_id', 'aws_secret_access_key', 'aws_key', 'aws_secret_key',
-    'access_key_id', 'secret_access_key',
+    # AWS - ESPECÍFICOS
+    'aws_access_key', 'aws_secret', 'aws_session_token',
+    'aws_access_key_id', 'aws_secret_access_key', 'AKIA',
 
-    # Google & Cloud
-    'google_', 'gcp_', 'firebase_', 'firebase_key', 'firebase_token',
+    # Google & Cloud - ESPECÍFICOS
     'google_api_key', 'google_oauth', 'google_access_token',
-    'firebase_app_id', 'firebase_database_url',
+    'firebase_key', 'firebase_token', 'firebase_app_id',
+    'gcp_', 'firebase_',
 
-    # Microsoft Azure
-    'azure_', 'azure_key', 'azure_connection_string', 'azure_storage_key',
+    # Microsoft Azure - ESPECÍFICOS
+    'azure_key', 'azure_connection_string', 'azure_storage_key',
 
-    # Cloud Services
-    'heroku_api_key', 'stripe_key', 'stripe_secret', 'twilio_auth_token',
-    'sendgrid_api_key', 'mailgun_api_key', 'mailgun_private_key',
-    'github_token', 'github_api_key', 'gitlab_token', 'gitlab_private_key',
-    'slack_token', 'slack_api_key', 'slack_webhook', 'slack_bot_token',
-    'discord_token', 'discord_webhook', 'telegram_bot_token',
+    # Cloud Services - ESPECÍFICOS
+    'heroku_api_key', 'heroku_auth_token',
+    'stripe_key', 'stripe_secret', 'sk_live_', 'pk_live_',
+    'twilio_auth_token', 'twilio_api_key', 'twilio_account_sid',
+    'sendgrid_api_key', 'sendgrid_key',
+    'mailgun_api_key', 'mailgun_key',
+    'github_token', 'github_key', 'github_pat',
+    'gitlab_token', 'gitlab_key',
+    'slack_token', 'slack_webhook', 'slack_bot_token',
+    'discord_token', 'discord_webhook', 'discord_bot_token',
+    'telegram_bot_token',
 
-    # Databases
-    'database_url', 'db_url', 'mongodb', 'mongodb+srv',
-    'postgresql', 'mysql_url', 'redis_url', 'connection_string',
-    'DATABASE_URL', 'DB_HOST', 'DB_USER', 'DB_PASS',
+    # Bases de Datos - ESPECÍFICOS
+    'database_url', 'db_url', 'database_uri', 'db_uri',
+    'mongodb', 'mongodb+srv', 'mongo_url',
+    'postgresql', 'postgres_url', 'pg_url',
+    'mysql_url', 'mysql_host', 'mysql_user',
+    'redis_url', 'redis_password', 'redis_auth',
+    'connection_string',
 
-    # Encryption & Cryptography
-    'SECRET', 'AES-256', 'AES-128', 'RSA', 'ENCRYPT', 'CIPHER',
-    'encryption', 'decrypt', 'encrypted_key', 'cipher_key',
-    'private_key', 'public_key', 'certificate', 'passphrase',
-    'PrivateKeyId', 'private_key_id', 'pem', 'ppk',
+    # Encriptación - ESPECÍFICOS
+    'SECRET', 'ENCRYPT', 'RSA', 'AES-256', 'AES-128',
+    'private_key', 'privatekey', 'private-key',
+    'public_key', 'publickey', 'public-key',
+    'certificate', 'ssl_key', 'tls_key',
+    'passphrase', 'pem', 'ppk',
 
-    # Webhooks & URLs
-    'webhook', 'callback_url', 'redirect_uri', 'internal_',
-    'localhost', '127.0.0.1', '192.168', 'staging_', 'dev_', '.local',
+    # Webhooks & URLs Internas - ESPECÍFICOS
+    'webhook', 'webhook_url', 'webhook_secret',
+    'callback_url', 'redirect_uri',
 
-    # OAuth & Auth
-    'oauth', 'oauth2', 'openid', 'saml', 'ldap',
-    'client_id', 'client_secret', 'credentials', 'auth_', 'authenticate',
+    # OAuth & Auth - ESPECÍFICOS
+    'oauth', 'oauth_token', 'oauth_secret',
+    'oauth2', 'openid', 'client_id', 'client_secret',
+    'consumer_key', 'consumer_secret',
+    'iam_', 'auth_',
 
-    # SSH & Keys
+    # SSH & Keys - ESPECÍFICOS
     'ssh_key', 'ssh_password', 'rsa_key', 'dsa_key', 'ed25519',
 
-    # JWT & Sessions
-    'jwt', 'jwt_secret', 'session_key', 'session_secret', 'session_token',
+    # JWT & Sessions - ESPECÍFICOS
+    'jwt', 'jwt_secret', 'jwt_key', 'jwt_token',
+    'session_key', 'session_secret', 'session_token',
 
-    # Monitoring & Services
-    'datadog_', 'pagerduty_', 'newrelic_', 'sentry_', 'sumologic_',
+    # Servicios - ESPECÍFICOS
+    'datadog_', 'pagerduty_', 'newrelic_', 'sentry_',
     'splunk_', 'elastic_', 'grafana_', 'prometheus_',
-    'jira_token', 'confluence_token', 'docker_', 'kubernetes_',
+    'jira_token', 'confluence_token',
+    'docker_', 'kubernetes_', 'vault_token',
 
-    # Development
-    'debug_key', 'debug_token', 'test_key', 'test_secret',
-    'staging_key', 'qa_key', 'mock_', 'fake_',
+    # Patrones de asignación - ESPECÍFICOS
+    'password=', 'token=', 'api_key=', 'apikey=',
+    'secret=', 'key=', 'auth=', 'bearer=',
+    ':token', ':secret', ':password', ':key', ':auth',
 
-    # Patterns
-    'key=', 'secret=', 'token=', 'auth=', 'password=', 'api_key=',
-    'credential', 'credentials', 'config', 'private', 'sensitive',
-    'confidential', 'access', 'login', 'base64', 'encoded'
+    # Español - ESPECÍFICOS
+    'clave', 'contraseña', 'secreto', 'credencial',
+    'autenticación',
 ]
 
 
-def sensitive_data_extraction(ejecucion_id, proyecto_id):
-    """Extracción de datos sensibles con TruffleHog + palabras clave"""
-    print(f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
-
-    def job():
-        # FASE 1: URLs desde SCOPE
-        print(f"[sensitive_data] FASE 1: Construyendo URLs desde SCOPE")
-
-        config = Proyecto.get_osint_config(proyecto_id)
-        urls_scope = {}
-
-        dominios_scope = _parse_multiline_config(config.get('DOMINIO', '').strip() if config else '')
-        for dom in dominios_scope:
-            urls_scope[f"http://{dom}"] = dom
-            urls_scope[f"https://{dom}"] = dom
-
-        subdominios_scope = _parse_multiline_config(config.get('SUBDOMINIO', '').strip() if config else '')
-        for subdom in subdominios_scope:
-            urls_scope[f"http://{subdom}"] = subdom
-            urls_scope[f"https://{subdom}"] = subdom
-
-        ips_scope = _parse_multiline_config(config.get('IPS', '').strip() if config else '')
-        for ip in ips_scope:
-            urls_scope[f"http://{ip}:80"] = ip
-            urls_scope[f"https://{ip}:443"] = ip
-            urls_scope[f"http://{ip}:8080"] = ip
-            urls_scope[f"https://{ip}:8443"] = ip
-
-        servicios_scope = _parse_multiline_config(config.get('SERVICIOS', '').strip() if config else '')
-        for servicio in servicios_scope:
-            if ':' in servicio:
-                host, puerto = servicio.rsplit(':', 1)
-                protocolo = 'https' if puerto == '443' else 'http'
-                urls_scope[f"{protocolo}://{host}:{puerto}"] = host
-            else:
-                urls_scope[f"http://{servicio}"] = servicio
-                urls_scope[f"https://{servicio}"] = servicio
-
-        # FASE 2: FALLBACK
-        urls_descubrimiento = {}
-        if not urls_scope:
-            print(f"[sensitive_data] FASE 2: FALLBACK a Descubrimientos")
-            subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-            for subdom in subdominios_desc[:20]:
-                urls_descubrimiento[f"http://{subdom}"] = subdom
-                urls_descubrimiento[f"https://{subdom}"] = subdom
-
-            endpoints_desc = OsintEjecucion.get_discovered_endpoints(proyecto_id)
-            for endpoint in endpoints_desc[:30]:
-                if endpoint.startswith('http'):
-                    urls_descubrimiento[endpoint] = endpoint
-
-        todas_las_urls = {**urls_scope, **urls_descubrimiento}
-        if not todas_las_urls:
-            raise Exception("No hay URLs para analizar")
-
-        print(f"[sensitive_data] URLs totales: {len(todas_las_urls)}")
-
-        # DESCARGAR Y ANALIZAR JS
-        hallazgos = {}
-        for url in todas_las_urls.keys():
-            try:
-                print(f"[sensitive_data] Analizando: {url}")
-                hallazgos_url = _analizar_url(url)
-                if hallazgos_url:
-                    hallazgos[url] = hallazgos_url
-            except Exception as e:
-                print(f"[sensitive_data] Error analizando {url}: {e}")
-
-        return {
-            "tipo": "sensitive_data_extraction",
-            "total_urls_analizadas": len(todas_las_urls),
-            "total_hallazgos": len(hallazgos),
-            "hallazgos": hallazgos
-        }
-
-    return _run_osint_job(ejecucion_id, job)
-
-
-def _analizar_url(url):
-    """Descarga y analiza JavaScript de una URL"""
-    secretos_encontrados = []
-
+def _check_tool_installed(tool_name):
+    """Verifica si una herramienta está instalada (Linux/Kali)"""
     try:
-        response = requests.get(
-            url, timeout=10, verify=False, allow_redirects=True,
-            headers={'User-Agent': 'Mozilla/5.0 (RedScope)'}
-        )
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
+        result = subprocess.run(['which', tool_name],
+                                capture_output=True, timeout=2)
+        return result.returncode == 0
+    except:
+        return False
 
-        # Scripts externos
-        for script in soup.find_all('script', src=True):
-            js_url = script['src']
-            if js_url.startswith('http'):
-                js_url_completa = js_url
-            else:
-                js_url_completa = urljoin(url, js_url)
 
-            try:
-                js_response = requests.get(
-                    js_url_completa, timeout=5, verify=False,
-                    headers={'User-Agent': 'Mozilla/5.0 (RedScope)'}
-                )
-                js_response.raise_for_status()
-                secretos = _buscar_secretos_en_contenido(
-                    js_response.text,
-                    js_url_completa
-                )
-                secretos_encontrados.extend(secretos)
-            except:
-                pass
+def _es_potencial_secreto(linea, palabra_clave):
+    """
+    VERSIÓN 2 MEJORADA: Más estricta para filtrar ruido
+    Retorna: True si es potencial secreto real, False si es ruido
+    """
+    linea_limpia = linea.strip()
 
-        # Scripts inline
-        for script in soup.find_all('script'):
-            if not script.get('src') and script.string:
-                contenido = script.string.strip()
-                if len(contenido) > 50:
-                    secretos = _buscar_secretos_en_contenido(
-                        contenido,
-                        url + " (inline)"
-                    )
-                    secretos_encontrados.extend(secretos)
+    # ════════════════════════════════════════════════════════════════
+    # 1. DETECTA CÓDIGO MINIFICADO (muy importante)
+    # ════════════════════════════════════════════════════════════════
 
-    except Exception as e:
-        print(f"  Error descargando {url}: {e}")
+    # Línea muy larga = minificada (típico >300-400 chars)
+    if len(linea_limpia) > 300:
+        return False
 
-    return secretos_encontrados
+    # Ratio alto de caracteres especiales = minificada
+    caracteres_especiales = len(
+        [c for c in linea_limpia if c in '{}()[]<>/*\\|!'])
+    if len(linea_limpia) > 0:
+        ratio = caracteres_especiales / len(linea_limpia)
+        if ratio > 0.35:  # Más del 35% = casi seguro minificada
+            return False
+
+    # ════════════════════════════════════════════════════════════════
+    # 2. DETECTA CÓDIGO (no secretos)
+    # ════════════════════════════════════════════════════════════════
+    indicadores_codigo = [
+        r'\bfunction\s+\w+',           # function nombre()
+        r'\b(var|let|const)\s+\w+\s*=',  # var x =
+        r'\breturn\s+',                # return
+        r'\bif\s*\(',                  # if (
+        r'\bfor\s*\(',                 # for (
+        r'\bwhile\s*\(',               # while (
+        r'\bswitch\s*\(',              # switch (
+        r'\btry\s*\{',                 # try {
+        r'\bcatch\s*\(',               # catch (
+        r'\bclass\s+\w+',              # class Nombre
+        r'\.prototype',                # .prototype
+        r'=>',                         # arrow =>
+        r'document\.',                 # document.getElementById
+        r'console\.',                  # console.log
+        r'Math\.',                     # Math.random
+        r'String\.',                   # String.fromCharCode
+        r'Array\.',                    # Array.isArray
+        r'Object\.',                   # Object.keys
+    ]
+
+    for patron in indicadores_codigo:
+        if re.search(patron, linea_limpia, re.IGNORECASE):
+            return False
+
+    # ════════════════════════════════════════════════════════════════
+    # 3. PALABRAS CORTAS - MÁS ESTRICTAS
+    # ════════════════════════════════════════════════════════════════
+    # Palabras muy cortas deben venir con contexto de asignación
+    if len(palabra_clave) <= 3:  # pw, key, pass, etc
+        # Deben estar en forma: pw=, pw:, "pw", pw', etc.
+        # NO simplemente "pw" dentro de una palabra
+        patron_contexto = r'["\':=].*?' + re.escape(palabra_clave) + r'["\':=]'
+        if not re.search(patron_contexto, linea_limpia, re.IGNORECASE):
+            return False
+
+    # ════════════════════════════════════════════════════════════════
+    # 4. DEBE TENER CONTENIDO SIGNIFICATIVO
+    # ════════════════════════════════════════════════════════════════
+    # Debe haber al menos 8+ caracteres alfanuméricos continuos (típico de secretos)
+    if not re.search(r'[a-zA-Z0-9]{8,}', linea_limpia):
+        return False
+
+    return True
+
+
+def _deteccion_de_vulnerabilidades(contenido, url_origen):
+    """
+    Detecta backdoors, reverse shells, ofuscación y código malicioso
+    Retorna lista de vulnerabilidades encontradas
+    """
+    vulnerabilidades = []
+
+    patrones_peligrosos = {
+        'reverse_shell_bash': {
+            'patron': r'bash\s+-i\s+>(&|\|)\s*/dev/tcp',
+            'severidad': 'CRÍTICA',
+            'descripcion': 'Reverse shell bash detectado'
+        },
+        'reverse_shell_netcat': {
+            'patron': r'nc\s+(-e|--exec)\s+/bin/(sh|bash)',
+            'severidad': 'CRÍTICA',
+            'descripcion': 'Reverse shell netcat detectado'
+        },
+        'reverse_shell_powershell': {
+            'patron': r'powershell.*IEX|Invoke-WebRequest.*IEX',
+            'severidad': 'CRÍTICA',
+            'descripcion': 'Reverse shell PowerShell detectado'
+        },
+        'command_injection': {
+            'patron': r'cmd\.exe\s*/c|sh\s+-c|bash\s+-c',
+            'severidad': 'ALTA',
+            'descripcion': 'Potencial command injection'
+        },
+        'eval_dinamico': {
+            'patron': r'\beval\s*\(|Function\s*\(\s*["\'].*["\']',
+            'severidad': 'ALTA',
+            'descripcion': 'Código dinámico ejecutado con eval()'
+        },
+        'exec_python': {
+            'patron': r'\bexec\s*\(|__import__\s*\(',
+            'severidad': 'ALTA',
+            'descripcion': 'Ejecución dinámica de código Python'
+        },
+        'deserialization': {
+            'patron': r'unserialize\s*\(|pickle\.loads|base64_decode\s*\(\s*\$_',
+            'severidad': 'ALTA',
+            'descripcion': 'Deserialización potencialmente insegura'
+        },
+        'atob_decode': {
+            'patron': r'atob\s*\(\s*["\']([A-Za-z0-9+/=]{20,})',
+            'severidad': 'MEDIA',
+            'descripcion': 'Decodificación base64 sospechosa (posible ofuscación)'
+        },
+        'string_fromcharcode': {
+            'patron': r'String\.fromCharCode\s*\((?:\d+\s*,\s*)*\d+',
+            'severidad': 'MEDIA',
+            'descripcion': 'Construcción dinámica de strings (posible ofuscación)'
+        },
+        'unescape': {
+            'patron': r'unescape\s*\(',
+            'severidad': 'MEDIA',
+            'descripcion': 'Uso de unescape() - función deprecada (ofuscación)'
+        },
+        'log4j': {
+            'patron': r'log4j|org\.apache\.log4j',
+            'severidad': 'MEDIA',
+            'descripcion': 'Log4j detectado - verificar CVE-2021-44228'
+        },
+        'spring_framework': {
+            'patron': r'org\.springframework|spring-framework',
+            'severidad': 'MEDIA',
+            'descripcion': 'Spring Framework detectado - verificar CVE-2022-22965'
+        },
+        'struts2': {
+            'patron': r'org\.apache\.struts|struts2',
+            'severidad': 'MEDIA',
+            'descripcion': 'Apache Struts 2 detectado - verificar vulnerabilidades'
+        },
+        'sql_injection': {
+            'patron': r"(?:SELECT|INSERT|UPDATE|DELETE)\s+.*\+\s*.*['\"]",
+            'severidad': 'ALTA',
+            'descripcion': 'Patrón de SQL injection (concatenación de strings)'
+        },
+        'hardcoded_credentials': {
+            'patron': r'(?:user|pass|password|username)\s*[:=]\s*["\'](?![\*\{])[^\s\"\'{}\[\]]{5,}["\']',
+            'severidad': 'CRÍTICA',
+            'descripcion': 'Credenciales potencialmente hardcodeadas en código'
+        },
+        'shell_exec': {
+            'patron': r'(?:shell_exec|system|passthru|exec|proc_open)\s*\(',
+            'severidad': 'CRÍTICA',
+            'descripcion': 'Función de ejecución del sistema detectada'
+        },
+    }
+
+    for nombre_patron, config in patrones_peligrosos.items():
+        try:
+            regex = re.compile(config['patron'], re.IGNORECASE | re.MULTILINE)
+            for i, linea in enumerate(contenido.split('\n')):
+                if regex.search(linea):
+                    # Evita reportar líneas que son comentarios
+                    linea_limpia = linea.strip()
+                    if not linea_limpia.startswith('//') and not linea_limpia.startswith('#'):
+                        vulnerabilidades.append({
+                            'url': url_origen,
+                            'tipo': nombre_patron,
+                            'severidad': config['severidad'],
+                            'descripcion': config['descripcion'],
+                            'codigo': linea_limpia[:200],
+                            'numero_linea': i + 1
+                        })
+                        break  # Solo primer hallazgo por patrón
+        except Exception as e:
+            print(f"  Error con patrón '{nombre_patron}': {e}")
+
+    return vulnerabilidades
 
 
 def _buscar_secretos_en_contenido(contenido, url_origen):
-    """Busca palabras clave y usa TruffleHog"""
+    """
+    Busca palabras clave (CON VALIDACIÓN) + TruffleHog por entropía
+    CRÍTICO: Llama a _es_potencial_secreto() para filtrar falsos positivos
+    """
     secretos = []
 
     # Método 1: TruffleHog por entropía (si está instalado)
@@ -3236,7 +3317,7 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
                 temp_file = f.name
 
             result = subprocess.run(
-                ['trufflehog', 'filesystem', temp_file, '--json'],
+                ['trufflehog', 'filesystem', temp_file, '--only-verified'],
                 capture_output=True, text=True, timeout=30
             )
 
@@ -3246,11 +3327,12 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
                         try:
                             finding = json.loads(line)
                             secret = finding.get('secret', '')[:100]
-                            if secret:
+                            if secret and _es_potencial_secreto(secret, 'entropy'):
                                 secretos.append({
                                     'url': url_origen,
                                     'secreto': secret,
-                                    'metodo': 'truffleHog'
+                                    'metodo': 'truffleHog (entropía)',
+                                    'tipo': 'secreto'
                                 })
                         except:
                             pass
@@ -3259,29 +3341,247 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
         except Exception as e:
             print(f"  TruffleHog error: {e}")
 
-    # Método 2: Palabras clave (sempre funciona)
-    for palabra in _PALABRAS_CLAVE:
-        if palabra.lower() in contenido.lower():
-            # Extraer línea donde aparece
-            for linea in contenido.split('\n'):
-                if palabra.lower() in linea.lower():
-                    # Limpiar y limitar tamaño
-                    linea_limpia = linea.strip()[:200]
-                    secretos.append({
-                        'url': url_origen,
-                        'secreto': linea_limpia,
-                        'palabra_clave': palabra,
-                        'metodo': 'grep'
-                    })
-                    break  # Solo primera ocurrencia por línea/palabra
+    # Método 2: Palabras clave (SIEMPRE funciona, CON VALIDACIÓN FUERTE)
+    for palabra in PALABRAS_CLAVE:
+        # Usar word boundaries para palabras puramente alfabéticas
+        if palabra.isalpha():
+            # Palabra alfabética: usar \b para evitar falsos positivos
+            # \bpass\b = encuentra "pass=", "pass:", pero NO "password" o "eDarkWifipassticket"
+            pattern = r'\b' + re.escape(palabra) + r'\b'
+        else:
+            # Contiene números/caracteres especiales: búsqueda exacta
+            # Ej: "api_key=", "aws_", "key="
+            pattern = re.escape(palabra)
+
+        try:
+            if re.search(pattern, contenido, re.IGNORECASE):
+                # Extraer línea donde aparece
+                encontrado = False
+                for i, linea in enumerate(contenido.split('\n')):
+                    if re.search(pattern, linea, re.IGNORECASE):
+                        # ✅ VALIDACIÓN FUERTE - Filtra agresivamente falsos positivos
+                        if _es_potencial_secreto(linea, palabra):
+                            linea_limpia = linea.strip()[:200]
+                            secretos.append({
+                                'url': url_origen,
+                                'secreto': linea_limpia,
+                                'palabra_clave': palabra,
+                                'metodo': 'grep (palabra clave)',
+                                'tipo': 'secreto',
+                                'numero_linea': i + 1
+                            })
+                            encontrado = True
+                        break  # Solo primera ocurrencia por palabra
+
+        except Exception as e:
+            print(f"  Error procesando palabra '{palabra}': {e}")
 
     return secretos
 
 
-def _check_tool_installed(tool_name):
-    """Verifica si una herramienta está instalada"""
+def _analizar_url(url):
+    """
+    Descarga y analiza JavaScript de una URL
+    Retorna: tupla (secretos, vulnerabilidades)
+    """
+    secretos_encontrados = []
+    vulnerabilidades_encontradas = []
+
     try:
-        result = subprocess.run(['which', tool_name], capture_output=True, timeout=2)
-        return result.returncode == 0
-    except:
-        return False
+        response = requests.get(
+            url, timeout=10, verify=False, allow_redirects=True,
+            headers={'User-Agent': 'Mozilla/5.0 (RedScope)'}
+        )
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        # Scripts externos (src attribute)
+        for script in soup.find_all('script', src=True):
+            js_url = script['src']
+            if js_url.startswith('http'):
+                js_url_completa = js_url
+            else:
+                js_url_completa = urljoin(url, js_url)
+
+            try:
+                js_response = requests.get(
+                    js_url_completa, timeout=10, verify=False,
+                    headers={'User-Agent': 'Mozilla/5.0 (RedScope)'}
+                )
+                js_response.raise_for_status()
+                contenido = js_response.text
+
+                # Busca secretos
+                secretos = _buscar_secretos_en_contenido(
+                    contenido, js_url_completa)
+                secretos_encontrados.extend(secretos)
+
+                # 🔍 Busca vulnerabilidades
+                vulnerabilidades = _deteccion_de_vulnerabilidades(
+                    contenido, js_url_completa)
+                vulnerabilidades_encontradas.extend(vulnerabilidades)
+
+            except Exception as e:
+                print(
+                    f"  Error procesando script externo {js_url_completa}: {e}")
+
+        # Scripts inline
+        for i, script in enumerate(soup.find_all('script')):
+            if not script.get('src') and script.string:
+                contenido = script.string.strip()
+                if len(contenido) > 50:
+                    # Busca secretos
+                    secretos = _buscar_secretos_en_contenido(
+                        contenido,
+                        f"{url}#inline-{i}"
+                    )
+                    secretos_encontrados.extend(secretos)
+
+                    # 🔍 Busca vulnerabilidades
+                    vulnerabilidades = _deteccion_de_vulnerabilidades(
+                        contenido,
+                        f"{url}#inline-{i}"
+                    )
+                    vulnerabilidades_encontradas.extend(vulnerabilidades)
+
+    except Exception as e:
+        print(f"  Error descargando {url}: {e}")
+
+    return secretos_encontrados, vulnerabilidades_encontradas
+
+
+def sensitive_data_extraction(ejecucion_id, proyecto_id):
+    """
+    HANDLER PRINCIPAL - Extracción de datos sensibles en JavaScript
+    Implementa FASE 1 (scope) y FASE 2 (fallback a descubrimientos)
+    """
+    print(
+        f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
+
+    def job():
+        # ════════════════════════════════════════════════════════════════
+        # FASE 1: URLs desde SCOPE
+        # ════════════════════════════════════════════════════════════════
+        print(f"[sensitive_data] FASE 1: Construyendo URLs desde SCOPE")
+
+        config = Proyecto.get_osint_config(proyecto_id)
+        urls_scope = {}
+
+        # Dominios
+        dominios_scope = _parse_multiline_config(
+            config.get('DOMINIO', '').strip() if config else '')
+        for dom in dominios_scope:
+            urls_scope[f"http://{dom}"] = dom
+            urls_scope[f"https://{dom}"] = dom
+
+        # Subdominios
+        subdominios_scope = _parse_multiline_config(
+            config.get('SUBDOMINIO', '').strip() if config else '')
+        for subdom in subdominios_scope:
+            urls_scope[f"http://{subdom}"] = subdom
+            urls_scope[f"https://{subdom}"] = subdom
+
+        # IPs
+        ips_scope = _parse_multiline_config(
+            config.get('IPS', '').strip() if config else '')
+        for ip in ips_scope:
+            urls_scope[f"http://{ip}:80"] = ip
+            urls_scope[f"https://{ip}:443"] = ip
+            urls_scope[f"http://{ip}:8080"] = ip
+            urls_scope[f"https://{ip}:8443"] = ip
+
+        # Servicios
+        servicios_scope = _parse_multiline_config(
+            config.get('SERVICIOS', '').strip() if config else '')
+        for servicio in servicios_scope:
+            if ':' in servicio:
+                host, puerto = servicio.rsplit(':', 1)
+                protocolo = 'https' if puerto == '443' else 'http'
+                urls_scope[f"{protocolo}://{host}:{puerto}"] = host
+            else:
+                urls_scope[f"http://{servicio}"] = servicio
+                urls_scope[f"https://{servicio}"] = servicio
+
+        # ════════════════════════════════════════════════════════════════
+        # FASE 2: FALLBACK a Descubrimientos
+        # ════════════════════════════════════════════════════════════════
+        urls_descubrimiento = {}
+        fase_usada = 'FASE 1'
+
+        if not urls_scope:
+            print(f"[sensitive_data] FASE 2: FALLBACK a Descubrimientos")
+            fase_usada = 'FASE 2'
+
+            # Subdominios descubiertos
+            subdominios_desc = OsintEjecucion.get_discovered_subdomains(
+                proyecto_id)
+            for subdom in subdominios_desc[:20]:
+                urls_descubrimiento[f"http://{subdom}"] = subdom
+                urls_descubrimiento[f"https://{subdom}"] = subdom
+
+            # Endpoints descubiertos
+            endpoints_desc = OsintEjecucion.get_discovered_endpoints(
+                proyecto_id)
+            for endpoint in endpoints_desc[:30]:
+                if endpoint.startswith('http'):
+                    urls_descubrimiento[endpoint] = endpoint
+
+        todas_las_urls = {**urls_scope, **urls_descubrimiento}
+        if not todas_las_urls:
+            raise Exception("No hay URLs para analizar")
+
+        print(
+            f"[sensitive_data] URLs totales: {len(todas_las_urls)} ({fase_usada})")
+
+        # ════════════════════════════════════════════════════════════════
+        # ANÁLISIS DE JAVASCRIPT
+        # ════════════════════════════════════════════════════════════════
+        hallazgos_secretos = {}
+        hallazgos_vulnerabilidades = {}
+        total_secretos = 0
+        total_vulnerabilidades = 0
+
+        for url in todas_las_urls.keys():
+            try:
+                print(f"[sensitive_data] Analizando: {url}")
+                secretos, vulnerabilidades = _analizar_url(url)
+
+                if secretos:
+                    hallazgos_secretos[url] = secretos
+                    total_secretos += len(secretos)
+
+                if vulnerabilidades:
+                    hallazgos_vulnerabilidades[url] = vulnerabilidades
+                    total_vulnerabilidades += len(vulnerabilidades)
+
+                print(
+                    f"  ✓ Secretos: {len(secretos)}, Vulnerabilidades: {len(vulnerabilidades)}")
+
+            except Exception as e:
+                print(f"[sensitive_data] Error analizando {url}: {e}")
+
+        # ════════════════════════════════════════════════════════════════
+        # RETORNO DE RESULTADOS
+        # ════════════════════════════════════════════════════════════════
+        return {
+            "tipo": "sensitive_data_extraction",
+            "fase_usada": fase_usada,
+            "total_urls_analizadas": len(todas_las_urls),
+            "total_secretos_encontrados": total_secretos,
+            "total_vulnerabilidades_encontradas": total_vulnerabilidades,
+            "secretos": hallazgos_secretos,
+            "vulnerabilidades": hallazgos_vulnerabilidades,
+            "resumen": {
+                "secretos_por_metodo": {
+                    "truffleHog": len([s for ss in hallazgos_secretos.values() for s in ss if s.get('metodo') == 'truffleHog (entropía)']),
+                    "grep": len([s for ss in hallazgos_secretos.values() for s in ss if s.get('metodo') == 'grep (palabra clave)'])
+                },
+                "vulnerabilidades_por_severidad": {
+                    "CRÍTICA": len([v for vv in hallazgos_vulnerabilidades.values() for v in vv if v.get('severidad') == 'CRÍTICA']),
+                    "ALTA": len([v for vv in hallazgos_vulnerabilidades.values() for v in vv if v.get('severidad') == 'ALTA']),
+                    "MEDIA": len([v for vv in hallazgos_vulnerabilidades.values() for v in vv if v.get('severidad') == 'MEDIA'])
+                }
+            }
+        }
+
+    _run_osint_job(ejecucion_id, job)
