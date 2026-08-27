@@ -312,14 +312,34 @@ def _validate_hostname_belongs_to_domain(hostname, domain_objetivo, ip=None):
 
 
 def _geolocate_ip(ip):
-    print(f"[GEO-DEBUG] Iniciando geolocalización para {ip}")
+    """Geolocaliza una IP usando múltiples fuentes en cascada"""
+    print(f"[geo] Iniciando geolocalización para {ip}")
+
+    # ═════════════════════════════════════════════════════════════════
+    # 1️⃣ EARLY RETURN para localhost (AGREGADO)
+    # ═════════════════════════════════════════════════════════════════
+    if ip.startswith('127.') or ip == 'localhost':
+        print(f"[geo] {ip} es localhost → retornar unknown")
+        return {
+            'pais': 'unknown',
+            'ciudad': 'unknown',
+            'isp': 'unknown',
+            'asn': 'unknown',
+            'latitud': None,
+            'longitud': None,
+            'fuente': 'localhost'
+        }
+
+    # ═════════════════════════════════════════════════════════════════
+    # MÉTODO 1: ipapi.co
+    # ═════════════════════════════════════════════════════════════════
     try:
+        print(f"[geo] Intentando ipapi.co para {ip}...")
         result = requests.get(f'https://ipapi.co/{ip}/json/', timeout=5)
-        print(f"[GEO-DEBUG] ipapi.co status: {result.status_code}")
+        print(f"[geo] ipapi.co status: {result.status_code}")
         if result.status_code == 200:
-            data = result.json()
-            print(f"[GEO-DEBUG] ipapi.co data: {data}")
-            data = result.json()
+            data = result.json()  # ✓ Solo UNA vez (antes estaba dos veces)
+            print(f"[geo] ipapi.co data: {data}")
             return {
                 'pais': data.get('country_name', 'unknown'),
                 'ciudad': data.get('city', 'unknown'),
@@ -332,7 +352,11 @@ def _geolocate_ip(ip):
     except Exception as e:
         print(f"[geo] ipapi.co fallo para {ip}: {str(e)[:60]}")
 
+    # ═════════════════════════════════════════════════════════════════
+    # MÉTODO 2: geoiplookup
+    # ═════════════════════════════════════════════════════════════════
     try:
+        print(f"[geo] Intentando geoiplookup para {ip}...")
         result = subprocess.run(['geoiplookup', ip], capture_output=True, text=True, timeout=2)
         if result.returncode == 0 and result.stdout:
             parts = result.stdout.strip().split(',')
@@ -348,7 +372,11 @@ def _geolocate_ip(ip):
     except Exception as e:
         print(f"[geo] geoiplookup fallo para {ip}: {str(e)[:60]}")
 
+    # ═════════════════════════════════════════════════════════════════
+    # MÉTODO 3: whois
+    # ═════════════════════════════════════════════════════════════════
     try:
+        print(f"[geo] Intentando whois para {ip}...")
         result = subprocess.run(['whois', ip], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
             geo = {
@@ -383,6 +411,16 @@ def _geolocate_ip(ip):
                         geo['phone'] = phone
                 elif 'org:' in line_lower and geo['isp'] == 'unknown':
                     geo['isp'] = line.split(':', 1)[1].strip()
+                # 2️⃣ EXTRACCIÓN DE ASN (AGREGADO)
+                elif geo['asn'] == 'unknown' and any(key in line_lower for key in ['originasn:', 'origin-as:', 'asn:']):
+                    try:
+                        asn_value = line.split(':', 1)[1].strip() if ':' in line else line.split()[-1]
+                        asn_value = asn_value.replace('AS', '').replace('as', '').strip()
+                        if asn_value and asn_value != 'not available' and asn_value.isdigit():
+                            geo['asn'] = asn_value
+                            print(f"[geo] whois ASN extraído: {asn_value}")
+                    except:
+                        pass
 
             if address_lines:
                 geo['address'] = ' | '.join(address_lines)
@@ -404,11 +442,14 @@ def _geolocate_ip(ip):
                             geo['ciudad'] = parts[0]
                             break
 
+            # 3️⃣ PRINT DE CONFIRMACIÓN (AGREGADO)
+            print(f"[geo] whois completo: país={geo['pais']}, ciudad={geo['ciudad']}, isp={geo['isp']}, asn={geo['asn']}")
             if geo['pais'] != 'unknown':
                 return geo
     except Exception as e:
         print(f"[geo] whois fallo para {ip}: {str(e)[:60]}")
 
+    print(f"[geo] ❌ Todas las fuentes agotadas para {ip}")
     return {
         'pais': 'unknown',
         'ciudad': 'unknown',
