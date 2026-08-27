@@ -1139,8 +1139,6 @@
             let container = $(this).closest(".evidence-item");
             let id = container.data("id");
 
-            console.log("ID:", id);
-
             // solo si viene de DB
             if (id !== undefined) {
                 evidenciasEliminadas.push(id);
@@ -1524,7 +1522,7 @@
             const container = document.getElementById('osintConfigContainer');
 
             try {
-                console.log("Fetching /osint/config-tipos");
+                console.log("Fetching" +BASE_PATH+"/osint/config-tipos");
                 const response = await fetch(BASE_PATH + '/osint/config-tipos', {
                     credentials: 'include'
                 });
@@ -1534,7 +1532,6 @@
                 }
 
                 const tipos = await response.json();
-                console.log("Tipos recibidos:", tipos);
 
                 if (!Array.isArray(tipos) || tipos.length === 0) {
                     container.innerHTML = '<div class="alert alert-warning">No hay tipos de configuración disponibles</div>';
@@ -1790,25 +1787,19 @@
     function cargarResultadosOSINT() {
         const hallazgosEl = document.getElementById('hallazgosWorkspace');
         if (!hallazgosEl) {
-            console.log('[OSINT] hallazgosWorkspace NO encontrado');
             return;
         }
 
         const proyectoId = hallazgosEl.dataset.proyectoId;
         const terminal = document.getElementById('terminalOSINT');
 
-        console.log('[OSINT] Cargando resultados. proyectoId:', proyectoId);
-        console.log('[OSINT] Terminal element:', terminal);
-
         if (!terminal) {
-            console.log('[OSINT] terminalOSINT NO encontrado');
             return;
         }
 
         fetch(BASE_PATH + `/osint/ejecuciones/${proyectoId}`)
             .then(r => r.json())
             .then(ejecuciones => {
-                console.log('[OSINT] Ejecuciones obtenidas:', ejecuciones);
                 let output = '';
 
                 ejecuciones.forEach((exec, idx) => {
@@ -1835,7 +1826,7 @@
 
                 terminal.textContent = output || '';
                 terminal.scrollTop = terminal.scrollHeight;
-                console.log('[OSINT] Terminal actualizada');
+
             })
             .catch(err => {
                 console.error('[OSINT] Error:', err);
