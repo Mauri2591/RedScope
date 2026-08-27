@@ -148,6 +148,8 @@ PUBLIC_DNS_IPS = {
     '4.4.4.4', '208.67.222.123', '208.67.220.123',  # Otros
     '1.8.8.8', '64.6.64.6', '64.6.65.6',  # Verisign
     '9.9.9.10',  # Quad9 sin filtro
+    '127.0.0.53',  # systemd-resolved local DNS
+    '127.0.0.1',   # localhost
 }
 
 def _resolve_domain_multi_resolver(domain):
@@ -310,9 +312,13 @@ def _validate_hostname_belongs_to_domain(hostname, domain_objetivo, ip=None):
 
 
 def _geolocate_ip(ip):
+    print(f"[GEO-DEBUG] Iniciando geolocalización para {ip}")
     try:
         result = requests.get(f'https://ipapi.co/{ip}/json/', timeout=5)
+        print(f"[GEO-DEBUG] ipapi.co status: {result.status_code}")
         if result.status_code == 200:
+            data = result.json()
+            print(f"[GEO-DEBUG] ipapi.co data: {data}")
             data = result.json()
             return {
                 'pais': data.get('country_name', 'unknown'),
