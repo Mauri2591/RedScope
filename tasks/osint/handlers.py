@@ -3106,6 +3106,92 @@ PALABRAS_CLAVE = [
     'autenticación',
 ]
 
+# ════════════════════════════════════════════════════════════════════════════════
+# MAPEO DE PATRONES (sin severidades - se cargan del modelo)
+# ════════════════════════════════════════════════════════════════════════════════
+PATRONES_VULNERABILIDADES = {
+    'reverse_shell_bash': {
+        'patron': r'bash\s+-i\s+>(&|\|)\s*/dev/tcp',
+        'severidad_esperada': 'CRITICAL',
+        'descripcion': 'Reverse shell bash detectado'
+    },
+    'reverse_shell_netcat': {
+        'patron': r'nc\s+(-e|--exec)\s+/bin/(sh|bash)',
+        'severidad_esperada': 'CRITICAL',
+        'descripcion': 'Reverse shell netcat detectado'
+    },
+    'reverse_shell_powershell': {
+        'patron': r'powershell.*IEX|Invoke-WebRequest.*IEX',
+        'severidad_esperada': 'CRITICAL',
+        'descripcion': 'Reverse shell PowerShell detectado'
+    },
+    'command_injection': {
+        'patron': r'cmd\.exe\s*/c|sh\s+-c|bash\s+-c',
+        'severidad_esperada': 'HIGH',
+        'descripcion': 'Potencial command injection'
+    },
+    'eval_dinamico': {
+        'patron': r'\beval\s*\(|Function\s*\(\s*["\'].*["\']',
+        'severidad_esperada': 'HIGH',
+        'descripcion': 'Código dinámico ejecutado con eval()'
+    },
+    'exec_python': {
+        'patron': r'\bexec\s*\(|__import__\s*\(',
+        'severidad_esperada': 'HIGH',
+        'descripcion': 'Ejecución dinámica de código Python'
+    },
+    'deserialization': {
+        'patron': r'unserialize\s*\(|pickle\.loads|base64_decode\s*\(\s*\$_',
+        'severidad_esperada': 'HIGH',
+        'descripcion': 'Deserialización potencialmente insegura'
+    },
+    'atob_decode': {
+        'patron': r'atob\s*\(\s*["\']([A-Za-z0-9+/=]{20,})',
+        'severidad_esperada': 'MEDIUM',
+        'descripcion': 'Decodificación base64 sospechosa (posible ofuscación)'
+    },
+    'string_fromcharcode': {
+        'patron': r'String\.fromCharCode\s*\((?:\d+\s*,\s*)*\d+',
+        'severidad_esperada': 'MEDIUM',
+        'descripcion': 'Construcción dinámica de strings (posible ofuscación)'
+    },
+    'unescape': {
+        'patron': r'unescape\s*\(',
+        'severidad_esperada': 'MEDIUM',
+        'descripcion': 'Uso de unescape() - función deprecada (ofuscación)'
+    },
+    'log4j': {
+        'patron': r'log4j|org\.apache\.log4j',
+        'severidad_esperada': 'MEDIUM',
+        'descripcion': 'Log4j detectado - verificar CVE-2021-44228'
+    },
+    'spring_framework': {
+        'patron': r'org\.springframework|spring-framework',
+        'severidad_esperada': 'MEDIUM',
+        'descripcion': 'Spring Framework detectado - verificar CVE-2022-22965'
+    },
+    'struts2': {
+        'patron': r'org\.apache\.struts|struts2',
+        'severidad_esperada': 'MEDIUM',
+        'descripcion': 'Apache Struts 2 detectado - verificar vulnerabilidades'
+    },
+    'sql_injection': {
+        'patron': r"(?:SELECT|INSERT|UPDATE|DELETE)\s+.*\+\s*.*['\"]",
+        'severidad_esperada': 'HIGH',
+        'descripcion': 'Patrón de SQL injection (concatenación de strings)'
+    },
+    'hardcoded_credentials': {
+        'patron': r'(?:user|pass|password|username)\s*[:=]\s*["\'](?![\*\{])[^\s\"\'{}\[\]]{5,}["\']',
+        'severidad_esperada': 'CRITICAL',
+        'descripcion': 'Credenciales potencialmente hardcodeadas en código'
+    },
+    'shell_exec': {
+        'patron': r'(?:shell_exec|system|passthru|exec|proc_open)\s*\(',
+        'severidad_esperada': 'CRITICAL',
+        'descripcion': 'Función de ejecución del sistema detectada'
+    },
+}
+
 
 def _check_tool_installed(tool_name):
     """Verifica si una herramienta está instalada (Linux/Kali)"""
@@ -3119,7 +3205,7 @@ def _check_tool_installed(tool_name):
 
 def _es_potencial_secreto(linea, palabra_clave):
     """
-    VERSIÓN 2 MEJORADA: Más estricta para filtrar ruido
+    VERSIÓN FINAL: Más estricta para filtrar ruido
     Retorna: True si es potencial secreto real, False si es ruido
     """
     linea_limpia = linea.strip()
@@ -3189,98 +3275,26 @@ def _es_potencial_secreto(linea, palabra_clave):
     return True
 
 
-def _deteccion_de_vulnerabilidades(contenido, url_origen):
+def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
     """
     Detecta backdoors, reverse shells, ofuscación y código malicioso
+
+    Args:
+        contenido: JavaScript a analizar
+        url_origen: URL de origen
+        mapa_severidades: Dict con mapeo de severidades del modelo
+                         {'CRITICAL': severidad_obj, 'HIGH': severidad_obj, ...}
+
     Retorna lista de vulnerabilidades encontradas
     """
     vulnerabilidades = []
 
-    patrones_peligrosos = {
-        'reverse_shell_bash': {
-            'patron': r'bash\s+-i\s+>(&|\|)\s*/dev/tcp',
-            'severidad': 'CRÍTICA',
-            'descripcion': 'Reverse shell bash detectado'
-        },
-        'reverse_shell_netcat': {
-            'patron': r'nc\s+(-e|--exec)\s+/bin/(sh|bash)',
-            'severidad': 'CRÍTICA',
-            'descripcion': 'Reverse shell netcat detectado'
-        },
-        'reverse_shell_powershell': {
-            'patron': r'powershell.*IEX|Invoke-WebRequest.*IEX',
-            'severidad': 'CRÍTICA',
-            'descripcion': 'Reverse shell PowerShell detectado'
-        },
-        'command_injection': {
-            'patron': r'cmd\.exe\s*/c|sh\s+-c|bash\s+-c',
-            'severidad': 'ALTA',
-            'descripcion': 'Potencial command injection'
-        },
-        'eval_dinamico': {
-            'patron': r'\beval\s*\(|Function\s*\(\s*["\'].*["\']',
-            'severidad': 'ALTA',
-            'descripcion': 'Código dinámico ejecutado con eval()'
-        },
-        'exec_python': {
-            'patron': r'\bexec\s*\(|__import__\s*\(',
-            'severidad': 'ALTA',
-            'descripcion': 'Ejecución dinámica de código Python'
-        },
-        'deserialization': {
-            'patron': r'unserialize\s*\(|pickle\.loads|base64_decode\s*\(\s*\$_',
-            'severidad': 'ALTA',
-            'descripcion': 'Deserialización potencialmente insegura'
-        },
-        'atob_decode': {
-            'patron': r'atob\s*\(\s*["\']([A-Za-z0-9+/=]{20,})',
-            'severidad': 'MEDIA',
-            'descripcion': 'Decodificación base64 sospechosa (posible ofuscación)'
-        },
-        'string_fromcharcode': {
-            'patron': r'String\.fromCharCode\s*\((?:\d+\s*,\s*)*\d+',
-            'severidad': 'MEDIA',
-            'descripcion': 'Construcción dinámica de strings (posible ofuscación)'
-        },
-        'unescape': {
-            'patron': r'unescape\s*\(',
-            'severidad': 'MEDIA',
-            'descripcion': 'Uso de unescape() - función deprecada (ofuscación)'
-        },
-        'log4j': {
-            'patron': r'log4j|org\.apache\.log4j',
-            'severidad': 'MEDIA',
-            'descripcion': 'Log4j detectado - verificar CVE-2021-44228'
-        },
-        'spring_framework': {
-            'patron': r'org\.springframework|spring-framework',
-            'severidad': 'MEDIA',
-            'descripcion': 'Spring Framework detectado - verificar CVE-2022-22965'
-        },
-        'struts2': {
-            'patron': r'org\.apache\.struts|struts2',
-            'severidad': 'MEDIA',
-            'descripcion': 'Apache Struts 2 detectado - verificar vulnerabilidades'
-        },
-        'sql_injection': {
-            'patron': r"(?:SELECT|INSERT|UPDATE|DELETE)\s+.*\+\s*.*['\"]",
-            'severidad': 'ALTA',
-            'descripcion': 'Patrón de SQL injection (concatenación de strings)'
-        },
-        'hardcoded_credentials': {
-            'patron': r'(?:user|pass|password|username)\s*[:=]\s*["\'](?![\*\{])[^\s\"\'{}\[\]]{5,}["\']',
-            'severidad': 'CRÍTICA',
-            'descripcion': 'Credenciales potencialmente hardcodeadas en código'
-        },
-        'shell_exec': {
-            'patron': r'(?:shell_exec|system|passthru|exec|proc_open)\s*\(',
-            'severidad': 'CRÍTICA',
-            'descripcion': 'Función de ejecución del sistema detectada'
-        },
-    }
-
-    for nombre_patron, config in patrones_peligrosos.items():
+    for nombre_patron, config in PATRONES_VULNERABILIDADES.items():
         try:
+            # Obtener severidad del modelo, si no existe usar la esperada
+            severidad_esperada = config['severidad_esperada']
+            severidad_real = severidad_esperada if severidad_esperada in mapa_severidades else 'MEDIUM'
+
             regex = re.compile(config['patron'], re.IGNORECASE | re.MULTILINE)
             for i, linea in enumerate(contenido.split('\n')):
                 if regex.search(linea):
@@ -3290,7 +3304,7 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen):
                         vulnerabilidades.append({
                             'url': url_origen,
                             'tipo': nombre_patron,
-                            'severidad': config['severidad'],
+                            'severidad': severidad_real,  # ← DEL MODELO
                             'descripcion': config['descripcion'],
                             'codigo': linea_limpia[:200],
                             'numero_linea': i + 1
@@ -3346,17 +3360,14 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
         # Usar word boundaries para palabras puramente alfabéticas
         if palabra.isalpha():
             # Palabra alfabética: usar \b para evitar falsos positivos
-            # \bpass\b = encuentra "pass=", "pass:", pero NO "password" o "eDarkWifipassticket"
             pattern = r'\b' + re.escape(palabra) + r'\b'
         else:
             # Contiene números/caracteres especiales: búsqueda exacta
-            # Ej: "api_key=", "aws_", "key="
             pattern = re.escape(palabra)
 
         try:
             if re.search(pattern, contenido, re.IGNORECASE):
                 # Extraer línea donde aparece
-                encontrado = False
                 for i, linea in enumerate(contenido.split('\n')):
                     if re.search(pattern, linea, re.IGNORECASE):
                         # ✅ VALIDACIÓN FUERTE - Filtra agresivamente falsos positivos
@@ -3370,8 +3381,7 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
                                 'tipo': 'secreto',
                                 'numero_linea': i + 1
                             })
-                            encontrado = True
-                        break  # Solo primera ocurrencia por palabra
+                            break  # Solo primera ocurrencia por palabra
 
         except Exception as e:
             print(f"  Error procesando palabra '{palabra}': {e}")
@@ -3379,7 +3389,7 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
     return secretos
 
 
-def _analizar_url(url):
+def _analizar_url(url, mapa_severidades):
     """
     Descarga y analiza JavaScript de una URL
     Retorna: tupla (secretos, vulnerabilidades)
@@ -3416,9 +3426,9 @@ def _analizar_url(url):
                     contenido, js_url_completa)
                 secretos_encontrados.extend(secretos)
 
-                # 🔍 Busca vulnerabilidades
+                # 🔍 Busca vulnerabilidades (PASA mapa_severidades)
                 vulnerabilidades = _deteccion_de_vulnerabilidades(
-                    contenido, js_url_completa)
+                    contenido, js_url_completa, mapa_severidades)
                 vulnerabilidades_encontradas.extend(vulnerabilidades)
 
             except Exception as e:
@@ -3437,10 +3447,11 @@ def _analizar_url(url):
                     )
                     secretos_encontrados.extend(secretos)
 
-                    # 🔍 Busca vulnerabilidades
+                    # 🔍 Busca vulnerabilidades (PASA mapa_severidades)
                     vulnerabilidades = _deteccion_de_vulnerabilidades(
                         contenido,
-                        f"{url}#inline-{i}"
+                        f"{url}#inline-{i}",
+                        mapa_severidades
                     )
                     vulnerabilidades_encontradas.extend(vulnerabilidades)
 
@@ -3454,11 +3465,22 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
     """
     HANDLER PRINCIPAL - Extracción de datos sensibles en JavaScript
     Implementa FASE 1 (scope) y FASE 2 (fallback a descubrimientos)
+    Severidades obtenidas DINÁMICAMENTE del modelo RedScope
     """
     print(
         f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
+        # ════════════════════════════════════════════════════════════════
+        # OBTENER SEVERIDADES DEL MODELO Y CREAR MAPA
+        # ════════════════════════════════════════════════════════════════
+        severidades = Proyecto.get_severidades()  # ← Del modelo RedScope
+        print(
+            f"[sensitive_data] Severidades cargadas: {[s['nombre'] for s in severidades]}")
+
+        # Crear mapa: {'CRITICAL': obj, 'HIGH': obj, 'MEDIUM': obj, 'LOW': obj, 'INFORMATIONAL': obj}
+        mapa_severidades = {sev['nombre']: sev for sev in severidades}
+
         # ════════════════════════════════════════════════════════════════
         # FASE 1: URLs desde SCOPE
         # ════════════════════════════════════════════════════════════════
@@ -3544,7 +3566,9 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         for url in todas_las_urls.keys():
             try:
                 print(f"[sensitive_data] Analizando: {url}")
-                secretos, vulnerabilidades = _analizar_url(url)
+                # PASA mapa_severidades a _analizar_url()
+                secretos, vulnerabilidades = _analizar_url(
+                    url, mapa_severidades)
 
                 if secretos:
                     hallazgos_secretos[url] = secretos
@@ -3561,8 +3585,18 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                 print(f"[sensitive_data] Error analizando {url}: {e}")
 
         # ════════════════════════════════════════════════════════════════
-        # RETORNO DE RESULTADOS
+        # RETORNO DE RESULTADOS CON SEVERIDADES DEL MODELO
         # ════════════════════════════════════════════════════════════════
+
+        # Construir resumen dinámico con severidades del modelo
+        vulnerabilidades_por_severidad = {}
+        for severidad in severidades:
+            # INFORMATIONAL, LOW, MEDIUM, HIGH, CRITICAL
+            nombre_sev = severidad['nombre']
+            count = len([v for vv in hallazgos_vulnerabilidades.values()
+                        for v in vv if v.get('severidad') == nombre_sev])
+            vulnerabilidades_por_severidad[nombre_sev] = count
+
         return {
             "tipo": "sensitive_data_extraction",
             "fase_usada": fase_usada,
@@ -3576,11 +3610,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     "truffleHog": len([s for ss in hallazgos_secretos.values() for s in ss if s.get('metodo') == 'truffleHog (entropía)']),
                     "grep": len([s for ss in hallazgos_secretos.values() for s in ss if s.get('metodo') == 'grep (palabra clave)'])
                 },
-                "vulnerabilidades_por_severidad": {
-                    "CRÍTICA": len([v for vv in hallazgos_vulnerabilidades.values() for v in vv if v.get('severidad') == 'CRÍTICA']),
-                    "ALTA": len([v for vv in hallazgos_vulnerabilidades.values() for v in vv if v.get('severidad') == 'ALTA']),
-                    "MEDIA": len([v for vv in hallazgos_vulnerabilidades.values() for v in vv if v.get('severidad') == 'MEDIA'])
-                }
+                "vulnerabilidades_por_severidad": vulnerabilidades_por_severidad
             }
         }
 
