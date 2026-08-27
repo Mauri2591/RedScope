@@ -19,7 +19,7 @@
                         </select>
                     </div>
                     <div class="mb-3" id="np_contenedor_servicio" style="display:none;">
-                        <label class="form-label">Proveedor Cloud</label>
+                        <label class="form-label">Tipo Servicio</label>
                         <select class="form-select form-select-sm" name="tipo_servicio_id" id="np_tipo_servicio">
                             {% for ts in tipos_servicio %}
                             <option value="{{ ts.id }}">{{ ts.nombre }}</option>

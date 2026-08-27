@@ -1558,9 +1558,7 @@
             </div>`;
             }
         });
-    } else {
-        console.error("Modal OSINT NO ENCONTRADO");
-    }
+    } 
 
     const formOsintConfig = document.getElementById('formGestionarConfiguracionOSINT');
     if (formOsintConfig) {
