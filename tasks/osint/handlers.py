@@ -794,8 +794,12 @@ def mapeo_ips(ejecucion_id, proyecto_id):
             dominio_objetivo = dominios_config[0]
             
         # ★ FILTRO CRÍTICO: Eliminar IPs de DNS públicas antes de analizar
+        # ★ FILTRO CRÍTICO: Eliminar IPs de DNS públicas antes de analizar
+        print(f"[DEBUG] ips_a_analizar ANTES de filtrar: {ips_a_analizar}")
+        print(f"[DEBUG] PUBLIC_DNS_IPS: {PUBLIC_DNS_IPS}")
         ips_a_analizar = {ip for ip in ips_a_analizar if ip not in PUBLIC_DNS_IPS}
-
+        print(f"[DEBUG] ips_a_analizar DESPUÉS de filtrar: {ips_a_analizar}")
+        
         print(f"[mapeo_ips] IPs después de filtrar DNS públicas: {len(ips_a_analizar)}")
 
         # 3. Hacer reverse DNS + Geolocalización para cada IP
