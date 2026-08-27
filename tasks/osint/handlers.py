@@ -3218,7 +3218,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             "hallazgos": hallazgos
         }
 
-    return _run_osint_job(ejecucion_id, job)
+    _run_osint_job(ejecucion_id, job)
 
 
 def _analizar_url(url):
