@@ -388,7 +388,7 @@ def _geolocate_ip(ip):
     # ═════════════════════════════════════════════════════════════════
     try:
         print(f"[geo] Intentando whois para {ip}...")
-        result = subprocess.run(['whois', ip], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(['whois', ip], capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
             geo = {
                 'pais': 'unknown',
