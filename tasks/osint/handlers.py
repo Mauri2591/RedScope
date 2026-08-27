@@ -18,6 +18,7 @@ import dns.exception
 import traceback
 import sys
 from bs4 import BeautifulSoup
+import re
 
 # ══════════════════════════════════════════════════════════════════
 # HELPERS GLOBALES OSINT
@@ -3309,10 +3310,20 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
 
     # Método 2: Palabras clave (sempre funciona)
     for palabra in PALABRAS_CLAVE:
-        if palabra.lower() in contenido.lower():
+        # Usar word boundaries para palabras puramente alfabéticas
+        if palabra.isalpha():
+            # Palabra alfabética: usar \b para evitar falsos positivos
+            # \bpass\b = encuentra "pass=", "pass:", pero NO "eDarkWifipassticket"
+            pattern = r'\b' + re.escape(palabra) + r'\b'
+        else:
+            # Contiene números/caracteres especiales: búsqueda exacta
+            # Ej: "api_key=", "aws_", "key="
+            pattern = re.escape(palabra)
+        
+        if re.search(pattern, contenido, re.IGNORECASE):
             # Extraer línea donde aparece
             for linea in contenido.split('\n'):
-                if palabra.lower() in linea.lower():
+                if re.search(pattern, linea, re.IGNORECASE):
                     # Limpiar y limitar tamaño
                     linea_limpia = linea.strip()[:200]
                     secretos.append({
