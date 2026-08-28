@@ -3317,75 +3317,25 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
 
 
 def _buscar_secretos_en_contenido(contenido, url_origen):
-    """
-    Busca palabras clave (CON VALIDACIÓN) + TruffleHog por entropía
-    CRÍTICO: Llama a _es_potencial_secreto() para filtrar falsos positivos
-    """
+    """Buscar secretos usando SOLO GREP (sin TruffleHog)"""
     secretos = []
-
-    # Método 1: TruffleHog por entropía (si está instalado)
-    if _check_tool_installed('trufflehog'):
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
-                f.write(contenido)
-                temp_file = f.name
-
-            result = subprocess.run(
-                ['trufflehog', 'filesystem', temp_file, '--only-verified'],
-                capture_output=True, text=True, timeout=30
-            )
-
-            if result.stdout:
-                for line in result.stdout.split('\n'):
-                    if line.strip():
-                        try:
-                            finding = json.loads(line)
-                            secret = finding.get('secret', '')[:100]
-                            if secret and _es_potencial_secreto(secret, 'entropy'):
-                                secretos.append({
-                                    'url': url_origen,
-                                    'secreto': secret,
-                                    'metodo': 'truffleHog (entropía)',
-                                    'tipo': 'secreto'
-                                })
-                        except:
-                            pass
-
-            os.unlink(temp_file)
-        except Exception as e:
-            print(f"  TruffleHog error: {e}")
-
-    # Método 2: Palabras clave (SIEMPRE funciona, CON VALIDACIÓN FUERTE)
-    for palabra in PALABRAS_CLAVE:
-        # Usar word boundaries para palabras puramente alfabéticas
-        if palabra.isalpha():
-            # Palabra alfabética: usar \b para evitar falsos positivos
-            pattern = r'\b' + re.escape(palabra) + r'\b'
-        else:
-            # Contiene números/caracteres especiales: búsqueda exacta
-            pattern = re.escape(palabra)
-
-        try:
-            if re.search(pattern, contenido, re.IGNORECASE):
-                # Extraer línea donde aparece
-                for i, linea in enumerate(contenido.split('\n')):
-                    if re.search(pattern, linea, re.IGNORECASE):
-                        # ✅ VALIDACIÓN FUERTE - Filtra agresivamente falsos positivos
-                        if _es_potencial_secreto(linea, palabra):
-                            linea_limpia = linea.strip()[:200]
-                            secretos.append({
-                                'url': url_origen,
-                                'secreto': linea_limpia,
-                                'palabra_clave': palabra,
-                                'metodo': 'grep (palabra clave)',
-                                'tipo': 'secreto',
-                                'numero_linea': i + 1
-                            })
-                            break  # Solo primera ocurrencia por palabra
-
-        except Exception as e:
-            print(f"  Error procesando palabra '{palabra}': {e}")
-
+    
+    # Solo buscar por palabras clave con grep
+    for palabra_clave in PALABRAS_CLAVE:
+        if _es_potencial_secreto(contenido, palabra_clave):
+            # Buscar líneas que contengan la palabra clave
+            lineas = contenido.split('\n')
+            for linea in lineas:
+                if palabra_clave.lower() in linea.lower():
+                    secretos.append({
+                        'url': url_origen,
+                        'palabra_clave': palabra_clave,
+                        'linea': linea[:200],  # Primeros 200 chars
+                        'severidad': 'MEDIUM',
+                        'metodo': 'grep (palabra clave)'
+                    })
+                    break  # Una ocurrencia por palabra clave es suficiente
+    
     return secretos
 
 
