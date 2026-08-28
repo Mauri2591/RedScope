@@ -3506,11 +3506,6 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
 
         for url in todas_las_urls.keys():
             try:
-                # ← AGREGAR AQUÍ
-                if url.endswith('.min.js'):
-                    print(f"[sensitive_data] Saltando {url} (archivo minificado)")
-                    continue
-                
                 print(f"[sensitive_data] Analizando: {url}")
                 secretos, vulnerabilidades = _analizar_url(url, mapa_severidades)
 
