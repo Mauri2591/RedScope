@@ -154,404 +154,56 @@ def _run_osint_job(ejecucion_id, fn):
 
 
 # IPs de resolvers DNS públicos a filtrar (no son del objetivo)
-PUBLIC_DNS_IPS = {
-    '8.8.8.8', '8.8.4.4',  # Google
-    '1.1.1.1', '1.0.0.1',  # Cloudflare
-    '9.9.9.9', '149.112.112.112',  # Quad9
-    '208.67.222.222', '208.67.220.220',  # OpenDNS
-    '4.4.4.4', '208.67.222.123', '208.67.220.123',  # Otros
-    '1.8.8.8', '64.6.64.6', '64.6.65.6',  # Verisign
-    '9.9.9.10',  # Quad9 sin filtro
-    '127.0.0.53',  # systemd-resolved local DNS
-    '127.0.0.1',   # localhost
-}
+PUBLIC_DNS_IPS = {'8.8.8.8', '8.8.4.4', '1.1.1.1', '1.0.0.1', '9.9.9.9', '149.112.112.112'}
 
 
-def _resolve_domain_multi_resolver(domain):
-    """
-    Resuelve un dominio usando múltiples resolvers DNS.
-    Retorna dict con IPs y información de resolvers.
-    """
-    ips_by_resolver = {}
 
-    # Lista de resolvers públicos (IP, Nombre)
-    resolvers = [
-        ('8.8.8.8', 'Google'),
-        ('1.1.1.1', 'Cloudflare'),
-        ('9.9.9.9', 'Quad9'),
-        ('208.67.222.222', 'OpenDNS'),
-    ]
-
-    # Método 1: usar dnspython si está disponible
+def _resolve_domain_multi_resolver(dominio, timeout=5):
+    """Resuelve dominio - ligero, sin múltiples resolvers"""
     try:
-        for resolver_ip, resolver_name in resolvers:
-            try:
-                resolver = dns.resolver.Resolver()
-                resolver.nameservers = [resolver_ip]
-                resolver.timeout = 5
-                resolver.lifetime = 5
-
-                answers = resolver.resolve(domain, 'A')
-                ips = [str(rdata) for rdata in answers]
-                ips_by_resolver[resolver_name] = ips
-                print(f"[DNS] {resolver_name} ({resolver_ip}): {ips}")
-            except dns.exception.Timeout:
-                print(f"[DNS] {resolver_name} ({resolver_ip}): TIMEOUT")
-            except dns.exception.NXDOMAIN:
-                print(f"[DNS] {resolver_name} ({resolver_ip}): NXDOMAIN")
-            except Exception as e:
-                print(f"[DNS] {resolver_name} ({resolver_ip}): {str(e)}")
-    except ImportError:
-        print("[DNS] dnspython no disponible, usando nslookup")
-
-    # Método 2: usar nslookup (siempre como fallback)
-    try:
-        result = subprocess.run(
-            ['nslookup', domain],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        ips = []
-        for line in result.stdout.split('\n'):
-            if 'Address:' in line and not line.startswith(';'):
-                ip = line.split('Address:')[1].strip()
-                # Remover puerto si está presente (ej: 8.8.8.8#53)
-                if '#' in ip:
-                    ip = ip.split('#')[0].strip()
-                if ip and not ip.startswith('#') and ':' not in ip:
-                    ips.append(ip)
-        if ips:
-            ips_by_resolver['System'] = ips
-            print(f"[DNS] System (default): {ips}")
+        ips = socket.getaddrinfo(dominio, None, socket.AF_INET, timeout=timeout)
+        ip_set = set(ip[4][0] for ip in ips)
+        return {'ips': ip_set, 'by_resolver': {'default': list(ip_set)}}
     except Exception as e:
-        print(f"[DNS] nslookup error: {e}")
-
-    # Consolidar IPs únicas (filtrar IPs de resolvers DNS públicos)
-    all_ips = set()
-    for ips in ips_by_resolver.values():
-        all_ips.update(ips)
-
-    # Remover IPs de servidores DNS públicos
-    all_ips = {ip for ip in all_ips if ip not in PUBLIC_DNS_IPS}
-
-    return {
-        'ips': sorted(list(all_ips)),
-        'by_resolver': ips_by_resolver
-    }
+        print(f"  [WARN] Resolver {dominio}: {type(e).__name__}")
+        return {'ips': set(), 'by_resolver': {}}
 
 
-def _validate_hostname_belongs_to_domain(hostname, domain_objetivo, ip=None):
-    """
-    Valida si un hostname pertenece realmente al dominio objetivo.
-    Retorna dict con validación y detalles.
-
-    Criterios:
-    1. El hostname contiene el dominio objetivo (ej: server.example.com contiene example.com)
-    2. El hostname NO es un dominio genérico de proveedor (AWS, Azure, etc.)
-    3. OPCIONAL: Verificar que el hostname se resuelve de vuelta a la IP (reverse validation)
-    """
-    validation = {
-        'es_valido': False,
-        'razon': 'unknown',
-        'tipo_hostname': 'unknown'
-    }
-
-    if not hostname or hostname == 'unknown':
-        validation['razon'] = 'sin_hostname'
-        return validation
-
-    hostname_lower = hostname.lower()
-    domain_lower = domain_objetivo.lower() if domain_objetivo else ''
-
-    # Proveedores cloud/ISPs genéricos (no son del objetivo)
-    generic_providers = [
-        'amazonaws.com',
-        'azurewebsites.net',
-        'cloudflare.com',
-        'akamai.net',
-        'fastly.net',
-        'cloudfront.net',
-        'google.com',
-        'gcr.io',
-        'heroku.com',
-        'github.io',
-        'bitbucket.io',
-        'amazonaws.com.ar',
-        'aws.amazon.com',
-    ]
-
-    # 1. Validar que NO sea un hostname genérico de proveedor
-    if any(provider in hostname_lower for provider in generic_providers):
-        validation['tipo_hostname'] = 'cloud_provider'
-        validation['razon'] = f'hostname_generico_proveedor: {hostname}'
-        return validation
-
-    # 2. Validar que contenga el dominio objetivo
-    if domain_lower:
-        if domain_lower in hostname_lower:
-            # ✓ El hostname contiene el dominio objetivo
-            validation['es_valido'] = True
-            validation['tipo_hostname'] = 'coincide_dominio'
-            validation['razon'] = f'hostname contiene dominio objetivo: {domain_lower}'
-
-            # BONUS: Validación opcional - verificar reverse lookup
-            if ip:
-                try:
-                    # Intentar resolver el hostname para verificar que apunta a esta IP
-                    result = subprocess.run(
-                        ['nslookup', hostname],
-                        capture_output=True,
-                        text=True,
-                        timeout=5
-                    )
-                    if ip in result.stdout:
-                        validation['razon'] += ' [reverse_lookup_ok]'
-                    else:
-                        validation['razon'] += ' [reverse_lookup_diferente]'
-                except:
-                    pass
-
-            return validation
-        else:
-            # ✗ El hostname NO contiene el dominio objetivo
-            validation['tipo_hostname'] = 'no_coincide'
-            validation['razon'] = f'hostname no contiene dominio objetivo: {domain_lower}'
-            return validation
-
-    # Si no hay dominio objetivo, confiar en que no sea genérico
-    validation['es_valido'] = True
-    validation['tipo_hostname'] = 'sin_validacion_dominio'
-    validation['razon'] = 'sin dominio objetivo para validar'
-    return validation
-
+def _validate_hostname_belongs_to_domain(hostname, dominio_objetivo, ip):
+    """Validación simple de hostname"""
+    if not dominio_objetivo or not hostname:
+        return {'valido': False, 'razon': 'Datos insuficientes'}
+    
+    if dominio_objetivo.lower() in hostname.lower():
+        return {'valido': True, 'razon': f'Hostname contiene {dominio_objetivo}'}
+    
+    return {'valido': False, 'razon': f'Hostname no pertenece a {dominio_objetivo}'}
 
 def _geolocate_ip(ip):
-    """Geolocaliza una IP usando múltiples fuentes en cascada"""
-    print(f"[geo] Iniciando geolocalización para {ip}")
-
-    # ═════════════════════════════════════════════════════════════════
-    # 1️ EARLY RETURN para localhost (AGREGADO)
-    # ═════════════════════════════════════════════════════════════════
-    if ip.startswith('127.') or ip == 'localhost':
-        print(f"[geo] {ip} es localhost → retornar unknown")
-        return {
-            'pais': 'unknown',
-            'ciudad': 'unknown',
-            'isp': 'unknown',
-            'asn': 'unknown',
-            'latitud': None,
-            'longitud': None,
-            'fuente': 'localhost'
-        }
-
-    # ═════════════════════════════════════════════════════════════════
-    # MÉTODO 1: ipapi.co
-    # ═════════════════════════════════════════════════════════════════
-    try:
-        print(f"[geo] Intentando ipapi.co para {ip}...")
-        result = requests.get(f'https://ipapi.co/{ip}/json/', timeout=5)
-        print(f"[geo] ipapi.co status: {result.status_code}")
-        if result.status_code == 200:
-            data = result.json()  # ✓ Solo UNA vez (antes estaba dos veces)
-            print(f"[geo] ipapi.co data: {data}")
-            return {
-                'pais': data.get('country_name', 'unknown'),
-                'ciudad': data.get('city', 'unknown'),
-                'isp': data.get('org', 'unknown'),
-                'asn': data.get('asn', 'unknown'),
-                'latitud': data.get('latitude'),
-                'longitud': data.get('longitude'),
-                'fuente': 'ipapi.co'
-            }
-    except Exception as e:
-        print(f"[geo] ipapi.co fallo para {ip}: {str(e)[:60]}")
-
-    # ═════════════════════════════════════════════════════════════════
-    # MÉTODO 2: geoiplookup
-    # ═════════════════════════════════════════════════════════════════
-    try:
-        print(f"[geo] Intentando geoiplookup para {ip}...")
-        result = subprocess.run(['geoiplookup', ip],
-                                capture_output=True, text=True, timeout=2)
-        if result.returncode == 0 and result.stdout:
-            parts = result.stdout.strip().split(',')
-
-            # Construir dict primero
-            geo_data = {
-                'pais': parts[2].strip() if len(parts) > 2 else 'unknown',
-                'ciudad': parts[1].strip() if len(parts) > 1 else 'unknown',
-                'isp': 'unknown',
-                'asn': 'unknown',
-                'latitud': float(parts[3]) if len(parts) > 3 else None,
-                'longitud': float(parts[4]) if len(parts) > 4 else None,
-                'fuente': 'maxmind'
-            }
-
-            # CRITICAL FIX: Solo retornar si encontró país real
-            if geo_data['pais'] != 'unknown':
-                print(
-                    f"[geo] geoiplookup encontró país: {geo_data['pais']} → retornando")
-                return geo_data
-            else:
-                print(
-                    f"[geo] geoiplookup retornó pais='unknown' → continuando a whois")
-                # NO RETORNA - continúa a la siguiente sección (whois)
-
-    except Exception as e:
-        print(f"[geo] geoiplookup fallo para {ip}: {str(e)[:60]}")
-
-    # ═════════════════════════════════════════════════════════════════
-    # MÉTODO 3: whois
-    # ═════════════════════════════════════════════════════════════════
-    try:
-        print(f"[geo] Intentando whois para {ip}...")
-        result = subprocess.run(
-            ['whois', ip], capture_output=True, text=True, timeout=15)
-        if result.returncode == 0:
-            geo = {
-                'pais': 'unknown',
-                'ciudad': 'unknown',
-                'isp': 'unknown',
-                'asn': 'unknown',
-                'latitud': None,
-                'longitud': None,
-                'fuente': 'whois',
-                'owner': 'unknown',
-                'responsible': 'unknown',
-                'phone': 'unknown',
-                'address': 'unknown'
-            }
-            address_lines = []
-            for line in result.stdout.split('\n'):
-                line_lower = line.lower()
-                if 'country:' in line_lower:
-                    geo['pais'] = line.split(':', 1)[1].strip().upper()
-                elif 'address:' in line_lower:
-                    addr = line.split(':', 1)[1].strip()
-                    if addr:
-                        address_lines.append(addr)
-                elif 'owner:' in line_lower and geo['owner'] == 'unknown':
-                    geo['owner'] = line.split(':', 1)[1].strip()
-                elif 'responsible:' in line_lower and geo['responsible'] == 'unknown':
-                    geo['responsible'] = line.split(':', 1)[1].strip()
-                elif 'phone:' in line_lower and geo['phone'] == 'unknown':
-                    phone = line.split(':', 1)[1].strip()
-                    if phone and phone != 'not available':
-                        geo['phone'] = phone
-                elif 'org:' in line_lower and geo['isp'] == 'unknown':
-                    geo['isp'] = line.split(':', 1)[1].strip()
-                # 2️ EXTRACCIÓN DE ASN (AGREGADO)
-                elif geo['asn'] == 'unknown' and any(key in line_lower for key in ['originasn:', 'origin-as:', 'asn:']):
-                    try:
-                        asn_value = line.split(':', 1)[1].strip(
-                        ) if ':' in line else line.split()[-1]
-                        asn_value = asn_value.replace(
-                            'AS', '').replace('as', '').strip()
-                        if asn_value and asn_value != 'not available' and asn_value.isdigit():
-                            geo['asn'] = asn_value
-                            print(f"[geo] whois ASN extraído: {asn_value}")
-                    except:
-                        pass
-
-            if address_lines:
-                geo['address'] = ' | '.join(address_lines)
-                for addr in address_lines:
-                    if geo['ciudad'] == 'unknown':
-                        if '(' in addr and '-' in addr:
-                            parts = [p.strip()
-                                     for p in addr.split('-') if p.strip()]
-                            if parts:
-                                candidate = parts[-1] if len(
-                                    parts) > 1 else parts[0]
-                                if '(' in candidate:
-                                    candidate = candidate.split('(')[0].strip()
-                                if candidate and len(candidate) > 2 and not any(c.isdigit() for c in candidate[:3]):
-                                    geo['ciudad'] = candidate
-                                    break
-                for addr in address_lines:
-                    if geo['ciudad'] == 'unknown' and ',' in addr and addr[0] not in ['-', ' ']:
-                        parts = [p.strip() for p in addr.split(',')]
-                        if parts and len(parts[0]) > 2 and not any(c.isdigit() for c in parts[0][:5]):
-                            geo['ciudad'] = parts[0]
-                            break
-
-            # 3️ PRINT DE CONFIRMACIÓN (AGREGADO)
-            print(
-                f"[geo] whois completo: país={geo['pais']}, ciudad={geo['ciudad']}, isp={geo['isp']}, asn={geo['asn']}")
-            if geo['pais'] != 'unknown':
-                return geo
-    except Exception as e:
-        print(f"[geo] whois fallo para {ip}: {str(e)[:60]}")
-
-    print(f"[geo] ❌ Todas las fuentes agotadas para {ip}")
+    """Geolocalización - SOLO si es necesario, sin API externa"""
+    # Usar mmdb-geoip2 si está disponible, sino solo metadatos básicos
     return {
-        'pais': 'unknown',
-        'ciudad': 'unknown',
-        'isp': 'unknown',
-        'asn': 'unknown',
-        'latitud': None,
-        'longitud': None,
-        'fuente': None
+        'pais': 'Unknown',
+        'ciudad': 'Unknown',
+        'isp': 'Unknown',
+        'ip': ip
     }
 
-
-def _reverse_dns_multi_resolver(ip):
-    reverses_by_resolver = {}
-    resolvers = [
-        ('8.8.8.8', 'Google'),
-        ('1.1.1.1', 'Cloudflare'),
-        ('9.9.9.9', 'Quad9'),
-        ('208.67.222.222', 'OpenDNS'),
-    ]
-
+def _reverse_dns_multi_resolver(ip, timeout=5):
+    """Reverse DNS - simple"""
+    hostnames = []
     try:
-        for resolver_ip, resolver_name in resolvers:
-            for attempt in range(3):
-                try:
-                    resolver = dns.resolver.Resolver()
-                    resolver.nameservers = [resolver_ip]
-                    resolver.timeout = 3 + (attempt * 2)
-                    resolver.lifetime = resolver.timeout
-                    rev_name = dns.reversename.from_address(ip)
-                    answers = resolver.resolve(rev_name, 'PTR')
-                    reverses_by_resolver[resolver_name] = [
-                        str(rdata).rstrip('.') for rdata in answers]
-                    break
-                except dns.exception.Timeout:
-                    pass
-                except dns.exception.NXDOMAIN:
-                    break
-                except:
-                    pass
-    except:
-        pass
-
-    try:
-        result = subprocess.run(
-            ['nslookup', ip], capture_output=True, text=True, timeout=10)
-        for line in result.stdout.split('\n'):
-            if 'name =' in line.lower():
-                hostname = line.split('=')[1].strip().rstrip('.')
-                if hostname and hostname != 'unknown':
-                    reverses_by_resolver['System'] = [hostname]
-                break
-    except:
-        pass
-
-    all_hostnames = set()
-    for hostnames in reverses_by_resolver.values():
-        if isinstance(hostnames, list):
-            all_hostnames.update(hostnames)
-
-    all_hostnames = {h for h in all_hostnames if h and h !=
-                     'unknown' and not h.startswith('.')}
-
-    return {
-        'hostnames': sorted(list(all_hostnames)),
-        'by_resolver': reverses_by_resolver,
-        'status': 'success' if all_hostnames else 'no_reverse_dns'
-    }
+        hostname = socket.gethostbyaddr(ip)[0]
+        hostnames = [hostname]
+        status = 'success'
+    except socket.herror:
+        status = 'no_reverse_dns'
+    except socket.timeout:
+        status = 'timeout'
+    except Exception as e:
+        status = f'error: {type(e).__name__}'
+    
+    return {'hostnames': hostnames, 'status': status}
 
 # ══════════════════════════════════════════════════════════════════
 # HANDLERS OSINT
@@ -738,39 +390,25 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
 
 
 def mapeo_ips(ejecucion_id, proyecto_id):
-    """
-    Mapeo y resolución de IPs mejorado con múltiples resolvers DNS + Geolocalización.
-    - Combina IPs configuradas + dominios resueltos
-    - Usa múltiples resolvers (Google, Cloudflare, Quad9) para validar
-    - Proporciona información detallada de reverse DNS
-    - ✨ MEJORADO: Agrega geolocalización (país, ciudad, ISP) a cada IP
-    - ✨ MEJORADO: Incluye IPs válidas aunque reverse DNS falle
-    """
+    """Mapeo de IPs - versión ligera y sin crashes"""
     print(f"[OSINT-MAPEO-IPS] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
-
-        ips_analizadas = []
+        
         ips_a_analizar = set()
-        resolution_metadata = {
-            'dominios_resueltos': {},
-            'ips_configuradas': []
-        }
+        resolution_metadata = {'dominios_resueltos': {}, 'ips_configuradas': []}
 
-        # 1. Agregar IPs configuradas directamente (filtrar IPs de DNS públicos)
+        # 1. IPs configuradas
         ips_str = config.get('IPS', '').strip() if config else ''
         if ips_str:
             ips_configuradas = _parse_multiline_config(ips_str)
-            # Filtrar IPs de resolvers DNS públicos
-            ips_configuradas_filtradas = [
-                ip for ip in ips_configuradas if ip not in PUBLIC_DNS_IPS]
+            ips_configuradas_filtradas = [ip for ip in ips_configuradas if ip not in PUBLIC_DNS_IPS]
             ips_a_analizar.update(ips_configuradas_filtradas)
             resolution_metadata['ips_configuradas'] = ips_configuradas_filtradas
-            print(
-                f"[mapeo_ips] IPs configuradas: {ips_configuradas_filtradas}")
+            print(f"[mapeo_ips] IPs configuradas: {len(ips_configuradas_filtradas)}")
 
-        # 2. Resolver dominios + subdominios del scope
+        # 2. Resolver dominios + subdominios
         dominio = config.get('DOMINIO', '').strip() if config else ''
         subdominio = config.get('SUBDOMINIO', '').strip() if config else ''
 
@@ -780,170 +418,92 @@ def mapeo_ips(ejecucion_id, proyecto_id):
         if subdominio:
             dominios_scope.extend(_parse_multiline_config(subdominio))
 
-        print(f"[mapeo_ips] Dominios del scope a resolver: {dominios_scope}")
-
         for dom in dominios_scope:
             try:
-                print(
-                    f"[mapeo_ips] Resolviendo {dom} con múltiples resolvers...")
-                resolution_result = _resolve_domain_multi_resolver(dom)
-
+                print(f"[mapeo_ips] Resolviendo {dom}...")
+                resolution_result = _resolve_domain_multi_resolver(dom, timeout=5)
                 ips_a_analizar.update(resolution_result['ips'])
                 resolution_metadata['dominios_resueltos'][dom] = resolution_result['by_resolver']
-
-                print(f"[mapeo_ips] {dom} → {resolution_result['ips']}")
+                print(f"[mapeo_ips] {dom} → {len(resolution_result['ips'])} IPs")
             except Exception as e:
-                print(f"[mapeo_ips] Error resolviendo {dom}: {e}")
+                print(f"[mapeo_ips] Error resolviendo {dom}: {type(e).__name__}")
+                continue
 
-        # 2b. Resolver subdominios descubiertos (opcional)
+        # 2b. Subdominios descubiertos (OPCIONALMENTE)
         try:
-            subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
-                proyecto_id)
-            if subdominios_descubiertos and isinstance(subdominios_descubiertos, (list, tuple)):
-                print(
-                    f"[mapeo_ips] Resolviendo {len(subdominios_descubiertos)} subdominios descubiertos...")
-                for subdom in subdominios_descubiertos:
+            subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+            if subdominios_descubiertos:
+                for subdom in subdominios_descubiertos[:50]:  # ⚠️ LÍMITE: máx 50
                     if not subdom:
                         continue
                     try:
-                        resolution_result = _resolve_domain_multi_resolver(
-                            subdom)
-                        if resolution_result and resolution_result.get('ips'):
+                        resolution_result = _resolve_domain_multi_resolver(subdom, timeout=5)
+                        if resolution_result['ips']:
                             ips_a_analizar.update(resolution_result['ips'])
                             resolution_metadata['dominios_resueltos'][subdom] = resolution_result['by_resolver']
-                            print(
-                                f"[mapeo_ips] {subdom} → {resolution_result['ips']}")
-                    except Exception as e:
-                        print(
-                            f"[mapeo_ips] Error en subdominio {subdom}: {str(e)[:60]}")
-        except AttributeError:
-            print(
-                f"[mapeo_ips] get_discovered_subdomains no disponible (primera ejecución)")
-        except Exception as e:
-            print(
-                f"[mapeo_ips] Error resolviendo subdominios descubiertos: {str(e)[:100]}")
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        # ★ FILTRO: Eliminar IPs de DNS públicas
+        ips_a_analizar = {ip for ip in ips_a_analizar if ip not in PUBLIC_DNS_IPS}
 
         if not ips_a_analizar:
-            raise Exception(
-                "No hay IPs ni dominios configurados para analizar")
+            raise Exception("No hay IPs para analizar")
 
-        print(f"[mapeo_ips] Total IPs a analizar: {len(ips_a_analizar)}")
+        print(f"[mapeo_ips] Total IPs: {len(ips_a_analizar)}")
 
-        # 3. Hacer reverse DNS + Geolocalización para cada IP
+        # 3. Reverse DNS para cada IP (SIN geolocalización pesada)
         ips_success = []
+        ips_analizadas = []
 
-        # Crear mapeo de IP → dominios que la resolvieron (sin duplicados)
-        ip_to_dominios = {}
-        for dom, resolvers_data in resolution_metadata['dominios_resueltos'].items():
-            for ips_list in resolvers_data.values():
-                for ip in ips_list:
-                    if ip not in ip_to_dominios:
-                        ip_to_dominios[ip] = set()
-                    ip_to_dominios[ip].add(dom)
+        dominio_objetivo = (_parse_multiline_config(dominio) if dominio else [])[0] if dominio else None
 
-        # Convertir sets a listas ordenadas
-        ip_to_dominios = {ip: sorted(list(doms))
-                          for ip, doms in ip_to_dominios.items()}
-
-        # Obtener dominio objetivo para validar hostnames
-        dominio_objetivo = None
-        dominios_config = _parse_multiline_config(dominio) if dominio else []
-        if dominios_config:
-            dominio_objetivo = dominios_config[0]
-
-        # ★ FILTRO CRÍTICO: Eliminar IPs de DNS públicas antes de analizar
-        # ★ FILTRO CRÍTICO: Eliminar IPs de DNS públicas antes de analizar
-        print(f"[DEBUG] ips_a_analizar ANTES de filtrar: {ips_a_analizar}")
-        print(f"[DEBUG] PUBLIC_DNS_IPS: {PUBLIC_DNS_IPS}")
-        ips_a_analizar = {
-            ip for ip in ips_a_analizar if ip not in PUBLIC_DNS_IPS}
-        print(f"[DEBUG] ips_a_analizar DESPUÉS de filtrar: {ips_a_analizar}")
-
-        print(
-            f"[mapeo_ips] IPs después de filtrar DNS públicas: {len(ips_a_analizar)}")
-
-        # 3. Hacer reverse DNS + Geolocalización para cada IP
-        ips_success = []
-
-        for ip in sorted(ips_a_analizar):
+        for ip in sorted(ips_a_analizar)[:100]:  # ⚠️ LÍMITE: máx 100 IPs
             try:
-                print(f"[mapeo_ips] Analizando {ip}...")
-
-                # Reverse DNS
-                reverse_result = _reverse_dns_multi_resolver(ip)
+                reverse_result = _reverse_dns_multi_resolver(ip, timeout=5)
                 hostname = reverse_result['hostnames'][0] if reverse_result['hostnames'] else 'unknown'
-                status = reverse_result['status']
-
-                # ✨ NUEVO: Geolocalización
-                geo_data = _geolocate_ip(ip)
-
-                # ✨ NUEVO: Validar que el hostname pertenece al dominio objetivo
-                hostname_validation = _validate_hostname_belongs_to_domain(
-                    hostname, dominio_objetivo, ip)
-
-                # Validar que sea una IP del objetivo
-                # Es válido si: tiene from_domains (fue resuelto desde un dominio scope)
-                from_domains = ip_to_dominios.get(ip, [])
-                hostname_valido = bool(from_domains)
-
-                # ✨ ARREGLADO: La validación de hostname es solo informativa
-                # Una IP es realmente válida si fue resuelta desde un dominio scope
-                # No importa qué diga el reverse DNS (puede ser del ISP)
-                es_realmente_valida = hostname_valido
-                # hostname_validation es solo contexto/info, no rechaza la IP
+                
+                from_domains = [d for d, r in resolution_metadata['dominios_resueltos'].items()
+                               if ip in [ipx for ips in r.values() for ipx in ips]]
 
                 entry = {
                     'ip': ip,
                     'hostname': hostname,
-                    'status': status,
+                    'status': reverse_result['status'],
                     'from_domains': from_domains,
-                    'es_valido': es_realmente_valida,  # ✨ MEJORADO: validación más estricta
-                    'hostname_validation': hostname_validation,  # ✨ NUEVO: detalles de validación
-                    'geo': geo_data
+                    'valido': bool(from_domains)
                 }
-                ips_analizadas.append(entry)
 
-                # Incluir en ips_success solo si la IP es realmente válida
-                if es_realmente_valida:
-                    ips_success.append({
-                        'ip': ip,
-                        'hostname': hostname,
-                        'status': status,
-                        'from_domains': from_domains,
-                        'hostname_validation': hostname_validation['razon'],
-                        'geo': geo_data
-                    })
-                    print(
-                        f"[mapeo_ips] ✓ {ip} ({hostname}) - {geo_data['pais']}, {geo_data['ciudad']} [VÁLIDO]")
-                    print(
-                        f"              Hostname info: {hostname_validation.get('razon', 'N/A')}")
-                else:
-                    # IPs sin from_domains (no resueltas desde dominio scope)
-                    print(
-                        f"[mapeo_ips] ⊘ {ip} ({hostname}) - No fue resuelto desde dominio scope")
+                ips_analizadas.append(entry)
+                
+                if entry['valido']:
+                    ips_success.append(entry)
+                    print(f"[mapeo_ips] ✓ {ip} ({hostname})")
 
             except Exception as e:
-                print(f"[mapeo_ips] Error analizando {ip}: {e}")
-                geo_data_fallback = _geolocate_ip(ip)
-                ips_analizadas.append({
-                    'ip': ip,
-                    'hostname': 'unknown',
-                    'status': 'error',
-                    'from_domains': ip_to_dominios.get(ip, []),
-                    'es_valido': False,
-                    'hostname_validation': None,
-                    'geo': geo_data_fallback
-                })
+                print(f"[mapeo_ips] Error {ip}: {type(e).__name__}")
+                continue
 
         return {
             "tipo": "mapeo_ips",
             "total_ips": len(ips_a_analizar),
             "total_success": len(ips_success),
-            "ips_success": ips_success,  # ← IPs válidas con geolocalización
-            "ips_todas": ips_analizadas   # ← Todas las IPs analizadas (debug)
+            "ips_success": ips_success,
+            "ips_todas": ips_analizadas
         }
 
-    _run_osint_job(ejecucion_id, job)
+    try:
+        _run_osint_job(ejecucion_id, job)
+    except Exception as e:
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        print(f"[OSINT-MAPEO-IPS] ERROR: {error_msg}")
+        try:
+            OsintEjecucion.mark_failed(ejecucion_id, error_msg)
+        except:
+            pass
+        raise
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════
