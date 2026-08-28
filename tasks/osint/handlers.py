@@ -20,7 +20,7 @@ import sys
 from bs4 import BeautifulSoup
 import re
 from urllib.parse import urljoin
-from models import Proyecto, OsintEjecucion
+
 # ══════════════════════════════════════════════════════════════════
 # HELPERS GLOBALES OSINT
 # ══════════════════════════════════════════════════════════════════
@@ -3017,6 +3017,7 @@ def _ejecutar_google_dork(dominio, dork_query):
 # ════════════════════════════════════════════════════════════════════════════════
 # Handler SENSITIVE DATA EXTRACTION
 # ════════════════════════════════════════════════════════════════════════════════
+
 PALABRAS_CLAVE = [
     # API Keys & Tokens - MÁS ESPECÍFICOS
     'api_key', 'apikey', 'api-key', 'api_secret', 'apisecret',
@@ -3106,7 +3107,7 @@ PALABRAS_CLAVE = [
 ]
 
 # ════════════════════════════════════════════════════════════════════════════════
-# PATRONES DE VULNERABILIDADES (MEJORADOS PARA EVITAR FALSOS POSITIVOS)
+# MAPEO DE PATRONES (sin severidades - se cargan del modelo)
 # ════════════════════════════════════════════════════════════════════════════════
 PATRONES_VULNERABILIDADES = {
     'reverse_shell_bash': {
@@ -3130,12 +3131,12 @@ PATRONES_VULNERABILIDADES = {
         'descripcion': 'Potencial command injection'
     },
     'eval_dinamico': {
-        'patron': r'\beval\s*\(\s*["\'][^"\']*["\']|Function\s*\(\s*["\']',
+        'patron': r'\beval\s*\(|Function\s*\(\s*["\'].*["\']',
         'severidad_esperada': 'HIGH',
         'descripcion': 'Código dinámico ejecutado con eval()'
     },
     'exec_python': {
-        'patron': r'\bexec\s*\(\s*["\']|__import__\s*\(',
+        'patron': r'\bexec\s*\(|__import__\s*\(',
         'severidad_esperada': 'HIGH',
         'descripcion': 'Ejecución dinámica de código Python'
     },
@@ -3145,195 +3146,133 @@ PATRONES_VULNERABILIDADES = {
         'descripcion': 'Deserialización potencialmente insegura'
     },
     'atob_decode': {
-        'patron': r'atob\s*\(\s*["\']([A-Za-z0-9+/=]{50,})',
+        'patron': r'atob\s*\(\s*["\']([A-Za-z0-9+/=]{20,})',
         'severidad_esperada': 'MEDIUM',
         'descripcion': 'Decodificación base64 sospechosa (posible ofuscación)'
     },
     'string_fromcharcode': {
-        'patron': r'String\.fromCharCode\s*\(\s*(?:\d{2,3}\s*,\s*){10,}',
+        'patron': r'String\.fromCharCode\s*\((?:\d+\s*,\s*)*\d+',
         'severidad_esperada': 'MEDIUM',
-        'descripcion': 'Construcción dinámica masiva de strings (posible ofuscación)'
+        'descripcion': 'Construcción dinámica de strings (posible ofuscación)'
+    },
+    'unescape': {
+        'patron': r'unescape\s*\(',
+        'severidad_esperada': 'MEDIUM',
+        'descripcion': 'Uso de unescape() - función deprecada (ofuscación)'
+    },
+    'log4j': {
+        'patron': r'log4j|org\.apache\.log4j',
+        'severidad_esperada': 'MEDIUM',
+        'descripcion': 'Log4j detectado - verificar CVE-2021-44228'
+    },
+    'spring_framework': {
+        'patron': r'org\.springframework|spring-framework',
+        'severidad_esperada': 'MEDIUM',
+        'descripcion': 'Spring Framework detectado - verificar CVE-2022-22965'
+    },
+    'struts2': {
+        'patron': r'org\.apache\.struts|struts2',
+        'severidad_esperada': 'MEDIUM',
+        'descripcion': 'Apache Struts 2 detectado - verificar vulnerabilidades'
+    },
+    'sql_injection': {
+        'patron': r"(?:SELECT|INSERT|UPDATE|DELETE)\s+.*\+\s*.*['\"]",
+        'severidad_esperada': 'HIGH',
+        'descripcion': 'Patrón de SQL injection (concatenación de strings)'
     },
     'hardcoded_credentials': {
-        'patron': r'(?:user|pass|password|username|passwd)\s*[:=]\s*["\'](?![\*\{])[^\s\"\'{}\[\]]{8,}["\']',
+        'patron': r'(?:user|pass|password|username)\s*[:=]\s*["\'](?![\*\{])[^\s\"\'{}\[\]]{5,}["\']',
         'severidad_esperada': 'CRITICAL',
         'descripcion': 'Credenciales potencialmente hardcodeadas en código'
     },
     'shell_exec': {
-        'patron': r'(?:shell_exec|system|passthru|proc_open)\s*\(\s*["\']',
+        'patron': r'(?:shell_exec|system|passthru|exec|proc_open)\s*\(',
         'severidad_esperada': 'CRITICAL',
-        'descripcion': 'Función de ejecución del sistema con parámetro'
-    },
-    'sql_injection': {
-        'patron': r"(?:SELECT|INSERT|UPDATE|DELETE)\s+[A-Za-z0-9_*]+\s+(?:FROM|INTO|WHERE).*\+\s*['\"]",
-        'severidad_esperada': 'HIGH',
-        'descripcion': 'Patrón de SQL injection (concatenación de strings)'
+        'descripcion': 'Función de ejecución del sistema detectada'
     },
 }
 
 
-# ════════════════════════════════════════════════════════════════════════════════
-# FUNCIONES HELPER
-# ════════════════════════════════════════════════════════════════════════════════
-
-def _parse_multiline_config(texto):
-    """
-    Parsea configuración multilinea (separada por saltos de línea)
-    Retorna lista de items filtrados
-    """
-    if not texto:
-        return []
-    items = [linea.strip() for linea in texto.split('\n') if linea.strip()]
-    return items
-
-
-def _es_ip(texto):
-    """Detectar si es una IP (IPv4)"""
-    patron_ip = r'^(\d{1,3}\.){3}\d{1,3}(:\d+)?$'
-    return bool(re.match(patron_ip, texto))
-
-
-def _run_osint_job(ejecucion_id, job_func):
-    """
-    Ejecuta un job OSINT y maneja su ciclo de vida
-    - Cambia estado a RUNNING
-    - Ejecuta la función
-    - Retorna resultados
-    """
+def _check_tool_installed(tool_name):
+    """Verifica si una herramienta está instalada (Linux/Kali)"""
     try:
-        # Cambiar a estado RUNNING
-        ejecucion = OsintEjecucion.objects.get(id=ejecucion_id)
-        ejecucion.estado = 'RUNNING'
-        ejecucion.save()
-        print(f"[OSINT] Ejecución {ejecucion_id} en estado RUNNING")
-
-        # Ejecutar job
-        resultados = job_func()
-
-        # Cambiar a estado COMPLETED
-        ejecucion.estado = 'COMPLETED'
-        ejecucion.resultados = resultados
-        ejecucion.save()
-        print(f"[OSINT] Ejecución {ejecucion_id} COMPLETADA")
-
-        return resultados
-
-    except Exception as e:
-        print(f"[OSINT] Error en ejecución {ejecucion_id}: {e}")
-        ejecucion = OsintEjecucion.objects.get(id=ejecucion_id)
-        ejecucion.estado = 'FAILED'
-        ejecucion.save()
-        raise
+        result = subprocess.run(['which', tool_name],
+                                capture_output=True, timeout=2)
+        return result.returncode == 0
+    except:
+        return False
 
 
-# ════════════════════════════════════════════════════════════════════════════════
-# FUNCIONES DE VALIDACIÓN DE SECRETOS
-# ════════════════════════════════════════════════════════════════════════════════
-
-def _es_potencial_secreto_linea(linea, palabra_clave):
+def _es_potencial_secreto(linea, palabra_clave):
     """
-    VERSIÓN MEJORADA: Valida UNA LÍNEA para filtrar ruido
-    Retorna: True si es potencial secreto REAL, False si es falso positivo
+    VERSIÓN FINAL: Más estricta para filtrar ruido
+    Retorna: True si es potencial secreto real, False si es ruido
     """
     linea_limpia = linea.strip()
 
     # ════════════════════════════════════════════════════════════════
-    # 1. IGNORAR COMENTARIOS
-    # ════════════════════════════════════════════════════════════════
-    if linea_limpia.startswith('//') or linea_limpia.startswith('#'):
-        return False
-    if '/*' in linea_limpia or '*/' in linea_limpia:
-        return False
-    if '<!--' in linea_limpia or '-->' in linea_limpia:
-        return False
-
-    # ════════════════════════════════════════════════════════════════
-    # 2. LA PALABRA DEBE SER PALABRA COMPLETA (no parte de otra)
-    # ════════════════════════════════════════════════════════════════
-    # Buscar con límites de palabra: \bpalabra\b
-    patron_palabra = r'\b' + re.escape(palabra_clave) + r'\b'
-    match = re.search(patron_palabra, linea_limpia, re.IGNORECASE)
-    if not match:
-        return False
-
-    # ════════════════════════════════════════════════════════════════
-    # 3. DEBE HABER CONTEXTO DE ASIGNACIÓN O VALOR
-    # ════════════════════════════════════════════════════════════════
-    idx = match.start()
-    antes = linea_limpia[:idx]
-    despues = linea_limpia[idx + len(palabra_clave):]
-
-    # Contexto válido: =, :, ', ", paréntesis
-    tiene_contexto = (
-        # =, :, comilla, paréntesis en los próximos 15 chars
-        bool(re.search(r'[=:\'"({]', despues[:15])) or
-        bool(re.search(r'[=:\'")}]', antes[-5:])
-             )        # o en los 5 chars anteriores
-    )
-
-    if not tiene_contexto:
-        return False
-
-    # ════════════════════════════════════════════════════════════════
-    # 4. DEBE HABER VALOR SIGNIFICATIVO
-    # ════════════════════════════════════════════════════════════════
-    # Al menos 6+ caracteres alfanuméricos continuos
-    if not re.search(r'[a-zA-Z0-9]{6,}', despues):
-        return False
-
-    # ════════════════════════════════════════════════════════════════
-    # 5. FILTROS ADICIONALES PARA EVITAR RUIDO COMÚN
+    # 1. DETECTA CÓDIGO MINIFICADO (muy importante)
     # ════════════════════════════════════════════════════════════════
 
-    # No es "typeof Symbol" o "instanceof Symbol"
-    if re.search(r'\b(typeof|instanceof)\s+\w+', linea_limpia):
+    # Línea muy larga = minificada (típico >300-400 chars)
+    if len(linea_limpia) > 300:
         return False
 
-    # No es ".prototype.xxx" o ".constructor"
-    if '.prototype' in linea_limpia or '.constructor' in linea_limpia:
-        return False
+    # Ratio alto de caracteres especiales = minificada
+    caracteres_especiales = len(
+        [c for c in linea_limpia if c in '{}()[]<>/*\\|!'])
+    if len(linea_limpia) > 0:
+        ratio = caracteres_especiales / len(linea_limpia)
+        if ratio > 0.35:  # Más del 35% = casi seguro minificada
+            return False
 
-    # No es comparaciones o condicionales (typeof Symbol, Symbol ===, etc)
-    if re.search(r'===|!==|==|!=|typeof|instanceof', linea_limpia):
-        return False
+    # ════════════════════════════════════════════════════════════════
+    # 2. DETECTA CÓDIGO (no secretos)
+    # ════════════════════════════════════════════════════════════════
+    indicadores_codigo = [
+        r'\bfunction\s+\w+',           # function nombre()
+        r'\b(var|let|const)\s+\w+\s*=',  # var x =
+        r'\breturn\s+',                # return
+        r'\bif\s*\(',                  # if (
+        r'\bfor\s*\(',                 # for (
+        r'\bwhile\s*\(',               # while (
+        r'\bswitch\s*\(',              # switch (
+        r'\btry\s*\{',                 # try {
+        r'\bcatch\s*\(',               # catch (
+        r'\bclass\s+\w+',              # class Nombre
+        r'\.prototype',                # .prototype
+        r'=>',                         # arrow =>
+        r'document\.',                 # document.getElementById
+        r'console\.',                  # console.log
+        r'Math\.',                     # Math.random
+        r'String\.',                   # String.fromCharCode
+        r'Array\.',                    # Array.isArray
+        r'Object\.',                   # Object.keys
+    ]
 
-    # No es definición de interface/tipo (TypeScript)
-    if re.search(r'interface\s+|type\s+|:\s*string|:\s*boolean', linea_limpia):
+    for patron in indicadores_codigo:
+        if re.search(patron, linea_limpia, re.IGNORECASE):
+            return False
+
+    # ════════════════════════════════════════════════════════════════
+    # 3. PALABRAS CORTAS - MÁS ESTRICTAS
+    # ════════════════════════════════════════════════════════════════
+    # Palabras muy cortas deben venir con contexto de asignación
+    if len(palabra_clave) <= 3:  # pw, key, pass, etc
+        # Deben estar en forma: pw=, pw:, "pw", pw', etc.
+        # NO simplemente "pw" dentro de una palabra
+        patron_contexto = r'["\':=].*?' + re.escape(palabra_clave) + r'["\':=]'
+        if not re.search(patron_contexto, linea_limpia, re.IGNORECASE):
+            return False
+
+    # ════════════════════════════════════════════════════════════════
+    # 4. DEBE TENER CONTENIDO SIGNIFICATIVO
+    # ════════════════════════════════════════════════════════════════
+    # Debe haber al menos 8+ caracteres alfanuméricos continuos (típico de secretos)
+    if not re.search(r'[a-zA-Z0-9]{8,}', linea_limpia):
         return False
 
     return True
-
-
-def _buscar_secretos_en_contenido(contenido, url_origen):
-    """
-    Busca secretos usando SOLO GREP (validación por línea)
-    Retorna lista de secretos encontrados
-    """
-    secretos = []
-
-    # Procesar línea por línea
-    lineas = contenido.split('\n')
-    palabras_encontradas = set()  # Evitar duplicados
-
-    for num_linea, linea in enumerate(lineas, 1):
-        for palabra_clave in PALABRAS_CLAVE:
-            # Evitar reportar la misma palabra dos veces
-            if palabra_clave in palabras_encontradas:
-                continue
-
-            # Validar que sea potencial secreto
-            if _es_potencial_secreto_linea(linea, palabra_clave):
-                secretos.append({
-                    'url': url_origen,
-                    'palabra_clave': palabra_clave,
-                    'linea': linea[:250],
-                    'numero_linea': num_linea,
-                    'severidad': 'MEDIUM',
-                    'metodo': 'grep (palabra clave)'
-                })
-                palabras_encontradas.add(palabra_clave)
-
-    return secretos
 
 
 def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
@@ -3343,7 +3282,8 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
     Args:
         contenido: JavaScript a analizar
         url_origen: URL de origen
-        mapa_severidades: Dict con mapeo de severidades {'CRITICAL': sev_obj, ...}
+        mapa_severidades: Dict con mapeo de severidades del modelo
+                         {'CRITICAL': severidad_obj, 'HIGH': severidad_obj, ...}
 
     Retorna lista de vulnerabilidades encontradas
     """
@@ -3356,30 +3296,47 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
             severidad_real = severidad_esperada if severidad_esperada in mapa_severidades else 'MEDIUM'
 
             regex = re.compile(config['patron'], re.IGNORECASE | re.MULTILINE)
-
-            # Buscar en contenido
-            for i, linea in enumerate(contenido.split('\n'), 1):
-                linea_limpia = linea.strip()
-
-                # Ignorar comentarios
-                if linea_limpia.startswith('//') or linea_limpia.startswith('#'):
-                    continue
-
-                if regex.search(linea_limpia):
-                    vulnerabilidades.append({
-                        'url': url_origen,
-                        'tipo': nombre_patron,
-                        'severidad': severidad_real,
-                        'descripcion': config['descripcion'],
-                        'codigo': linea_limpia[:250],
-                        'numero_linea': i
-                    })
-                    break  # Solo primer hallazgo por patrón
-
+            for i, linea in enumerate(contenido.split('\n')):
+                if regex.search(linea):
+                    # Evita reportar líneas que son comentarios
+                    linea_limpia = linea.strip()
+                    if not linea_limpia.startswith('//') and not linea_limpia.startswith('#'):
+                        vulnerabilidades.append({
+                            'url': url_origen,
+                            'tipo': nombre_patron,
+                            'severidad': severidad_real,  # ← DEL MODELO
+                            'descripcion': config['descripcion'],
+                            'codigo': linea_limpia[:200],
+                            'numero_linea': i + 1
+                        })
+                        break  # Solo primer hallazgo por patrón
         except Exception as e:
-            print(f"  [ERROR] Patrón '{nombre_patron}': {e}")
+            print(f"  Error con patrón '{nombre_patron}': {e}")
 
     return vulnerabilidades
+
+
+def _buscar_secretos_en_contenido(contenido, url_origen):
+    """Buscar secretos usando SOLO GREP (sin TruffleHog)"""
+    secretos = []
+    
+    # Solo buscar por palabras clave con grep
+    for palabra_clave in PALABRAS_CLAVE:
+        if _es_potencial_secreto(contenido, palabra_clave):
+            # Buscar líneas que contengan la palabra clave
+            lineas = contenido.split('\n')
+            for linea in lineas:
+                if palabra_clave.lower() in linea.lower():
+                    secretos.append({
+                        'url': url_origen,
+                        'palabra_clave': palabra_clave,
+                        'linea': linea[:200],  # Primeros 200 chars
+                        'severidad': 'MEDIUM',
+                        'metodo': 'grep (palabra clave)'
+                    })
+                    break  # Una ocurrencia por palabra clave es suficiente
+    
+    return secretos
 
 
 def _analizar_url(url, mapa_severidades):
@@ -3388,7 +3345,7 @@ def _analizar_url(url, mapa_severidades):
     Retorna: tupla (secretos, vulnerabilidades)
     """
     secretos_encontrados = []
-    vulnerabilidades_encontrados = []
+    vulnerabilidades_encontradas = []
 
     try:
         response = requests.get(
@@ -3396,77 +3353,63 @@ def _analizar_url(url, mapa_severidades):
             headers={'User-Agent': 'Mozilla/5.0 (RedScope)'}
         )
         response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
 
-        # Intentar parsear como HTML
-        try:
-            soup = BeautifulSoup(response.content, 'html.parser')
+        # Scripts externos (src attribute)
+        for script in soup.find_all('script', src=True):
+            js_url = script['src']
+            if js_url.startswith('http'):
+                js_url_completa = js_url
+            else:
+                js_url_completa = urljoin(url, js_url)
 
-            # Scripts externos (src attribute)
-            for script in soup.find_all('script', src=True):
-                js_url = script['src']
+            try:
+                js_response = requests.get(
+                    js_url_completa, timeout=10, verify=False,
+                    headers={'User-Agent': 'Mozilla/5.0 (RedScope)'}
+                )
+                js_response.raise_for_status()
+                contenido = js_response.text
 
-                # Filtrar archivos minificados
-                if js_url.endswith('.min.js'):
-                    print(f"  [SKIP] {js_url} (archivo minificado)")
-                    continue
+                # Busca secretos
+                secretos = _buscar_secretos_en_contenido(
+                    contenido, js_url_completa)
+                secretos_encontrados.extend(secretos)
 
-                if js_url.startswith('http'):
-                    js_url_completa = js_url
-                else:
-                    js_url_completa = urljoin(url, js_url)
+                # 🔍 Busca vulnerabilidades (PASA mapa_severidades)
+                vulnerabilidades = _deteccion_de_vulnerabilidades(
+                    contenido, js_url_completa, mapa_severidades)
+                vulnerabilidades_encontradas.extend(vulnerabilidades)
 
-                try:
-                    js_response = requests.get(
-                        js_url_completa, timeout=10, verify=False,
-                        headers={'User-Agent': 'Mozilla/5.0 (RedScope)'}
-                    )
-                    js_response.raise_for_status()
-                    contenido = js_response.text
+            except Exception as e:
+                print(
+                    f"  Error procesando script externo {js_url_completa}: {e}")
 
-                    # Buscar secretos
+        # Scripts inline
+        for i, script in enumerate(soup.find_all('script')):
+            if not script.get('src') and script.string:
+                contenido = script.string.strip()
+                if len(contenido) > 50:
+                    # Busca secretos
                     secretos = _buscar_secretos_en_contenido(
-                        contenido, js_url_completa)
+                        contenido,
+                        f"{url}#inline-{i}"
+                    )
                     secretos_encontrados.extend(secretos)
 
-                    # Buscar vulnerabilidades
+                    # 🔍 Busca vulnerabilidades (PASA mapa_severidades)
                     vulnerabilidades = _deteccion_de_vulnerabilidades(
-                        contenido, js_url_completa, mapa_severidades
+                        contenido,
+                        f"{url}#inline-{i}",
+                        mapa_severidades
                     )
-                    vulnerabilidades_encontrados.extend(vulnerabilidades)
-
-                except Exception as e:
-                    print(
-                        f"  [ERROR] Script externo {js_url_completa}: {type(e).__name__}")
-
-            # Scripts inline
-            for i, script in enumerate(soup.find_all('script')):
-                if not script.get('src') and script.string:
-                    contenido = script.string.strip()
-                    if len(contenido) > 50:
-                        # Buscar secretos
-                        secretos = _buscar_secretos_en_contenido(
-                            contenido, f"{url}#inline-{i}"
-                        )
-                        secretos_encontrados.extend(secretos)
-
-                        # Buscar vulnerabilidades
-                        vulnerabilidades = _deteccion_de_vulnerabilidades(
-                            contenido, f"{url}#inline-{i}", mapa_severidades
-                        )
-                        vulnerabilidades_encontrados.extend(vulnerabilidades)
-
-        except Exception as e:
-            print(f"  [WARN] No es HTML válido: {type(e).__name__}")
+                    vulnerabilidades_encontradas.extend(vulnerabilidades)
 
     except Exception as e:
-        print(f"  [ERROR] Descargando {url}: {type(e).__name__}")
+        print(f"  Error descargando {url}: {e}")
 
-    return secretos_encontrados, vulnerabilidades_encontrados
+    return secretos_encontrados, vulnerabilidades_encontradas
 
-
-# ════════════════════════════════════════════════════════════════════════════════
-# HANDLER PRINCIPAL
-# ════════════════════════════════════════════════════════════════════════════════
 
 def sensitive_data_extraction(ejecucion_id, proyecto_id):
     """
@@ -3474,8 +3417,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
     Implementa FASE 1 (scope) y FASE 2 (fallback a descubrimientos)
     Severidades obtenidas DINÁMICAMENTE del modelo RedScope
     """
-    print(
-        f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
+    print(f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
     print(f"[OSINT-SENSITIVE-DATA] Proyecto ID: {proyecto_id}")
 
     def job():
@@ -3483,8 +3425,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         # OBTENER SEVERIDADES DEL MODELO Y CREAR MAPA
         # ════════════════════════════════════════════════════════════════
         severidades = Proyecto.get_severidades()
-        print(
-            f"[OSINT-SENSITIVE-DATA] Severidades: {[s['nombre'] for s in severidades]}")
+        print(f"[OSINT-SENSITIVE-DATA] Severidades cargadas: {[s['nombre'] for s in severidades]}")
         mapa_severidades = {sev['nombre']: sev for sev in severidades}
 
         # ════════════════════════════════════════════════════════════════
@@ -3495,7 +3436,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         config = Proyecto.get_osint_config(proyecto_id)
         urls_scope = {}
 
-        # Dominios del scope (SIN IPs)
+        # Dominios del scope
         dominios_scope = _parse_multiline_config(
             config.get('DOMINIO', '').strip() if config else '')
         for dom in dominios_scope:
@@ -3503,7 +3444,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                 urls_scope[f"http://{dom}"] = dom
                 urls_scope[f"https://{dom}"] = dom
 
-        # Subdominios del scope (SIN IPs)
+        # Subdominios del scope
         subdominios_scope = _parse_multiline_config(
             config.get('SUBDOMINIO', '').strip() if config else '')
         for subdom in subdominios_scope:
@@ -3524,7 +3465,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     urls_scope[f"http://{servicio}"] = servicio
                     urls_scope[f"https://{servicio}"] = servicio
 
-        print(f"[sensitive_data] FASE 1: {len(urls_scope)} URLs")
+        print(f"[sensitive_data] URLs FASE 1: {len(urls_scope)}")
 
         # ════════════════════════════════════════════════════════════════
         # FASE 2: SOLO si FASE 1 NO tiene subdominios
@@ -3533,30 +3474,27 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         fase_usada = 'FASE 1'
 
         if len(subdominios_scope) == 0:
-            print(f"[sensitive_data] Fase 1 sin subdominios. Activando FASE 2")
+            print(f"[sensitive_data] FASE 1 sin subdominios. Usando FASE 2: Descubrimientos")
             fase_usada = 'FASE 2'
-
+            
             urls_fase2 = {}
-
+            
             # Subdominios descubiertos
             try:
-                subdominios_desc = OsintEjecucion.get_discovered_subdomains(
-                    proyecto_id)
+                subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
                 for subdom in subdominios_desc:
                     urls_fase2[f"http://{subdom}"] = subdom
                     urls_fase2[f"https://{subdom}"] = subdom
-                print(f"[sensitive_data] FASE 2: {len(urls_fase2)} URLs")
+                print(f"[sensitive_data] URLs FASE 2: {len(urls_fase2)}")
             except Exception as e:
-                print(
-                    f"[sensitive_data] Sin subdominios descubiertos: {type(e).__name__}")
-
+                print(f"[sensitive_data] Error trayendo subdominios descubiertos: {e}")
+            
             todas_las_urls = {**urls_scope, **urls_fase2}
 
         if not todas_las_urls:
             raise Exception("No hay URLs para analizar")
 
-        print(
-            f"[sensitive_data] Total URLs: {len(todas_las_urls)} ({fase_usada})")
+        print(f"[sensitive_data] URLs totales: {len(todas_las_urls)} ({fase_usada})")
 
         # ════════════════════════════════════════════════════════════════
         # ANÁLISIS DE JAVASCRIPT
@@ -3568,14 +3506,13 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
 
         for url in todas_las_urls.keys():
             try:
-                # FILTRAR ARCHIVOS MINIFICADOS
+                # ← AGREGAR AQUÍ
                 if url.endswith('.min.js'):
-                    print(f"[sensitive_data] SKIP {url} (archivo minificado)")
+                    print(f"[sensitive_data] Saltando {url} (archivo minificado)")
                     continue
-
+                
                 print(f"[sensitive_data] Analizando: {url}")
-                secretos, vulnerabilidades = _analizar_url(
-                    url, mapa_severidades)
+                secretos, vulnerabilidades = _analizar_url(url, mapa_severidades)
 
                 if secretos:
                     hallazgos_secretos[url] = secretos
@@ -3585,12 +3522,10 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     hallazgos_vulnerabilidades[url] = vulnerabilidades
                     total_vulnerabilidades += len(vulnerabilidades)
 
-                print(
-                    f"  ✓ Secretos: {len(secretos)}, Vulnerabilidades: {len(vulnerabilidades)}")
+                print(f"  ✓ Secretos: {len(secretos)}, Vulnerabilidades: {len(vulnerabilidades)}")
 
             except Exception as e:
-                print(
-                    f"[sensitive_data] Error {url}: {type(e).__name__}: {str(e)[:100]}")
+                print(f"[sensitive_data] Error analizando {url}: {type(e).__name__}: {e}")
                 continue
 
         # ════════════════════════════════════════════════════════════════
@@ -3613,6 +3548,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             "vulnerabilidades": hallazgos_vulnerabilidades,
             "resumen": {
                 "secretos_por_metodo": {
+                    "truffleHog": len([s for ss in hallazgos_secretos.values() for s in ss if s.get('metodo') == 'truffleHog (entropía)']),
                     "grep": len([s for ss in hallazgos_secretos.values() for s in ss if s.get('metodo') == 'grep (palabra clave)'])
                 },
                 "vulnerabilidades_por_severidad": vulnerabilidades_por_severidad
@@ -3627,8 +3563,12 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"
         print(f"[OSINT-SENSITIVE-DATA] ERROR CRÍTICO: {error_msg}")
-        try:
-            OsintEjecucion.mark_failed(ejecucion_id, error_msg)
-        except:
-            pass
+        OsintEjecucion.mark_failed(ejecucion_id, error_msg)
         raise
+
+
+def _es_ip(texto):
+    """Detectar si es una IP (IPv4)"""
+    import re
+    patron_ip = r'^(\d{1,3}\.){3}\d{1,3}(:\d+)?$'
+    return bool(re.match(patron_ip, texto))
