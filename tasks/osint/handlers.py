@@ -3467,16 +3467,15 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
     Implementa FASE 1 (scope) y FASE 2 (fallback a descubrimientos)
     Severidades obtenidas DINÁMICAMENTE del modelo RedScope
     """
-    print(
-        f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
+    print(f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
+    print(f"[OSINT-SENSITIVE-DATA] Proyecto ID: {proyecto_id}")
 
     def job():
         # ════════════════════════════════════════════════════════════════
         # OBTENER SEVERIDADES DEL MODELO Y CREAR MAPA
         # ════════════════════════════════════════════════════════════════
         severidades = Proyecto.get_severidades()  # ← Del modelo RedScope
-        print(
-            f"[sensitive_data] Severidades cargadas: {[s['nombre'] for s in severidades]}")
+        print(f"[OSINT-SENSITIVE-DATA] Severidades cargadas: {[s['nombre'] for s in severidades]}")
 
         # Crear mapa: {'CRITICAL': obj, 'HIGH': obj, 'MEDIUM': obj, 'LOW': obj, 'INFORMATIONAL': obj}
         mapa_severidades = {sev['nombre']: sev for sev in severidades}
