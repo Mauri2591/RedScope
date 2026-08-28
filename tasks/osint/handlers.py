@@ -390,108 +390,160 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
 
 
 def mapeo_ips(ejecucion_id, proyecto_id):
-    """Mapeo de IPs - versión ligera y sin crashes"""
+    """Mapeo de IPs con fallback: Scope → Descubrimiento"""
     print(f"[OSINT-MAPEO-IPS] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
-        
-        ips_a_analizar = set()
-        resolution_metadata = {'dominios_resueltos': {}, 'ips_configuradas': []}
 
-        # 1. IPs configuradas
+        ips_a_analizar = set()
+        ip_origen = {}  # ← NUEVO: Track de dónde vino cada IP
+
+        # 1. IPs CONFIGURADAS DIRECTAMENTE
         ips_str = config.get('IPS', '').strip() if config else ''
         if ips_str:
             ips_configuradas = _parse_multiline_config(ips_str)
             ips_configuradas_filtradas = [ip for ip in ips_configuradas if ip not in PUBLIC_DNS_IPS]
-            ips_a_analizar.update(ips_configuradas_filtradas)
-            resolution_metadata['ips_configuradas'] = ips_configuradas_filtradas
+            for ip in ips_configuradas_filtradas:
+                ips_a_analizar.add(ip)
+                ip_origen[ip] = {'tipo': 'configurada', 'fuente': '[Config IPS]', 'fase': 'DIRECTA'}
             print(f"[mapeo_ips] IPs configuradas: {len(ips_configuradas_filtradas)}")
 
-        # 2. Resolver dominios + subdominios
+        # 2. RESOLVER DOMINIOS SCOPE
         dominio = config.get('DOMINIO', '').strip() if config else ''
-        subdominio = config.get('SUBDOMINIO', '').strip() if config else ''
+        dominios_scope = _parse_multiline_config(dominio) if dominio else []
 
-        dominios_scope = []
-        if dominio:
-            dominios_scope.extend(_parse_multiline_config(dominio))
-        if subdominio:
-            dominios_scope.extend(_parse_multiline_config(subdominio))
-
+        print(f"[mapeo_ips] Resolviendo {len(dominios_scope)} dominios del SCOPE...")
         for dom in dominios_scope:
             try:
-                print(f"[mapeo_ips] Resolviendo {dom}...")
-                resolution_result = _resolve_domain_multi_resolver(dom, timeout=5)
-                ips_a_analizar.update(resolution_result['ips'])
-                resolution_metadata['dominios_resueltos'][dom] = resolution_result['by_resolver']
-                print(f"[mapeo_ips] {dom} → {len(resolution_result['ips'])} IPs")
+                print(f"[mapeo_ips] Resolviendo dominio SCOPE: {dom}")
+                ips_resueltas = _resolve_domain_multi_resolver(dom, timeout=5)['ips']
+                for ip in ips_resueltas:
+                    if ip not in PUBLIC_DNS_IPS:
+                        ips_a_analizar.add(ip)
+                        ip_origen[ip] = {
+                            'tipo': 'resuelto_dominio_scope',
+                            'fuente': dom,
+                            'fase': 'FASE 1'
+                        }
+                print(f"  ✓ {dom} → {len(ips_resueltas)} IPs")
             except Exception as e:
-                print(f"[mapeo_ips] Error resolviendo {dom}: {type(e).__name__}")
+                print(f"  ✗ Error resolviendo {dom}: {type(e).__name__}")
                 continue
 
-        # 2b. Subdominios descubiertos (OPCIONALMENTE)
-        try:
-            subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-            if subdominios_descubiertos:
-                for subdom in subdominios_descubiertos[:50]:  # ⚠️ LÍMITE: máx 50
-                    if not subdom:
-                        continue
-                    try:
-                        resolution_result = _resolve_domain_multi_resolver(subdom, timeout=5)
-                        if resolution_result['ips']:
-                            ips_a_analizar.update(resolution_result['ips'])
-                            resolution_metadata['dominios_resueltos'][subdom] = resolution_result['by_resolver']
-                    except Exception:
-                        continue
-        except Exception:
-            pass
+        # 3. RESOLVER SUBDOMINIOS SCOPE
+        subdominio = config.get('SUBDOMINIO', '').strip() if config else ''
+        subdominios_scope = _parse_multiline_config(subdominio) if subdominio else []
 
-        # ★ FILTRO: Eliminar IPs de DNS públicas
-        ips_a_analizar = {ip for ip in ips_a_analizar if ip not in PUBLIC_DNS_IPS}
+        print(f"[mapeo_ips] Resolviendo {len(subdominios_scope)} subdominios del SCOPE...")
+        for subdom in subdominios_scope:
+            try:
+                print(f"[mapeo_ips] Resolviendo subdominio SCOPE: {subdom}")
+                ips_resueltas = _resolve_domain_multi_resolver(subdom, timeout=5)['ips']
+                for ip in ips_resueltas:
+                    if ip not in PUBLIC_DNS_IPS:
+                        ips_a_analizar.add(ip)
+                        # Solo overwrite si no viene de dominio scope
+                        if ip not in ip_origen or 'dominio_scope' not in ip_origen[ip]['tipo']:
+                            ip_origen[ip] = {
+                                'tipo': 'resuelto_subdominio_scope',
+                                'fuente': subdom,
+                                'fase': 'FASE 1'
+                            }
+                print(f"  ✓ {subdom} → {len(ips_resueltas)} IPs")
+            except Exception as e:
+                print(f"  ✗ Error resolviendo {subdom}: {type(e).__name__}")
+                continue
+
+        # 4. FALLBACK - RESOLVER SUBDOMINIOS DESCUBIERTOS (SOLO si no hay subdominios SCOPE)
+        fase_usada = 'FASE 1'
+        if len(subdominios_scope) == 0:
+            print(f"[mapeo_ips] Sin subdominios en SCOPE. Activando FASE 2 (Discovery)...")
+            try:
+                subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+                if subdominios_desc:
+                    print(f"[mapeo_ips] Resolviendo {len(subdominios_desc)} subdominios DESCUBIERTOS...")
+                    for subdom in subdominios_desc[:50]:  # ⚠️ LÍMITE: 50
+                        try:
+                            ips_resueltas = _resolve_domain_multi_resolver(subdom, timeout=5)['ips']
+                            for ip in ips_resueltas:
+                                if ip not in PUBLIC_DNS_IPS and ip not in ip_origen:
+                                    ips_a_analizar.add(ip)
+                                    ip_origen[ip] = {
+                                        'tipo': 'resuelto_subdominio_descubierto',
+                                        'fuente': subdom,
+                                        'fase': 'FASE 2 (Discovery)'
+                                    }
+                        except Exception:
+                            continue
+                    fase_usada = 'FASE 2 (Discovery)'
+                    print(f"[mapeo_ips] FASE 2 completada")
+            except Exception as e:
+                print(f"[mapeo_ips] Error accediendo Discovery: {type(e).__name__}")
 
         if not ips_a_analizar:
             raise Exception("No hay IPs para analizar")
 
-        print(f"[mapeo_ips] Total IPs: {len(ips_a_analizar)}")
+        print(f"[mapeo_ips] Total IPs: {len(ips_a_analizar)} ({fase_usada})")
 
-        # 3. Reverse DNS para cada IP (SIN geolocalización pesada)
+        # 5. REVERSE DNS para cada IP
         ips_success = []
         ips_analizadas = []
 
-        dominio_objetivo = (_parse_multiline_config(dominio) if dominio else [])[0] if dominio else None
-
-        for ip in sorted(ips_a_analizar)[:100]:  # ⚠️ LÍMITE: máx 100 IPs
+        for ip in sorted(ips_a_analizar)[:100]:  # ⚠️ LÍMITE: 100 IPs
             try:
                 reverse_result = _reverse_dns_multi_resolver(ip, timeout=5)
                 hostname = reverse_result['hostnames'][0] if reverse_result['hostnames'] else 'unknown'
-                
-                from_domains = [d for d, r in resolution_metadata['dominios_resueltos'].items()
-                               if ip in [ipx for ips in r.values() for ipx in ips]]
+
+                # Obtener origen de la IP
+                origen = ip_origen.get(ip, {
+                    'tipo': 'desconocido',
+                    'fuente': 'unknown',
+                    'fase': 'UNKNOWN'
+                })
 
                 entry = {
                     'ip': ip,
                     'hostname': hostname,
                     'status': reverse_result['status'],
-                    'from_domains': from_domains,
-                    'valido': bool(from_domains)
+                    'origen_tipo': origen['tipo'],
+                    'origen_fuente': origen['fuente'],
+                    'fase': origen['fase'],
+                    'valido': True  # ✅ Es válida si la tenemos de alguna fuente confiable
                 }
 
                 ips_analizadas.append(entry)
-                
-                if entry['valido']:
-                    ips_success.append(entry)
-                    print(f"[mapeo_ips] ✓ {ip} ({hostname})")
+                ips_success.append(entry)
+
+                print(f"[mapeo_ips] ✓ {ip} ({hostname}) [desde: {origen['fuente']}]")
 
             except Exception as e:
                 print(f"[mapeo_ips] Error {ip}: {type(e).__name__}")
+                origen = ip_origen.get(ip, {'tipo': 'desconocido', 'fuente': 'unknown', 'fase': 'UNKNOWN'})
+                ips_analizadas.append({
+                    'ip': ip,
+                    'hostname': 'unknown',
+                    'status': f'error: {type(e).__name__}',
+                    'origen_tipo': origen['tipo'],
+                    'origen_fuente': origen['fuente'],
+                    'fase': origen['fase'],
+                    'valido': False
+                })
                 continue
 
         return {
             "tipo": "mapeo_ips",
+            "fase_usada": fase_usada,
             "total_ips": len(ips_a_analizar),
             "total_success": len(ips_success),
             "ips_success": ips_success,
-            "ips_todas": ips_analizadas
+            "ips_todas": ips_analizadas,
+            "resumen": {
+                "configuradas": len([ip for ip, o in ip_origen.items() if o['tipo'] == 'configurada']),
+                "resueltas_dominio_scope": len([ip for ip, o in ip_origen.items() if o['tipo'] == 'resuelto_dominio_scope']),
+                "resueltas_subdominio_scope": len([ip for ip, o in ip_origen.items() if o['tipo'] == 'resuelto_subdominio_scope']),
+                "resueltas_discovery": len([ip for ip, o in ip_origen.items() if o['tipo'] == 'resuelto_subdominio_descubierto'])
+            }
         }
 
     try:
