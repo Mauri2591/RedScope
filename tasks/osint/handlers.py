@@ -2879,23 +2879,11 @@ PATRONES_VULNERABILIDADES = {
         'severidad_esperada': 'HIGH',
         'descripcion': 'Código dinámico ejecutado con eval()'
     },
-    'sql_injection': {
-        # ✅ CORREGIDO: Detecta SELECT/INSERT/UPDATE/DELETE + concatenación (sin requerir comilla)
-        'patron': r"(?:SELECT|INSERT|UPDATE|DELETE)\s+[^;]*\+",
-        'severidad_esperada': 'HIGH',
-        'descripcion': 'Patrón de SQL injection'
-    },
     'hardcoded_credentials': {
         'patron': r'(?:user|pass|password)\s*[:=]\s*["\'](?!password["\'])[^\s\"\'{}\[\]]{8,}["\']',
         'severidad_esperada': 'CRITICAL',
         'descripcion': 'Credenciales hardcodeadas'
-    },
-    'shell_exec': {
-        # ✅ CORREGIDO: Solo requiere ( sin espacios obligatorios después
-        'patron': r'(?:shell_exec|system|passthru|exec)\s*\(',
-        'severidad_esperada': 'CRITICAL',
-        'descripcion': 'Función de ejecución del sistema'
-    },
+    }
 }
 
 
@@ -3041,16 +3029,6 @@ def _es_potencial_vulnerabilidad_linea(linea, nombre_patron):
     # Ignorar definiciones de tipos/interfaces
     if re.search(r'interface\s+|type\s+|enum\s+', linea_limpia):
         return False
-
-    # Para exec: solo si tiene ( inmediatamente después (evita regex.exec)
-    if nombre_patron == 'shell_exec':
-        if not re.search(r'(?:shell_exec|system|passthru|exec)\s*\(', linea_limpia):
-            return False
-
-    # Para SQL: solo si hay REAL concatenación
-    if nombre_patron == 'sql_injection':
-        if not re.search(r'SELECT.*\+|INSERT.*\+|UPDATE.*\+|DELETE.*\+', linea_limpia, re.IGNORECASE):
-            return False
 
     # Para credenciales: NO si es "password" literal
     if nombre_patron == 'hardcoded_credentials':
