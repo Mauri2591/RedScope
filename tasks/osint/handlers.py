@@ -2962,7 +2962,9 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
 
         # ⚠️ LÍMITE: máx 30 URLs
         urls_a_analizar = list(todas_las_urls.keys())[:30]
+        urls_a_analizar = [url for url in urls_a_analizar if not url.endswith('.min.js')]
 
+        print(f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
         hallazgos_secretos = {}
         hallazgos_vulnerabilidades = {}
         total_secretos = 0
