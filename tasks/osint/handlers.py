@@ -2649,12 +2649,10 @@ def _search_gau(target):
 
         gau_path = _find_gau_path()
         if not gau_path:
-            print(f"[gau] No encontrado")
+            print(f"[gau] ❌ GAU NO ENCONTRADO en PATH")
             return urls
 
-        # ✅ AGREGAR DEBUG
-        print(f"[gau] Usando GAU en: {gau_path}")
-        print(f"[gau] Ejecutando: {gau_path} --blacklist ... {target}")
+        print(f"[gau] ✅ GAU encontrado en: {gau_path}")
 
         result = subprocess.run(
             [gau_path, '--blacklist',
@@ -2664,26 +2662,26 @@ def _search_gau(target):
             timeout=300
         )
 
-        # ✅ AGREGAR DEBUG
         print(f"[gau] Return code: {result.returncode}")
-        print(f"[gau] Stdout length: {len(result.stdout)}")
-        print(f"[gau] Stderr: {result.stderr[:200]}")  # Primeras 200 chars
+        print(f"[gau] Stdout chars: {len(result.stdout)}")
+        if result.stderr:
+            print(f"[gau] Stderr: {result.stderr[:300]}")
 
-        if result.stdout:
+        if result.returncode == 0 and result.stdout.strip():
             urls_raw = result.stdout.strip().split('\n')
             urls.update([url for url in urls_raw if url])
             print(f"[gau] ✅ Encontradas {len(urls)} URLs para {target}")
-            
+
             urls_filtradas = set(_filter_urls_by_extension(list(urls)))
             print(f"[gau] Después de filtrado: {len(urls_filtradas)} URLs válidas")
             return urls_filtradas
         else:
-            print(f"[gau] ⚠️ GAU ejecutó pero NO devolvió URLs para {target}")
+            print(f"[gau] ⚠️ GAU ejecutó pero NO devolvió URLs (return_code={result.returncode}, stdout_empty={not result.stdout.strip()})")
 
     except subprocess.TimeoutExpired:
-        print(f"[gau] ⏱️ Timeout para {target}")
+        print(f"[gau] ⏱️ TIMEOUT para {target} (>300s)")
     except Exception as e:
-        print(f"[gau] ❌ Error: {e}")
+        print(f"[gau] ❌ EXCEPTION: {type(e).__name__}: {e}")
 
     return urls
 
