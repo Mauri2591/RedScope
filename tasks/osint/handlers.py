@@ -3474,14 +3474,12 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         # ════════════════════════════════════════════════════════════════
         # OBTENER SEVERIDADES DEL MODELO Y CREAR MAPA
         # ════════════════════════════════════════════════════════════════
-        severidades = Proyecto.get_severidades()  # ← Del modelo RedScope
+        severidades = Proyecto.get_severidades()
         print(f"[OSINT-SENSITIVE-DATA] Severidades cargadas: {[s['nombre'] for s in severidades]}")
-
-        # Crear mapa: {'CRITICAL': obj, 'HIGH': obj, 'MEDIUM': obj, 'LOW': obj, 'INFORMATIONAL': obj}
         mapa_severidades = {sev['nombre']: sev for sev in severidades}
 
         # ════════════════════════════════════════════════════════════════
-        # FASE 1: URLs desde SCOPE
+        # FASE 1: URLs desde SCOPE (SIN IPs)
         # ════════════════════════════════════════════════════════════════
         print(f"[sensitive_data] FASE 1: Construyendo URLs desde SCOPE")
 
@@ -3492,36 +3490,30 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         dominios_scope = _parse_multiline_config(
             config.get('DOMINIO', '').strip() if config else '')
         for dom in dominios_scope:
-            urls_scope[f"http://{dom}"] = dom
-            urls_scope[f"https://{dom}"] = dom
+            if not _es_ip(dom):
+                urls_scope[f"http://{dom}"] = dom
+                urls_scope[f"https://{dom}"] = dom
 
         # Subdominios
         subdominios_scope = _parse_multiline_config(
             config.get('SUBDOMINIO', '').strip() if config else '')
         for subdom in subdominios_scope:
-            urls_scope[f"http://{subdom}"] = subdom
-            urls_scope[f"https://{subdom}"] = subdom
+            if not _es_ip(subdom):
+                urls_scope[f"http://{subdom}"] = subdom
+                urls_scope[f"https://{subdom}"] = subdom
 
-        # IPs
-        ips_scope = _parse_multiline_config(
-            config.get('IPS', '').strip() if config else '')
-        for ip in ips_scope:
-            urls_scope[f"http://{ip}:80"] = ip
-            urls_scope[f"https://{ip}:443"] = ip
-            urls_scope[f"http://{ip}:8080"] = ip
-            urls_scope[f"https://{ip}:8443"] = ip
-
-        # Servicios
+        # Servicios (SIN IPs)
         servicios_scope = _parse_multiline_config(
             config.get('SERVICIOS', '').strip() if config else '')
         for servicio in servicios_scope:
-            if ':' in servicio:
-                host, puerto = servicio.rsplit(':', 1)
-                protocolo = 'https' if puerto == '443' else 'http'
-                urls_scope[f"{protocolo}://{host}:{puerto}"] = host
-            else:
-                urls_scope[f"http://{servicio}"] = servicio
-                urls_scope[f"https://{servicio}"] = servicio
+            if not _es_ip(servicio):
+                if ':' in servicio:
+                    host, puerto = servicio.rsplit(':', 1)
+                    protocolo = 'https' if puerto == '443' else 'http'
+                    urls_scope[f"{protocolo}://{host}:{puerto}"] = host
+                else:
+                    urls_scope[f"http://{servicio}"] = servicio
+                    urls_scope[f"https://{servicio}"] = servicio
 
         # ════════════════════════════════════════════════════════════════
         # FASE 2: FALLBACK a Descubrimientos
@@ -3533,16 +3525,12 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             print(f"[sensitive_data] FASE 2: FALLBACK a Descubrimientos")
             fase_usada = 'FASE 2'
 
-            # Subdominios descubiertos
-            subdominios_desc = OsintEjecucion.get_discovered_subdomains(
-                proyecto_id)
+            subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
             for subdom in subdominios_desc[:20]:
                 urls_descubrimiento[f"http://{subdom}"] = subdom
                 urls_descubrimiento[f"https://{subdom}"] = subdom
 
-            # Endpoints descubiertos
-            endpoints_desc = OsintEjecucion.get_discovered_endpoints(
-                proyecto_id)
+            endpoints_desc = OsintEjecucion.get_discovered_endpoints(proyecto_id)
             for endpoint in endpoints_desc[:30]:
                 if endpoint.startswith('http'):
                     urls_descubrimiento[endpoint] = endpoint
@@ -3551,8 +3539,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         if not todas_las_urls:
             raise Exception("No hay URLs para analizar")
 
-        print(
-            f"[sensitive_data] URLs totales: {len(todas_las_urls)} ({fase_usada})")
+        print(f"[sensitive_data] URLs totales: {len(todas_las_urls)} ({fase_usada})")
 
         # ════════════════════════════════════════════════════════════════
         # ANÁLISIS DE JAVASCRIPT
@@ -3565,9 +3552,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         for url in todas_las_urls.keys():
             try:
                 print(f"[sensitive_data] Analizando: {url}")
-                # PASA mapa_severidades a _analizar_url()
-                secretos, vulnerabilidades = _analizar_url(
-                    url, mapa_severidades)
+                secretos, vulnerabilidades = _analizar_url(url, mapa_severidades)
 
                 if secretos:
                     hallazgos_secretos[url] = secretos
@@ -3577,20 +3562,17 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     hallazgos_vulnerabilidades[url] = vulnerabilidades
                     total_vulnerabilidades += len(vulnerabilidades)
 
-                print(
-                    f"  ✓ Secretos: {len(secretos)}, Vulnerabilidades: {len(vulnerabilidades)}")
+                print(f"  ✓ Secretos: {len(secretos)}, Vulnerabilidades: {len(vulnerabilidades)}")
 
             except Exception as e:
-                print(f"[sensitive_data] Error analizando {url}: {e}")
+                print(f"[sensitive_data] Error analizando {url}: {type(e).__name__}: {e}")
+                continue
 
         # ════════════════════════════════════════════════════════════════
-        # RETORNO DE RESULTADOS CON SEVERIDADES DEL MODELO
+        # RETORNO DE RESULTADOS
         # ════════════════════════════════════════════════════════════════
-
-        # Construir resumen dinámico con severidades del modelo
         vulnerabilidades_por_severidad = {}
         for severidad in severidades:
-            # INFORMATIONAL, LOW, MEDIUM, HIGH, CRITICAL
             nombre_sev = severidad['nombre']
             count = len([v for vv in hallazgos_vulnerabilidades.values()
                         for v in vv if v.get('severidad') == nombre_sev])
@@ -3613,4 +3595,20 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             }
         }
 
-    _run_osint_job(ejecucion_id, job)
+    # ════════════════════════════════════════════════════════════════
+    # EJECUTAR CON MANEJO DE ERRORES
+    # ════════════════════════════════════════════════════════════════
+    try:
+        _run_osint_job(ejecucion_id, job)
+    except Exception as e:
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        print(f"[OSINT-SENSITIVE-DATA] ERROR CRÍTICO: {error_msg}")
+        OsintEjecucion.mark_failed(ejecucion_id, error_msg)
+        raise
+
+
+def _es_ip(texto):
+    """Detectar si es una IP (IPv4)"""
+    import re
+    patron_ip = r'^(\d{1,3}\.){3}\d{1,3}(:\d+)?$'
+    return bool(re.match(patron_ip, texto))
