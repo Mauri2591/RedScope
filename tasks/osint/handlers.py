@@ -2640,24 +2640,20 @@ def _filter_urls_by_extension(urls):
 
 
 def _search_gau(target):
-    """Busca URLs históricas usando GAU (múltiples fuentes)
-
-    Target puede ser:
-    - Un dominio (ej: "example.com")
-    - Una IP (ej: "192.168.1.1")
-    """
+    """Busca URLs históricas usando GAU"""
     urls = set()
     try:
         print(f"[gau] Buscando URLs históricas de {target}...")
 
-        # Busca el comando gau
         gau_path = _find_gau_path()
         if not gau_path:
-            print(
-                f"[gau] No encontrado. Intenta: go install github.com/lc/gau/v2/cmd/gau@latest")
+            print(f"[gau] No encontrado")
             return urls
 
-        # Ejecuta con filtros para evitar descargar archivos multimedia
+        # ✅ AGREGAR DEBUG
+        print(f"[gau] Usando GAU en: {gau_path}")
+        print(f"[gau] Ejecutando: {gau_path} --blacklist ... {target}")
+
         result = subprocess.run(
             [gau_path, '--blacklist',
                 'jpg,jpeg,png,gif,svg,css,js,woff,woff2,ttf,eot', target],
@@ -2666,26 +2662,26 @@ def _search_gau(target):
             timeout=300
         )
 
+        # ✅ AGREGAR DEBUG
+        print(f"[gau] Return code: {result.returncode}")
+        print(f"[gau] Stdout length: {len(result.stdout)}")
+        print(f"[gau] Stderr: {result.stderr[:200]}")  # Primeras 200 chars
+
         if result.stdout:
             urls_raw = result.stdout.strip().split('\n')
             urls.update([url for url in urls_raw if url])
-            print(
-                f"[gau] Encontradas {len(urls)} URLs históricas para {target}")
-
-            # ✨ NUEVO: Filtrar extensiones inútiles
+            print(f"[gau] ✅ Encontradas {len(urls)} URLs para {target}")
+            
             urls_filtradas = set(_filter_urls_by_extension(list(urls)))
-            print(
-                f"[gau] Después de filtrado: {len(urls_filtradas)} URLs válidas")
-
+            print(f"[gau] Después de filtrado: {len(urls_filtradas)} URLs válidas")
             return urls_filtradas
         else:
-            print(f"[gau] No se encontraron URLs para {target}")
+            print(f"[gau] ⚠️ GAU ejecutó pero NO devolvió URLs para {target}")
 
     except subprocess.TimeoutExpired:
-        print(
-            f"[gau] Timeout para {target} (dominios muy grandes pueden tardar >5 min)")
+        print(f"[gau] ⏱️ Timeout para {target}")
     except Exception as e:
-        print(f"[gau] Error en {target}: {e}")
+        print(f"[gau] ❌ Error: {e}")
 
     return urls
 
