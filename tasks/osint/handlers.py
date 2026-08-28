@@ -3015,99 +3015,35 @@ def _ejecutar_google_dork(dominio, dork_query):
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# Handler SENSITIVE DATA EXTRACTION
+# Handler SENSITIVE DATA EXTRACTION - VERSIÓN OPTIMIZADA
 # ════════════════════════════════════════════════════════════════════════════════
 
 PALABRAS_CLAVE = [
-    # API Keys & Tokens - MÁS ESPECÍFICOS
-    'api_key', 'apikey', 'api-key', 'api_secret', 'apisecret',
-    'access_token', 'bearer', 'refresh_token', 'auth_token',
-    'authorization', 'x-api-key', 'x-auth-token', 'x-access-token',
-
-    # Contraseñas - SOLO CON CONTEXTO
-    'password', 'passwd', 'db_password', 'db_pass',
-    'admin_password', 'root_password', 'user_password',
-    'mysql_password', 'postgres_password',
-
-    # Secretos - MÁS ESPECÍFICOS
-    'secret', 'client_secret', 'app_secret', 'shared_secret', 'secret_key',
-    'api_secret', 'consumer_secret', 'signing_secret', 'webhook_secret',
-    'encryption_key', 'secret_token',
-
-    # AWS - ESPECÍFICOS
-    'aws_access_key', 'aws_secret', 'aws_session_token',
-    'aws_access_key_id', 'aws_secret_access_key', 'AKIA',
-
-    # Google & Cloud - ESPECÍFICOS
-    'google_api_key', 'google_oauth', 'google_access_token',
-    'firebase_key', 'firebase_token', 'firebase_app_id',
-    'gcp_', 'firebase_',
-
-    # Microsoft Azure - ESPECÍFICOS
-    'azure_key', 'azure_connection_string', 'azure_storage_key',
-
-    # Cloud Services - ESPECÍFICOS
-    'heroku_api_key', 'heroku_auth_token',
-    'stripe_key', 'stripe_secret', 'sk_live_', 'pk_live_',
-    'twilio_auth_token', 'twilio_api_key', 'twilio_account_sid',
-    'sendgrid_api_key', 'sendgrid_key',
-    'mailgun_api_key', 'mailgun_key',
-    'github_token', 'github_key', 'github_pat',
-    'gitlab_token', 'gitlab_key',
-    'slack_token', 'slack_webhook', 'slack_bot_token',
-    'discord_token', 'discord_webhook', 'discord_bot_token',
-    'telegram_bot_token',
-
-    # Bases de Datos - ESPECÍFICOS
-    'database_url', 'db_url', 'database_uri', 'db_uri',
-    'mongodb', 'mongodb+srv', 'mongo_url',
-    'postgresql', 'postgres_url', 'pg_url',
-    'mysql_url', 'mysql_host', 'mysql_user',
-    'redis_url', 'redis_password', 'redis_auth',
-    'connection_string',
-
-    # Encriptación - ESPECÍFICOS
-    'SECRET', 'ENCRYPT', 'RSA', 'AES-256', 'AES-128',
-    'private_key', 'privatekey', 'private-key',
-    'public_key', 'publickey', 'public-key',
-    'certificate', 'ssl_key', 'tls_key',
-    'passphrase', 'pem', 'ppk',
-
-    # Webhooks & URLs Internas - ESPECÍFICOS
-    'webhook', 'webhook_url', 'webhook_secret',
-    'callback_url', 'redirect_uri',
-
-    # OAuth & Auth - ESPECÍFICOS
-    'oauth', 'oauth_token', 'oauth_secret',
-    'oauth2', 'openid', 'client_id', 'client_secret',
-    'consumer_key', 'consumer_secret',
-    'iam_', 'auth_',
-
-    # SSH & Keys - ESPECÍFICOS
-    'ssh_key', 'ssh_password', 'rsa_key', 'dsa_key', 'ed25519',
-
-    # JWT & Sessions - ESPECÍFICOS
-    'jwt', 'jwt_secret', 'jwt_key', 'jwt_token',
-    'session_key', 'session_secret', 'session_token',
-
-    # Servicios - ESPECÍFICOS
-    'datadog_', 'pagerduty_', 'newrelic_', 'sentry_',
-    'splunk_', 'elastic_', 'grafana_', 'prometheus_',
-    'jira_token', 'confluence_token',
-    'docker_', 'kubernetes_', 'vault_token',
-
-    # Patrones de asignación - ESPECÍFICOS
-    'password=', 'token=', 'api_key=', 'apikey=',
-    'secret=', 'key=', 'auth=', 'bearer=',
-    ':token', ':secret', ':password', ':key', ':auth',
-
-    # Español - ESPECÍFICOS
-    'clave', 'contraseña', 'secreto', 'credencial',
-    'autenticación',
+    # CRÍTICOS - API & Tokens
+    'api_key', 'apikey', 'access_token', 'auth_token',
+    'bearer', 'x-api-key',
+    
+    # CRÍTICOS - Contraseñas & Secretos
+    'password', 'passwd', 'secret', 'secret_key',
+    
+    # CRÍTICOS - Cloud
+    'aws_access_key', 'aws_secret', 'AKIA',
+    'firebase_key', 'stripe_key', 'github_token',
+    'slack_token', 'discord_token',
+    
+    # CRÍTICOS - Bases de Datos
+    'database_url', 'mongodb', 'postgresql',
+    'mysql_url', 'redis_url', 'connection_string',
+    
+    # CRÍTICOS - Auth & JWT
+    'jwt', 'jwt_token', 'oauth_token', 'client_secret',
+    
+    # CRÍTICOS - Encriptación
+    'private_key', 'public_key', 'certificate',
 ]
 
 # ════════════════════════════════════════════════════════════════════════════════
-# PATRONES DE VULNERABILIDADES
+# PATRONES DE VULNERABILIDADES - SOLO CRÍTICOS
 # ════════════════════════════════════════════════════════════════════════════════
 PATRONES_VULNERABILIDADES = {
     'reverse_shell_bash': {
@@ -3120,40 +3056,10 @@ PATRONES_VULNERABILIDADES = {
         'severidad_esperada': 'CRITICAL',
         'descripcion': 'Reverse shell netcat detectado'
     },
-    'reverse_shell_powershell': {
-        'patron': r'powershell.*IEX|Invoke-WebRequest.*IEX',
-        'severidad_esperada': 'CRITICAL',
-        'descripcion': 'Reverse shell PowerShell detectado'
-    },
-    'command_injection': {
-        'patron': r'cmd\.exe\s*/c|sh\s+-c|bash\s+-c',
-        'severidad_esperada': 'HIGH',
-        'descripcion': 'Potencial command injection'
-    },
     'eval_dinamico': {
-        'patron': r'\beval\s*\(|Function\s*\(\s*["\'].*["\']',
+        'patron': r'\beval\s*\(',
         'severidad_esperada': 'HIGH',
         'descripcion': 'Código dinámico ejecutado con eval()'
-    },
-    'exec_python': {
-        'patron': r'\bexec\s*\(|__import__\s*\(',
-        'severidad_esperada': 'HIGH',
-        'descripcion': 'Ejecución dinámica de código Python'
-    },
-    'deserialization': {
-        'patron': r'unserialize\s*\(|pickle\.loads|base64_decode\s*\(\s*\$_',
-        'severidad_esperada': 'HIGH',
-        'descripcion': 'Deserialización potencialmente insegura'
-    },
-    'atob_decode': {
-        'patron': r'atob\s*\(\s*["\']([A-Za-z0-9+/=]{20,})',
-        'severidad_esperada': 'MEDIUM',
-        'descripcion': 'Decodificación base64 sospechosa'
-    },
-    'string_fromcharcode': {
-        'patron': r'String\.fromCharCode\s*\((?:\d+\s*,\s*)*\d+',
-        'severidad_esperada': 'MEDIUM',
-        'descripcion': 'Construcción dinámica de strings'
     },
     'sql_injection': {
         'patron': r"(?:SELECT|INSERT|UPDATE|DELETE)\s+.*\+\s*.*['\"]",
@@ -3161,12 +3067,12 @@ PATRONES_VULNERABILIDADES = {
         'descripcion': 'Patrón de SQL injection'
     },
     'hardcoded_credentials': {
-        'patron': r'(?:user|pass|password|username)\s*[:=]\s*["\'](?![\*\{])[^\s\"\'{}\[\]]{5,}["\']',
+        'patron': r'(?:user|pass|password)\s*[:=]\s*["\'](?![\*\{])[^\s\"\'{}\[\]]{5,}["\']',
         'severidad_esperada': 'CRITICAL',
         'descripcion': 'Credenciales hardcodeadas'
     },
     'shell_exec': {
-        'patron': r'(?:shell_exec|system|passthru|exec|proc_open)\s*\(',
+        'patron': r'(?:shell_exec|system|passthru|exec)\s*\(',
         'severidad_esperada': 'CRITICAL',
         'descripcion': 'Función de ejecución del sistema'
     },
@@ -3192,14 +3098,7 @@ def _es_ip(texto):
 
 
 def _run_osint_job(ejecucion_id, fn):
-    """Wrapper mejorado para todos los jobs OSINT.
-
-    Mejoras:
-    - Loguea excepciones con stack trace completo
-    - Retorna resultado para que RQ lo procese
-    - Re-lanza excepciones para estabilidad del worker
-    - Mejor visibilidad en logs
-    """
+    """Wrapper mejorado para todos los jobs OSINT."""
     try:
         print(f"[OSINT] ========================================")
         print(f"[OSINT] Job {ejecucion_id} INICIANDO")
@@ -3235,7 +3134,6 @@ def _run_osint_job(ejecucion_id, fn):
         except Exception as db_error:
             print(f"[OSINT] Error marcando fallo en BD: {db_error}")
 
-        # Re-lanzar para que RQ maneje correctamente
         raise
 
 
@@ -3244,27 +3142,22 @@ def _run_osint_job(ejecucion_id, fn):
 # ════════════════════════════════════════════════════════════════════════════════
 
 def _es_potencial_secreto_linea(linea, palabra_clave):
-    """
-    Valida UNA LÍNEA para filtrar ruido
-    Retorna: True si es potencial secreto REAL, False si es falso positivo
-    """
+    """Valida UNA LÍNEA para filtrar ruido"""
     linea_limpia = linea.strip()
 
-    # 1. IGNORAR COMENTARIOS
+    # Ignorar comentarios
     if linea_limpia.startswith('//') or linea_limpia.startswith('#'):
         return False
     if '/*' in linea_limpia or '*/' in linea_limpia:
         return False
-    if '<!--' in linea_limpia or '-->' in linea_limpia:
-        return False
 
-    # 2. LA PALABRA DEBE SER PALABRA COMPLETA
+    # La palabra debe ser palabra completa
     patron_palabra = r'\b' + re.escape(palabra_clave) + r'\b'
     match = re.search(patron_palabra, linea_limpia, re.IGNORECASE)
     if not match:
         return False
 
-    # 3. DEBE HABER CONTEXTO DE ASIGNACIÓN O VALOR
+    # Debe haber contexto de asignación
     idx = match.start()
     antes = linea_limpia[:idx]
     despues = linea_limpia[idx + len(palabra_clave):]
@@ -3277,28 +3170,19 @@ def _es_potencial_secreto_linea(linea, palabra_clave):
     if not tiene_contexto:
         return False
 
-    # 4. DEBE HABER VALOR SIGNIFICATIVO (6+ caracteres)
+    # Debe haber valor significativo
     if not re.search(r'[a-zA-Z0-9]{6,}', despues):
         return False
 
-    # 5. FILTROS ADICIONALES ANTI-RUIDO
-    if re.search(r'\b(typeof|instanceof)\s+\w+', linea_limpia):
-        return False
-
-    if '.prototype' in linea_limpia or '.constructor' in linea_limpia:
-        return False
-
-    if re.search(r'===|!==|==|!=|typeof|instanceof', linea_limpia):
-        return False
-
-    if re.search(r'interface\s+|type\s+|:\s*string|:\s*boolean', linea_limpia):
+    # Filtros anti-ruido
+    if re.search(r'typeof|instanceof|\.prototype', linea_limpia):
         return False
 
     return True
 
 
 def _buscar_secretos_en_contenido(contenido, url_origen):
-    """Buscar secretos usando SOLO GREP - línea por línea"""
+    """Buscar secretos - línea por línea"""
     secretos = []
     lineas = contenido.split('\n')
     palabras_encontradas = set()
@@ -3315,7 +3199,7 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
                     'linea': linea[:250],
                     'numero_linea': num_linea,
                     'severidad': 'MEDIUM',
-                    'metodo': 'grep (palabra clave)'
+                    'metodo': 'grep'
                 })
                 palabras_encontradas.add(palabra_clave)
 
@@ -3323,7 +3207,7 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
 
 
 def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
-    """Detecta backdoors, reverse shells, ofuscación y código malicioso"""
+    """Detecta vulnerabilidades críticas"""
     vulnerabilidades = []
 
     for nombre_patron, config in PATRONES_VULNERABILIDADES.items():
@@ -3371,13 +3255,13 @@ def _analizar_url(url, mapa_severidades):
         try:
             soup = BeautifulSoup(response.content, 'html.parser')
 
-            # Scripts externos (src attribute)
+            # Scripts externos
             for script in soup.find_all('script', src=True):
                 js_url = script['src']
 
                 # FILTRAR MINIFICADOS
                 if js_url.endswith('.min.js'):
-                    print(f"  [SKIP] {js_url} (archivo minificado)")
+                    print(f"  [SKIP] {js_url} (minificado)")
                     continue
 
                 if js_url.startswith('http'):
@@ -3402,16 +3286,14 @@ def _analizar_url(url, mapa_severidades):
                     vulnerabilidades_encontrados.extend(vulnerabilidades)
 
                 except Exception as e:
-                    print(f"  [ERROR] Script externo {js_url_completa}: {type(e).__name__}")
+                    print(f"  [ERROR] Script {js_url_completa}: {type(e).__name__}")
 
             # Scripts inline
             for i, script in enumerate(soup.find_all('script')):
                 if not script.get('src') and script.string:
                     contenido = script.string.strip()
                     if len(contenido) > 50:
-                        secretos = _buscar_secretos_en_contenido(
-                            contenido, f"{url}#inline-{i}"
-                        )
+                        secretos = _buscar_secretos_en_contenido(contenido, f"{url}#inline-{i}")
                         secretos_encontrados.extend(secretos)
 
                         vulnerabilidades = _deteccion_de_vulnerabilidades(
@@ -3420,7 +3302,7 @@ def _analizar_url(url, mapa_severidades):
                         vulnerabilidades_encontrados.extend(vulnerabilidades)
 
         except Exception as e:
-            print(f"  [WARN] No es HTML válido: {type(e).__name__}")
+            print(f"  [WARN] No es HTML: {type(e).__name__}")
 
     except Exception as e:
         print(f"  [ERROR] Descargando {url}: {type(e).__name__}")
@@ -3433,16 +3315,12 @@ def _analizar_url(url, mapa_severidades):
 # ════════════════════════════════════════════════════════════════════════════════
 
 def sensitive_data_extraction(ejecucion_id, proyecto_id):
-    """
-    HANDLER PRINCIPAL - Extracción de datos sensibles en JavaScript
-    FASE 1: scope (dominios + subdominios + servicios SIN IPs)
-    FASE 2: SOLO si FASE 1 sin subdominios → usa descubrimientos
-    """
+    """Extracción de datos sensibles - VERSIÓN OPTIMIZADA"""
     print(f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
     print(f"[OSINT-SENSITIVE-DATA] Proyecto ID: {proyecto_id}")
 
     def job():
-        # OBTENER SEVERIDADES DEL MODELO
+        # Obtener severidades
         severidades = Proyecto.get_severidades()
         print(f"[OSINT-SENSITIVE-DATA] Severidades: {[s['nombre'] for s in severidades]}")
         mapa_severidades = {sev['nombre']: sev for sev in severidades}
@@ -3453,7 +3331,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         config = Proyecto.get_osint_config(proyecto_id)
         urls_scope = {}
 
-        # Dominios del scope (SIN IPs)
+        # Dominios (SIN IPs)
         dominios_scope = _parse_multiline_config(
             config.get('DOMINIO', '').strip() if config else '')
         for dom in dominios_scope:
@@ -3461,7 +3339,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                 urls_scope[f"http://{dom}"] = dom
                 urls_scope[f"https://{dom}"] = dom
 
-        # Subdominios del scope (SIN IPs)
+        # Subdominios (SIN IPs)
         subdominios_scope = _parse_multiline_config(
             config.get('SUBDOMINIO', '').strip() if config else '')
         for subdom in subdominios_scope:
@@ -3469,7 +3347,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                 urls_scope[f"http://{subdom}"] = subdom
                 urls_scope[f"https://{subdom}"] = subdom
 
-        # Servicios del scope (SIN IPs)
+        # Servicios (SIN IPs)
         servicios_scope = _parse_multiline_config(
             config.get('SERVICIOS', '').strip() if config else '')
         for servicio in servicios_scope:
@@ -3510,7 +3388,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
 
         print(f"[sensitive_data] Total URLs: {len(todas_las_urls)} ({fase_usada})")
 
-        # ANÁLISIS DE JAVASCRIPT
+        # ANÁLISIS
         hallazgos_secretos = {}
         hallazgos_vulnerabilidades = {}
         total_secretos = 0
@@ -3518,9 +3396,8 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
 
         for url in todas_las_urls.keys():
             try:
-                # FILTRAR MINIFICADOS
                 if url.endswith('.min.js'):
-                    print(f"[sensitive_data] SKIP {url} (archivo minificado)")
+                    print(f"[sensitive_data] SKIP {url} (minificado)")
                     continue
 
                 print(f"[sensitive_data] Analizando: {url}")
@@ -3540,7 +3417,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                 print(f"[sensitive_data] Error {url}: {type(e).__name__}: {str(e)[:100]}")
                 continue
 
-        # RETORNO DE RESULTADOS
+        # RESULTADOS
         vulnerabilidades_por_severidad = {}
         for severidad in severidades:
             nombre_sev = severidad['nombre']
@@ -3558,13 +3435,12 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             "vulnerabilidades": hallazgos_vulnerabilidades,
             "resumen": {
                 "secretos_por_metodo": {
-                    "grep": len([s for ss in hallazgos_secretos.values() for s in ss if s.get('metodo') == 'grep (palabra clave)'])
+                    "grep": len([s for ss in hallazgos_secretos.values() for s in ss if s.get('metodo') == 'grep'])
                 },
                 "vulnerabilidades_por_severidad": vulnerabilidades_por_severidad
             }
         }
 
-    # EJECUTAR CON MANEJO DE ERRORES
     try:
         _run_osint_job(ejecucion_id, job)
     except Exception as e:
