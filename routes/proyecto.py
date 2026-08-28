@@ -410,6 +410,35 @@ def run_roles():
     cursor.close()
     conn.close()
 
+    q = Queue(connection=Config.redis_conn)
+
+    accion = Proyecto.get_accion_by_id(accion_id)
+    if not accion:
+        return jsonify({
+            "success": False,
+            "message": "Acción inválida"
+        }), 400
+
+    handler_path = accion['handler']
+    module_path, function_name = handler_path.rsplit('.', 1)
+
+    try:
+        module = importlib.import_module(f"tasks.{module_path}")
+        func = getattr(module, function_name)
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Error cargando handler: {str(e)}"
+        }), 500
+
+    # q.enqueue(func, ejecucion_id, proyecto_id)
+    full_path = f"tasks.{module_path}.{function_name}"
+    q.enqueue(full_path, ejecucion_id, proyecto_id, job_timeout=3600)
+    return jsonify({
+        "success": True,
+        "ejecucion_id": ejecucion_id
+    })
+
 
 @proyecto_bp.route('/cloud/resultados/<int:proyecto_id>')
 @login_required
@@ -1228,14 +1257,8 @@ def run_osint():
     # Mapeo: ID -> nombre de función handler (DINÁMICO desde BD, no hardcodeado)
     handlers_map = OsintEjecucion.get_handlers_map()
 
-    print(f"[OSINT/RUN DEBUG] handlers_map = {handlers_map}")
-    print(f"[OSINT/RUN DEBUG] servicio_osint_id = {servicio_osint_id} (type: {type(servicio_osint_id)})")
-
     handler_name = handlers_map.get(servicio_osint_id)
-    print(f"[OSINT/RUN DEBUG] handler_name para ID {servicio_osint_id} = {handler_name}")
-
     if not handler_name:
-        print(f"[OSINT/RUN DEBUG] ERROR: handler_name es None para ID {servicio_osint_id}")
         return jsonify({"success": False, "message": f"Servicio {servicio_osint_id} no encontrado"}), 400
 
     # Crear ejecución usando el modelo
