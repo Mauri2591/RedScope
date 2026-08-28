@@ -331,7 +331,7 @@ def _geolocate_ip(ip):
     print(f"[geo] Iniciando geolocalización para {ip}")
 
     # ═════════════════════════════════════════════════════════════════
-    # 1️⃣ EARLY RETURN para localhost (AGREGADO)
+    # 1️ EARLY RETURN para localhost (AGREGADO)
     # ═════════════════════════════════════════════════════════════════
     if ip.startswith('127.') or ip == 'localhost':
         print(f"[geo] {ip} es localhost → retornar unknown")
@@ -441,7 +441,7 @@ def _geolocate_ip(ip):
                         geo['phone'] = phone
                 elif 'org:' in line_lower and geo['isp'] == 'unknown':
                     geo['isp'] = line.split(':', 1)[1].strip()
-                # 2️⃣ EXTRACCIÓN DE ASN (AGREGADO)
+                # 2️ EXTRACCIÓN DE ASN (AGREGADO)
                 elif geo['asn'] == 'unknown' and any(key in line_lower for key in ['originasn:', 'origin-as:', 'asn:']):
                     try:
                         asn_value = line.split(':', 1)[1].strip(
@@ -476,7 +476,7 @@ def _geolocate_ip(ip):
                             geo['ciudad'] = parts[0]
                             break
 
-            # 3️⃣ PRINT DE CONFIRMACIÓN (AGREGADO)
+            # 3️ PRINT DE CONFIRMACIÓN (AGREGADO)
             print(
                 f"[geo] whois completo: país={geo['pais']}, ciudad={geo['ciudad']}, isp={geo['isp']}, asn={geo['asn']}")
             if geo['pais'] != 'unknown':
@@ -3506,6 +3506,11 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
 
         for url in todas_las_urls.keys():
             try:
+                # ← AGREGAR AQUÍ
+                if url.endswith('.min.js'):
+                    print(f"[sensitive_data] Saltando {url} (archivo minificado)")
+                    continue
+                
                 print(f"[sensitive_data] Analizando: {url}")
                 secretos, vulnerabilidades = _analizar_url(url, mapa_severidades)
 
@@ -3566,4 +3571,4 @@ def _es_ip(texto):
     """Detectar si es una IP (IPv4)"""
     import re
     patron_ip = r'^(\d{1,3}\.){3}\d{1,3}(:\d+)?$'
-    return bool(re.match(patron_ip, texto))
+    return bool(re.match(patron_ip, texto))  
