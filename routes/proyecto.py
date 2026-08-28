@@ -1269,16 +1269,10 @@ def run_osint():
     # Encolar job en cola OSINT (igual que AWS - importar función directo)
     q = Queue('osint', connection=Config.redis_conn)
 
-    try:
-        module = importlib.import_module('tasks.osint.handlers')
-        func = getattr(module, handler_name)
-        q.enqueue(func, ejecucion_id, proyecto_id)
-    except Exception as e:
-        print(f"[OSINT/RUN] Error encolando handler: {str(e)}")
-        return jsonify({
-            "success": False,
-            "message": f"Error cargando handler: {str(e)}"
-        }), 500
+    # Encolar job en cola OSINT
+    q = Queue('osint', connection=Config.redis_conn)
+    full_path = f"tasks.osint.handlers.{handler_name}"
+    q.enqueue(full_path, ejecucion_id, proyecto_id, job_timeout=3600)
 
     print(f"[OSINT/RUN] Job encolado exitosamente: {handler_name}")
     return jsonify({"success": True, "ejecucion_id": ejecucion_id})
