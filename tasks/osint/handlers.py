@@ -2574,8 +2574,8 @@ def _ejecutar_google_dork(dominio, dork_query):
     return resultados
 
 
-# ════════════════════════════════════════════════════════════════════════════════
-# Handler SENSITIVE DATA EXTRACTION - VERSIÓN OPTIMIZADA
+## ════════════════════════════════════════════════════════════════════════════════
+# Handler SENSITIVE DATA EXTRACTION - VERSIÓN FINAL (BUGS CORREGIDOS)
 # ════════════════════════════════════════════════════════════════════════════════
 
 PALABRAS_CLAVE = [
@@ -2600,13 +2600,12 @@ PALABRAS_CLAVE = [
 
     # CRÍTICOS - Encriptación
     'private_key', 'public_key', 'certificate',
-    # CRÍTICOS - SSH & Criptografía
     'ssh_key', 'ssh_private_key', 'rsa_private_key',
     'openssh_key', 'private_pem', 'id_rsa'
 ]
 
 # ════════════════════════════════════════════════════════════════════════════════
-# PATRONES DE VULNERABILIDADES - SOLO CRÍTICOS
+# PATRONES DE VULNERABILIDADES - SOLO CRÍTICOS (PATRONES MEJORADOS)
 # ════════════════════════════════════════════════════════════════════════════════
 PATRONES_VULNERABILIDADES = {
     'reverse_shell_bash': {
@@ -2625,20 +2624,19 @@ PATRONES_VULNERABILIDADES = {
         'descripcion': 'Código dinámico ejecutado con eval()'
     },
     'sql_injection': {
-        'patron': r"(?:SELECT|INSERT|UPDATE|DELETE)\s+.*\+\s*['\"]",
+        # ✅ CORREGIDO: Detecta SELECT/INSERT/UPDATE/DELETE + concatenación (sin requerir comilla)
+        'patron': r"(?:SELECT|INSERT|UPDATE|DELETE)\s+[^;]*\+",
         'severidad_esperada': 'HIGH',
         'descripcion': 'Patrón de SQL injection'
     },
     'hardcoded_credentials': {
-        # Excluye "password" literal
         'patron': r'(?:user|pass|password)\s*[:=]\s*["\'](?!password["\'])[^\s\"\'{}\[\]]{8,}["\']',
         'severidad_esperada': 'CRITICAL',
         'descripcion': 'Credenciales hardcodeadas'
     },
-
     'shell_exec': {
-        # Exec solo si tiene ( después
-        'patron': r'(?:shell_exec|system|passthru|exec)\s*\(\s*["\']',
+        # ✅ CORREGIDO: Solo requiere ( sin espacios obligatorios después
+        'patron': r'(?:shell_exec|system|passthru|exec)\s*\(',
         'severidad_esperada': 'CRITICAL',
         'descripcion': 'Función de ejecución del sistema'
     },
@@ -2798,14 +2796,13 @@ def _es_potencial_vulnerabilidad_linea(linea, nombre_patron):
         if not re.search(r'SELECT.*\+|INSERT.*\+|UPDATE.*\+|DELETE.*\+', linea_limpia, re.IGNORECASE):
             return False
 
-    # Para credenciales: NO si es "password" literal o en comentario
+    # Para credenciales: NO si es "password" literal
     if nombre_patron == 'hardcoded_credentials':
         if re.search(r'password\s*[:=]\s*["\']password["\']', linea_limpia):
             return False
 
+    # ✅ CORREGIDO: Retorna True por defecto para patrones sin validación específica
     return True
-
-# Luego en _deteccion_de_vulnerabilidades, usa esto:
 
 
 def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
@@ -2825,7 +2822,7 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
                 if linea_limpia.startswith('//') or linea_limpia.startswith('#'):
                     continue
 
-                # ✅ NUEVO: Usa el validador
+                # ✅ Usa el validador
                 if not _es_potencial_vulnerabilidad_linea(linea, nombre_patron):
                     continue
 
@@ -2844,79 +2841,6 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
             print(f"  [ERROR] Patrón '{nombre_patron}': {e}")
 
     return vulnerabilidades
-
-
-def _analizar_url(url, mapa_severidades):
-    """Descarga y analiza JavaScript de una URL"""
-    secretos_encontrados = []
-    vulnerabilidades_encontrados = []
-
-    try:
-        response = requests.get(
-            url, timeout=10, verify=False, allow_redirects=True,
-            headers={'User-Agent': 'Mozilla/5.0 (RedScope)'}
-        )
-        response.raise_for_status()
-
-        try:
-            soup = BeautifulSoup(response.content, 'html.parser')
-
-            # Scripts externos
-            for script in soup.find_all('script', src=True):
-                js_url = script['src']
-
-                # FILTRAR MINIFICADOS
-                if js_url.endswith('.min.js'):
-                    print(f"  [SKIP] {js_url} (minificado)")
-                    continue
-
-                if js_url.startswith('http'):
-                    js_url_completa = js_url
-                else:
-                    js_url_completa = urljoin(url, js_url)
-
-                try:
-                    js_response = requests.get(
-                        js_url_completa, timeout=10, verify=False,
-                        headers={'User-Agent': 'Mozilla/5.0 (RedScope)'}
-                    )
-                    js_response.raise_for_status()
-                    contenido = js_response.text
-
-                    secretos = _buscar_secretos_en_contenido(
-                        contenido, js_url_completa)
-                    secretos_encontrados.extend(secretos)
-
-                    vulnerabilidades = _deteccion_de_vulnerabilidades(
-                        contenido, js_url_completa, mapa_severidades
-                    )
-                    vulnerabilidades_encontrados.extend(vulnerabilidades)
-
-                except Exception as e:
-                    print(
-                        f"  [ERROR] Script {js_url_completa}: {type(e).__name__}")
-
-            # Scripts inline
-            for i, script in enumerate(soup.find_all('script')):
-                if not script.get('src') and script.string:
-                    contenido = script.string.strip()
-                    if len(contenido) > 50:
-                        secretos = _buscar_secretos_en_contenido(
-                            contenido, f"{url}#inline-{i}")
-                        secretos_encontrados.extend(secretos)
-
-                        vulnerabilidades = _deteccion_de_vulnerabilidades(
-                            contenido, f"{url}#inline-{i}", mapa_severidades
-                        )
-                        vulnerabilidades_encontrados.extend(vulnerabilidades)
-
-        except Exception as e:
-            print(f"  [WARN] No es HTML: {type(e).__name__}")
-
-    except Exception as e:
-        print(f"  [ERROR] Descargando {url}: {type(e).__name__}")
-
-    return secretos_encontrados, vulnerabilidades_encontrados
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -2967,6 +2891,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         fase_usada = 'FASE 1'
 
         if len(_parse_multiline_config(subdominio)) == 0:
+            urls_fase2 = {}  # ✅ CORREGIDO: Inicializar urls_fase2
             try:
                 subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
                 if subdominios_desc:
@@ -2994,26 +2919,26 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         for url in urls_a_analizar:
             try:
                 print(f"[sensitive_data] Analizando: {url}")
-                
+
                 # DESCARGA con timeout + límite de tamaño
                 try:
                     response = requests.get(
-                        url, 
-                        timeout=10,  # ⚠️ TIMEOUT: 10 segundos
-                        verify=False, 
+                        url,
+                        timeout=10,
+                        verify=False,
                         allow_redirects=True,
                         headers={'User-Agent': 'Mozilla/5.0'},
-                        stream=True  # ⚠️ NO descargar todo de una vez
+                        stream=True
                     )
-                    
+
                     # ⚠️ LÍMITE DE TAMAÑO: máx 5MB
                     if int(response.headers.get('content-length', 0)) > 5242880:
                         print(f"[sensitive_data] SKIP {url} (>5MB)")
                         continue
-                    
+
                     response.raise_for_status()
-                    contenido = response.content[:5242880].decode('utf-8', errors='ignore')  # Primeros 5MB
-                    
+                    contenido = response.content[:5242880].decode('utf-8', errors='ignore')
+
                 except requests.Timeout:
                     print(f"[sensitive_data] TIMEOUT {url}")
                     continue
@@ -3037,17 +2962,17 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
 
                         try:
                             js_response = requests.get(
-                                js_url, 
-                                timeout=10,  # ⚠️ TIMEOUT
+                                js_url,
+                                timeout=10,
                                 verify=False,
                                 headers={'User-Agent': 'Mozilla/5.0'},
                                 stream=True
                             )
-                            
+
                             # ⚠️ LÍMITE: máx 5MB por script
                             if int(js_response.headers.get('content-length', 0)) > 5242880:
                                 continue
-                            
+
                             js_response.raise_for_status()
                             js_contenido = js_response.content[:5242880].decode('utf-8', errors='ignore')
 
