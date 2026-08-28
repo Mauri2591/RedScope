@@ -2924,114 +2924,168 @@ def _analizar_url(url, mapa_severidades):
 # ════════════════════════════════════════════════════════════════════════════════
 
 def sensitive_data_extraction(ejecucion_id, proyecto_id):
-    """Extracción de datos sensibles - VERSIÓN OPTIMIZADA"""
-    print(
-        f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
-    print(f"[OSINT-SENSITIVE-DATA] Proyecto ID: {proyecto_id}")
+    """Extracción de datos sensibles - VERSIÓN ESTABLE (sin crashes)"""
+    print(f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
-        # Obtener severidades
         severidades = Proyecto.get_severidades()
-        print(
-            f"[OSINT-SENSITIVE-DATA] Severidades: {[s['nombre'] for s in severidades]}")
         mapa_severidades = {sev['nombre']: sev for sev in severidades}
-
-        # FASE 1: URLs desde SCOPE
-        print(f"[sensitive_data] FASE 1: Construyendo URLs desde SCOPE")
 
         config = Proyecto.get_osint_config(proyecto_id)
         urls_scope = {}
 
-        # Dominios (SIN IPs)
-        dominios_scope = _parse_multiline_config(
-            config.get('DOMINIO', '').strip() if config else '')
-        for dom in dominios_scope:
+        # FASE 1: URLs desde SCOPE
+        dominio = config.get('DOMINIO', '').strip() if config else ''
+        subdominio = config.get('SUBDOMINIO', '').strip() if config else ''
+        servicio = config.get('SERVICIOS', '').strip() if config else ''
+
+        # Dominios
+        for dom in _parse_multiline_config(dominio):
             if not _es_ip(dom):
                 urls_scope[f"http://{dom}"] = dom
                 urls_scope[f"https://{dom}"] = dom
 
-        # Subdominios (SIN IPs)
-        subdominios_scope = _parse_multiline_config(
-            config.get('SUBDOMINIO', '').strip() if config else '')
-        for subdom in subdominios_scope:
+        # Subdominios
+        for subdom in _parse_multiline_config(subdominio):
             if not _es_ip(subdom):
                 urls_scope[f"http://{subdom}"] = subdom
                 urls_scope[f"https://{subdom}"] = subdom
 
-        # Servicios (SIN IPs)
-        servicios_scope = _parse_multiline_config(
-            config.get('SERVICIOS', '').strip() if config else '')
-        for servicio in servicios_scope:
-            if not _es_ip(servicio):
-                if ':' in servicio:
-                    host, puerto = servicio.rsplit(':', 1)
+        # Servicios
+        for srv in _parse_multiline_config(servicio):
+            if not _es_ip(srv):
+                if ':' in srv:
+                    host, puerto = srv.rsplit(':', 1)
                     protocolo = 'https' if puerto == '443' else 'http'
                     urls_scope[f"{protocolo}://{host}:{puerto}"] = host
                 else:
-                    urls_scope[f"http://{servicio}"] = servicio
-                    urls_scope[f"https://{servicio}"] = servicio
+                    urls_scope[f"http://{srv}"] = srv
+                    urls_scope[f"https://{srv}"] = srv
 
-        print(f"[sensitive_data] FASE 1: {len(urls_scope)} URLs")
-
-        # FASE 2: SOLO si FASE 1 NO tiene subdominios
+        # FASE 2: Subdominios descubiertos SOLO si no hay en FASE 1
         todas_las_urls = urls_scope
         fase_usada = 'FASE 1'
 
-        if len(subdominios_scope) == 0:
-            print(f"[sensitive_data] Fase 1 sin subdominios. Activando FASE 2")
-            fase_usada = 'FASE 2'
-
-            urls_fase2 = {}
-
+        if len(_parse_multiline_config(subdominio)) == 0:
             try:
-                subdominios_desc = OsintEjecucion.get_discovered_subdomains(
-                    proyecto_id)
-                for subdom in subdominios_desc:
-                    urls_fase2[f"http://{subdom}"] = subdom
-                    urls_fase2[f"https://{subdom}"] = subdom
-                print(f"[sensitive_data] FASE 2: {len(urls_fase2)} URLs")
-            except Exception as e:
-                print(
-                    f"[sensitive_data] Sin subdominios descubiertos: {type(e).__name__}")
-
-            todas_las_urls = {**urls_scope, **urls_fase2}
+                subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+                if subdominios_desc:
+                    for subdom in subdominios_desc[:20]:  # ⚠️ LÍMITE: 20
+                        urls_fase2[f"http://{subdom}"] = subdom
+                        urls_fase2[f"https://{subdom}"] = subdom
+                    todas_las_urls = {**urls_scope, **urls_fase2}
+                    fase_usada = 'FASE 2'
+            except Exception:
+                pass
 
         if not todas_las_urls:
-            raise Exception("No hay URLs para analizar")
+            raise Exception("No hay URLs")
 
-        print(
-            f"[sensitive_data] Total URLs: {len(todas_las_urls)} ({fase_usada})")
+        print(f"[sensitive_data] Total URLs: {len(todas_las_urls)} ({fase_usada})")
 
-        # ANÁLISIS
+        # ⚠️ LÍMITE: máx 30 URLs
+        urls_a_analizar = list(todas_las_urls.keys())[:30]
+
         hallazgos_secretos = {}
         hallazgos_vulnerabilidades = {}
         total_secretos = 0
         total_vulnerabilidades = 0
 
-        for url in todas_las_urls.keys():
+        for url in urls_a_analizar:
             try:
-                if url.endswith('.min.js'):
-                    print(f"[sensitive_data] SKIP {url} (minificado)")
+                print(f"[sensitive_data] Analizando: {url}")
+                
+                # DESCARGA con timeout + límite de tamaño
+                try:
+                    response = requests.get(
+                        url, 
+                        timeout=10,  # ⚠️ TIMEOUT: 10 segundos
+                        verify=False, 
+                        allow_redirects=True,
+                        headers={'User-Agent': 'Mozilla/5.0'},
+                        stream=True  # ⚠️ NO descargar todo de una vez
+                    )
+                    
+                    # ⚠️ LÍMITE DE TAMAÑO: máx 5MB
+                    if int(response.headers.get('content-length', 0)) > 5242880:
+                        print(f"[sensitive_data] SKIP {url} (>5MB)")
+                        continue
+                    
+                    response.raise_for_status()
+                    contenido = response.content[:5242880].decode('utf-8', errors='ignore')  # Primeros 5MB
+                    
+                except requests.Timeout:
+                    print(f"[sensitive_data] TIMEOUT {url}")
+                    continue
+                except requests.RequestException as e:
+                    print(f"[sensitive_data] ERROR {url}: {type(e).__name__}")
                     continue
 
-                print(f"[sensitive_data] Analizando: {url}")
-                secretos, vulnerabilidades = _analizar_url(
-                    url, mapa_severidades)
+                try:
+                    soup = BeautifulSoup(contenido, 'html.parser')
 
-                if secretos:
-                    hallazgos_secretos[url] = secretos
-                    total_secretos += len(secretos)
+                    # Scripts externos - ⚠️ LÍMITE: 5 scripts por URL
+                    for script in soup.find_all('script', src=True)[:5]:
+                        js_url = script['src']
 
-                if vulnerabilidades:
-                    hallazgos_vulnerabilidades[url] = vulnerabilidades
-                    total_vulnerabilidades += len(vulnerabilidades)
+                        if js_url.endswith('.min.js'):
+                            print(f"  [SKIP] {js_url} (minificado)")
+                            continue
 
-                print(
-                    f"  ✓ Secretos: {len(secretos)}, Vulnerabilidades: {len(vulnerabilidades)}")
+                        if not js_url.startswith('http'):
+                            js_url = urljoin(url, js_url)
+
+                        try:
+                            js_response = requests.get(
+                                js_url, 
+                                timeout=10,  # ⚠️ TIMEOUT
+                                verify=False,
+                                headers={'User-Agent': 'Mozilla/5.0'},
+                                stream=True
+                            )
+                            
+                            # ⚠️ LÍMITE: máx 5MB por script
+                            if int(js_response.headers.get('content-length', 0)) > 5242880:
+                                continue
+                            
+                            js_response.raise_for_status()
+                            js_contenido = js_response.content[:5242880].decode('utf-8', errors='ignore')
+
+                            secretos = _buscar_secretos_en_contenido(js_contenido, js_url)
+                            total_secretos += len(secretos)
+                            if secretos:
+                                hallazgos_secretos[js_url] = secretos
+
+                            vulnerabilidades = _deteccion_de_vulnerabilidades(js_contenido, js_url, mapa_severidades)
+                            total_vulnerabilidades += len(vulnerabilidades)
+                            if vulnerabilidades:
+                                hallazgos_vulnerabilidades[js_url] = vulnerabilidades
+
+                        except requests.Timeout:
+                            print(f"  [TIMEOUT] {js_url}")
+                        except Exception as e:
+                            print(f"  [ERROR] {js_url}: {type(e).__name__}")
+
+                    # Scripts inline - ⚠️ LÍMITE: 10 inline scripts
+                    for i, script in enumerate(soup.find_all('script')[:10]):
+                        if not script.get('src') and script.string:
+                            contenido_inline = script.string.strip()
+                            if len(contenido_inline) > 50:
+                                secretos = _buscar_secretos_en_contenido(contenido_inline, f"{url}#inline-{i}")
+                                if secretos:
+                                    hallazgos_secretos[f"{url}#inline-{i}"] = secretos
+                                    total_secretos += len(secretos)
+
+                                vulnerabilidades = _deteccion_de_vulnerabilidades(contenido_inline, f"{url}#inline-{i}", mapa_severidades)
+                                if vulnerabilidades:
+                                    hallazgos_vulnerabilidades[f"{url}#inline-{i}"] = vulnerabilidades
+                                    total_vulnerabilidades += len(vulnerabilidades)
+
+                except Exception as e:
+                    print(f"  [WARN] Parsing {url}: {type(e).__name__}")
 
             except Exception as e:
-                print(
-                    f"[sensitive_data] Error {url}: {type(e).__name__}: {str(e)[:100]}")
+                print(f"[sensitive_data] Error {url}: {str(e)[:60]}")
                 continue
 
         # RESULTADOS
@@ -3045,15 +3099,12 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         return {
             "tipo": "sensitive_data_extraction",
             "fase_usada": fase_usada,
-            "total_urls_analizadas": len(todas_las_urls),
+            "total_urls_analizadas": len(urls_a_analizar),
             "total_secretos_encontrados": total_secretos,
             "total_vulnerabilidades_encontradas": total_vulnerabilidades,
             "secretos": hallazgos_secretos,
             "vulnerabilidades": hallazgos_vulnerabilidades,
             "resumen": {
-                "secretos_por_metodo": {
-                    "grep": len([s for ss in hallazgos_secretos.values() for s in ss if s.get('metodo') == 'grep'])
-                },
                 "vulnerabilidades_por_severidad": vulnerabilidades_por_severidad
             }
         }
@@ -3062,7 +3113,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         _run_osint_job(ejecucion_id, job)
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"
-        print(f"[OSINT-SENSITIVE-DATA] ERROR CRÍTICO: {error_msg}")
+        print(f"[OSINT-SENSITIVE-DATA] ERROR: {error_msg}")
         try:
             OsintEjecucion.mark_failed(ejecucion_id, error_msg)
         except:
