@@ -3479,7 +3479,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         mapa_severidades = {sev['nombre']: sev for sev in severidades}
 
         # ════════════════════════════════════════════════════════════════
-        # FASE 1: URLs desde SCOPE
+        # FASE 1: URLs desde SCOPE (Dominios + Subdominios)
         # ════════════════════════════════════════════════════════════════
         print(f"[sensitive_data] FASE 1: Construyendo URLs desde SCOPE")
 
@@ -3530,19 +3530,16 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             urls_fase2 = {}
             
             # Subdominios descubiertos
-            subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-            for subdom in subdominios_desc:
-                urls_fase2[f"http://{subdom}"] = subdom
-                urls_fase2[f"https://{subdom}"] = subdom
-            
-            # Endpoints descubiertos
-            endpoints_desc = OsintEjecucion.get_discovered_endpoints(proyecto_id)
-            for endpoint in endpoints_desc:
-                if endpoint.startswith('http'):
-                    urls_fase2[endpoint] = endpoint
+            try:
+                subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+                for subdom in subdominios_desc:
+                    urls_fase2[f"http://{subdom}"] = subdom
+                    urls_fase2[f"https://{subdom}"] = subdom
+                print(f"[sensitive_data] URLs FASE 2: {len(urls_fase2)}")
+            except Exception as e:
+                print(f"[sensitive_data] Error trayendo subdominios descubiertos: {e}")
             
             todas_las_urls = {**urls_scope, **urls_fase2}
-            print(f"[sensitive_data] URLs FASE 2: {len(urls_fase2)}")
 
         if not todas_las_urls:
             raise Exception("No hay URLs para analizar")
