@@ -431,8 +431,9 @@ def run_roles():
             "message": f"Error cargando handler: {str(e)}"
         }), 500
 
-    q.enqueue(func, ejecucion_id, proyecto_id)
-
+    # q.enqueue(func, ejecucion_id, proyecto_id)
+    full_path = f"tasks.{module_path}.{function_name}"
+    q.enqueue(full_path, ejecucion_id, proyecto_id, job_timeout=3600)
     return jsonify({
         "success": True,
         "ejecucion_id": ejecucion_id
