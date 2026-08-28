@@ -3191,28 +3191,51 @@ def _es_ip(texto):
     return bool(re.match(patron_ip, texto))
 
 
-def _run_osint_job(ejecucion_id, job_func):
-    """Ejecuta un job OSINT y maneja su ciclo de vida"""
+def _run_osint_job(ejecucion_id, fn):
+    """Wrapper mejorado para todos los jobs OSINT.
+
+    Mejoras:
+    - Loguea excepciones con stack trace completo
+    - Retorna resultado para que RQ lo procese
+    - Re-lanza excepciones para estabilidad del worker
+    - Mejor visibilidad en logs
+    """
     try:
-        ejecucion = OsintEjecucion.objects.get(id=ejecucion_id)
-        ejecucion.estado = 'RUNNING'
-        ejecucion.save()
-        print(f"[OSINT] Ejecución {ejecucion_id} en estado RUNNING")
+        print(f"[OSINT] ========================================")
+        print(f"[OSINT] Job {ejecucion_id} INICIANDO")
+        print(f"[OSINT] Tiempo: {datetime.now().isoformat()}")
+        print(f"[OSINT] ========================================")
 
-        resultados = job_func()
+        OsintEjecucion.mark_running(ejecucion_id)
+        print(f"[OSINT] Estado marcado como RUNNING")
 
-        ejecucion.estado = 'COMPLETED'
-        ejecucion.resultados = resultados
-        ejecucion.save()
-        print(f"[OSINT] Ejecución {ejecucion_id} COMPLETADA")
+        resultado = fn()
 
-        return resultados
+        print(f"[OSINT] ========================================")
+        print(f"[OSINT] ✅ Job {ejecucion_id} COMPLETADO")
+        print(f"[OSINT] Tiempo: {datetime.now().isoformat()}")
+        print(f"[OSINT] ========================================")
+
+        OsintEjecucion.mark_completed(ejecucion_id, resultado)
+        return resultado
 
     except Exception as e:
-        print(f"[OSINT] Error en ejecución {ejecucion_id}: {e}")
-        ejecucion = OsintEjecucion.objects.get(id=ejecucion_id)
-        ejecucion.estado = 'FAILED'
-        ejecucion.save()
+        error_trace = traceback.format_exc()
+
+        print(f"[OSINT] ========================================")
+        print(f"[OSINT] ❌ ERROR en Job {ejecucion_id}")
+        print(f"[OSINT] Mensaje: {str(e)}")
+        print(f"[OSINT] Stack trace:")
+        print(error_trace)
+        print(f"[OSINT] Tiempo: {datetime.now().isoformat()}")
+        print(f"[OSINT] ========================================")
+
+        try:
+            OsintEjecucion.mark_failed(ejecucion_id, str(e))
+        except Exception as db_error:
+            print(f"[OSINT] Error marcando fallo en BD: {db_error}")
+
+        # Re-lanzar para que RQ maneje correctamente
         raise
 
 
