@@ -3479,14 +3479,14 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         mapa_severidades = {sev['nombre']: sev for sev in severidades}
 
         # ════════════════════════════════════════════════════════════════
-        # FASE 1: URLs desde SCOPE (SIN IPs)
+        # FASE 1: URLs desde SCOPE
         # ════════════════════════════════════════════════════════════════
         print(f"[sensitive_data] FASE 1: Construyendo URLs desde SCOPE")
 
         config = Proyecto.get_osint_config(proyecto_id)
         urls_scope = {}
 
-        # Dominios
+        # Dominios del scope
         dominios_scope = _parse_multiline_config(
             config.get('DOMINIO', '').strip() if config else '')
         for dom in dominios_scope:
@@ -3494,7 +3494,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                 urls_scope[f"http://{dom}"] = dom
                 urls_scope[f"https://{dom}"] = dom
 
-        # Subdominios
+        # Subdominios del scope
         subdominios_scope = _parse_multiline_config(
             config.get('SUBDOMINIO', '').strip() if config else '')
         for subdom in subdominios_scope:
@@ -3502,7 +3502,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                 urls_scope[f"http://{subdom}"] = subdom
                 urls_scope[f"https://{subdom}"] = subdom
 
-        # Servicios (SIN IPs)
+        # Servicios del scope (SIN IPs)
         servicios_scope = _parse_multiline_config(
             config.get('SERVICIOS', '').strip() if config else '')
         for servicio in servicios_scope:
@@ -3515,27 +3515,35 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     urls_scope[f"http://{servicio}"] = servicio
                     urls_scope[f"https://{servicio}"] = servicio
 
+        print(f"[sensitive_data] URLs FASE 1: {len(urls_scope)}")
+
         # ════════════════════════════════════════════════════════════════
-        # FASE 2: FALLBACK a Descubrimientos
+        # FASE 2: SOLO si FASE 1 NO tiene subdominios
         # ════════════════════════════════════════════════════════════════
-        urls_descubrimiento = {}
+        todas_las_urls = urls_scope
         fase_usada = 'FASE 1'
 
-        if not urls_scope:
-            print(f"[sensitive_data] FASE 2: FALLBACK a Descubrimientos")
+        if len(subdominios_scope) == 0:
+            print(f"[sensitive_data] FASE 1 sin subdominios. Usando FASE 2: Descubrimientos")
             fase_usada = 'FASE 2'
-
+            
+            urls_fase2 = {}
+            
+            # Subdominios descubiertos
             subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-            for subdom in subdominios_desc[:20]:
-                urls_descubrimiento[f"http://{subdom}"] = subdom
-                urls_descubrimiento[f"https://{subdom}"] = subdom
-
+            for subdom in subdominios_desc:
+                urls_fase2[f"http://{subdom}"] = subdom
+                urls_fase2[f"https://{subdom}"] = subdom
+            
+            # Endpoints descubiertos
             endpoints_desc = OsintEjecucion.get_discovered_endpoints(proyecto_id)
-            for endpoint in endpoints_desc[:30]:
+            for endpoint in endpoints_desc:
                 if endpoint.startswith('http'):
-                    urls_descubrimiento[endpoint] = endpoint
+                    urls_fase2[endpoint] = endpoint
+            
+            todas_las_urls = {**urls_scope, **urls_fase2}
+            print(f"[sensitive_data] URLs FASE 2: {len(urls_fase2)}")
 
-        todas_las_urls = {**urls_scope, **urls_descubrimiento}
         if not todas_las_urls:
             raise Exception("No hay URLs para analizar")
 
