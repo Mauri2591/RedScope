@@ -2571,7 +2571,7 @@ def urls_historicas(ejecucion_id, proyecto_id):
 
 
 def _get_valid_ips_from_mapeo(proyecto_id):
-    """Obtiene IPs válidas (valido=true) del resultado de mapeo_ips"""
+    """Obtiene IPs válidas del resultado de mapeo_ips"""
     try:
         resultado = OsintEjecucion.get_latest_resultado(
             proyecto_id, 'mapeo_ips')
@@ -2579,8 +2579,10 @@ def _get_valid_ips_from_mapeo(proyecto_id):
             return []
 
         ips_success = resultado.get('ips_success', [])
+        # ❌ ANTES: if ip_data.get('es_valido')
+        # ✅ DESPUÉS:
         ips = [ip_data['ip']
-               for ip_data in ips_success if ip_data.get('valido')]  # ✅ Cambiar a 'valido'
+               for ip_data in ips_success if ip_data.get('valido')]
         return ips
     except Exception as e:
         print(f"[mapeo_ips] Error obteniendo IPs válidas: {e}")
