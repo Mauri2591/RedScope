@@ -154,14 +154,15 @@ def _run_osint_job(ejecucion_id, fn):
 
 
 # IPs de resolvers DNS públicos a filtrar (no son del objetivo)
-PUBLIC_DNS_IPS = {'8.8.8.8', '8.8.4.4', '1.1.1.1', '1.0.0.1', '9.9.9.9', '149.112.112.112'}
-
+PUBLIC_DNS_IPS = {'8.8.8.8', '8.8.4.4', '1.1.1.1',
+                  '1.0.0.1', '9.9.9.9', '149.112.112.112'}
 
 
 def _resolve_domain_multi_resolver(dominio, timeout=5):
     """Resuelve dominio - ligero, sin múltiples resolvers"""
     try:
-        ips = socket.getaddrinfo(dominio, None, socket.AF_INET, timeout=timeout)
+        ips = socket.getaddrinfo(
+            dominio, None, socket.AF_INET, timeout=timeout)
         ip_set = set(ip[4][0] for ip in ips)
         return {'ips': ip_set, 'by_resolver': {'default': list(ip_set)}}
     except Exception as e:
@@ -173,11 +174,12 @@ def _validate_hostname_belongs_to_domain(hostname, dominio_objetivo, ip):
     """Validación simple de hostname"""
     if not dominio_objetivo or not hostname:
         return {'valido': False, 'razon': 'Datos insuficientes'}
-    
+
     if dominio_objetivo.lower() in hostname.lower():
         return {'valido': True, 'razon': f'Hostname contiene {dominio_objetivo}'}
-    
+
     return {'valido': False, 'razon': f'Hostname no pertenece a {dominio_objetivo}'}
+
 
 def _geolocate_ip(ip):
     """Geolocalización - SOLO si es necesario, sin API externa"""
@@ -188,6 +190,7 @@ def _geolocate_ip(ip):
         'isp': 'Unknown',
         'ip': ip
     }
+
 
 def _reverse_dns_multi_resolver(ip, timeout=5):
     """Reverse DNS - simple"""
@@ -202,7 +205,7 @@ def _reverse_dns_multi_resolver(ip, timeout=5):
         status = 'timeout'
     except Exception as e:
         status = f'error: {type(e).__name__}'
-    
+
     return {'hostnames': hostnames, 'status': status}
 
 # ══════════════════════════════════════════════════════════════════
@@ -389,35 +392,182 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
     _run_osint_job(ejecucion_id, job)
 
 
+# ════════════════════════════════════════════════════════════════════════════════
+# Handler MAPEO DE IPs - VERSIÓN ENRIQUECIDA (Local)
+# ════════════════════════════════════════════════════════════════════════════════
+
+def _get_asn_info(ip, timeout=5):
+    """Obtiene ASN usando DNS reverse a cymru.com (LOCAL)"""
+    try:
+        # cymru.com proporciona ASN info via DNS
+        # Formato: X.X.X.X.asn.cymru.com TXT
+        partes = ip.split('.')
+        reversed_ip = '.'.join(reversed(partes))
+        query_domain = f"{reversed_ip}.asn.cymru.com"
+
+        result = socket.gethostbyname_ex(query_domain)
+        if result and result[3]:
+            # Retorna: "AS#### | ISP | País | Otros"
+            txt_record = result[3][0] if result[3] else "unknown"
+            return {
+                'asn': txt_record.split('|')[0].strip() if '|' in txt_record else 'unknown',
+                'isp': txt_record.split('|')[1].strip() if '|' in txt_record and len(txt_record.split('|')) > 1 else 'unknown'
+            }
+    except Exception:
+        pass
+
+    return {'asn': 'unknown', 'isp': 'unknown'}
+
+
+def _get_geoip_info(ip):
+    """Obtiene geolocalización usando geoip2 (LOCAL si está instalado)"""
+    try:
+        # Intenta usar geoip2-python si está instalado
+        import geoip2.database
+
+        # Rutas comunes de MaxMind GeoIP2
+        db_paths = [
+            '/usr/share/GeoIP/GeoLite2-City.mmdb',
+            '/var/lib/GeoIP/GeoLite2-City.mmdb',
+            '/opt/GeoIP/GeoLite2-City.mmdb'
+        ]
+
+        for db_path in db_paths:
+            if os.path.exists(db_path):
+                reader = geoip2.database.Reader(db_path)
+                response = reader.city(ip)
+                return {
+                    'pais': response.country.iso_code or 'unknown',
+                    'ciudad': response.city.name or 'unknown',
+                    'latitud': response.location.latitude or 'unknown',
+                    'longitud': response.location.longitude or 'unknown'
+                }
+    except Exception:
+        pass
+
+    # Fallback: retorna unknown
+    return {
+        'pais': 'unknown',
+        'ciudad': 'unknown',
+        'latitud': 'unknown',
+        'longitud': 'unknown'
+    }
+
+
+def _get_whois_info(ip, timeout=5):
+    """Obtiene WHOIS info (LOCAL usando comando whois)"""
+    try:
+        resultado = subprocess.run(
+            ['whois', ip],
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+
+        if resultado.returncode == 0:
+            lineas = resultado.stdout.split('\n')
+            info = {
+                'organizacion': 'unknown',
+                'pais': 'unknown',
+                'red': 'unknown'
+            }
+
+            for linea in lineas:
+                linea_lower = linea.lower()
+
+                if 'organization' in linea_lower:
+                    info['organizacion'] = linea.split(
+                        ':')[1].strip() if ':' in linea else 'unknown'
+                elif 'country' in linea_lower and info['pais'] == 'unknown':
+                    info['pais'] = linea.split(
+                        ':')[1].strip() if ':' in linea else 'unknown'
+                elif 'netname' in linea_lower or 'network name' in linea_lower:
+                    info['red'] = linea.split(
+                        ':')[1].strip() if ':' in linea else 'unknown'
+
+            return info
+    except Exception:
+        pass
+
+    return {
+        'organizacion': 'unknown',
+        'pais': 'unknown',
+        'red': 'unknown'
+    }
+
+
+def _validar_reverse_lookup(ip, dominios_scope, subdominios_scope, subdominios_discovery):
+    """Valida qué dominio/subdominio resuelve a esta IP (reverse lookup)"""
+    todos_dominios = []
+
+    # Agregar scope
+    todos_dominios.extend(
+        [{'dominio': d, 'tipo': 'dominio_scope'} for d in dominios_scope])
+    todos_dominios.extend(
+        [{'dominio': s, 'tipo': 'subdominio_scope'} for s in subdominios_scope])
+    todos_dominios.extend(
+        [{'dominio': s, 'tipo': 'subdominio_discovery'} for s in subdominios_discovery])
+
+    dominios_resuelven = []
+
+    for item in todos_dominios:
+        dominio = item['dominio']
+        tipo = item['tipo']
+
+        try:
+            # Resolver dominio
+            ips_resueltas = set()
+            try:
+                ips_resueltas.update(
+                    [ip[4][0] for ip in socket.getaddrinfo(dominio, None)])
+            except Exception:
+                pass
+
+            # ¿Resuelve a nuestra IP?
+            if ip in ips_resueltas:
+                dominios_resuelven.append({
+                    'dominio': dominio,
+                    'tipo': tipo
+                })
+        except Exception:
+            continue
+
+    return dominios_resuelven
+
+
 def mapeo_ips(ejecucion_id, proyecto_id):
-    """Mapeo de IPs con fallback: Scope → Descubrimiento"""
+    """Mapeo de IPs enriquecido - Scope → Descubrimiento"""
     print(f"[OSINT-MAPEO-IPS] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
 
         ips_a_analizar = set()
-        ip_origen = {}  # ← NUEVO: Track de dónde vino cada IP
+        ip_origen = {}
 
         # 1. IPs CONFIGURADAS DIRECTAMENTE
         ips_str = config.get('IPS', '').strip() if config else ''
         if ips_str:
             ips_configuradas = _parse_multiline_config(ips_str)
-            ips_configuradas_filtradas = [ip for ip in ips_configuradas if ip not in PUBLIC_DNS_IPS]
+            ips_configuradas_filtradas = [
+                ip for ip in ips_configuradas if ip not in PUBLIC_DNS_IPS]
             for ip in ips_configuradas_filtradas:
                 ips_a_analizar.add(ip)
-                ip_origen[ip] = {'tipo': 'configurada', 'fuente': '[Config IPS]', 'fase': 'DIRECTA'}
-            print(f"[mapeo_ips] IPs configuradas: {len(ips_configuradas_filtradas)}")
+                ip_origen[ip] = {'tipo': 'configurada',
+                                 'fuente': '[Config IPS]', 'fase': 'DIRECTA'}
+            print(
+                f"[mapeo_ips] IPs configuradas: {len(ips_configuradas_filtradas)}")
 
         # 2. RESOLVER DOMINIOS SCOPE
         dominio = config.get('DOMINIO', '').strip() if config else ''
         dominios_scope = _parse_multiline_config(dominio) if dominio else []
 
-        print(f"[mapeo_ips] Resolviendo {len(dominios_scope)} dominios del SCOPE...")
+        print(
+            f"[mapeo_ips] Resolviendo {len(dominios_scope)} dominios del SCOPE...")
         for dom in dominios_scope:
             try:
-                print(f"[mapeo_ips] Resolviendo dominio SCOPE: {dom}")
-                ips_resueltas = _resolve_domain_multi_resolver(dom, timeout=5)['ips']
+                ips_resueltas = _resolve_domain_multi_resolver(dom, timeout=5)[
+                    'ips']
                 for ip in ips_resueltas:
                     if ip not in PUBLIC_DNS_IPS:
                         ips_a_analizar.add(ip)
@@ -433,17 +583,18 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
         # 3. RESOLVER SUBDOMINIOS SCOPE
         subdominio = config.get('SUBDOMINIO', '').strip() if config else ''
-        subdominios_scope = _parse_multiline_config(subdominio) if subdominio else []
+        subdominios_scope = _parse_multiline_config(
+            subdominio) if subdominio else []
 
-        print(f"[mapeo_ips] Resolviendo {len(subdominios_scope)} subdominios del SCOPE...")
+        print(
+            f"[mapeo_ips] Resolviendo {len(subdominios_scope)} subdominios del SCOPE...")
         for subdom in subdominios_scope:
             try:
-                print(f"[mapeo_ips] Resolviendo subdominio SCOPE: {subdom}")
-                ips_resueltas = _resolve_domain_multi_resolver(subdom, timeout=5)['ips']
+                ips_resueltas = _resolve_domain_multi_resolver(subdom, timeout=5)[
+                    'ips']
                 for ip in ips_resueltas:
                     if ip not in PUBLIC_DNS_IPS:
                         ips_a_analizar.add(ip)
-                        # Solo overwrite si no viene de dominio scope
                         if ip not in ip_origen or 'dominio_scope' not in ip_origen[ip]['tipo']:
                             ip_origen[ip] = {
                                 'tipo': 'resuelto_subdominio_scope',
@@ -455,17 +606,24 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                 print(f"  ✗ Error resolviendo {subdom}: {type(e).__name__}")
                 continue
 
-        # 4. FALLBACK - RESOLVER SUBDOMINIOS DESCUBIERTOS (SOLO si no hay subdominios SCOPE)
+        # 4. FALLBACK - RESOLVER SUBDOMINIOS DESCUBIERTOS
         fase_usada = 'FASE 1'
+        subdominios_discovery = []
+
         if len(subdominios_scope) == 0:
-            print(f"[mapeo_ips] Sin subdominios en SCOPE. Activando FASE 2 (Discovery)...")
+            print(
+                f"[mapeo_ips] Sin subdominios en SCOPE. Activando FASE 2 (Discovery)...")
             try:
-                subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+                subdominios_desc = OsintEjecucion.get_discovered_subdomains(
+                    proyecto_id)
                 if subdominios_desc:
-                    print(f"[mapeo_ips] Resolviendo {len(subdominios_desc)} subdominios DESCUBIERTOS...")
-                    for subdom in subdominios_desc[:50]:  # ⚠️ LÍMITE: 50
+                    subdominios_discovery = subdominios_desc[:50]
+                    print(
+                        f"[mapeo_ips] Resolviendo {len(subdominios_discovery)} subdominios DESCUBIERTOS...")
+                    for subdom in subdominios_discovery:
                         try:
-                            ips_resueltas = _resolve_domain_multi_resolver(subdom, timeout=5)['ips']
+                            ips_resueltas = _resolve_domain_multi_resolver(subdom, timeout=5)[
+                                'ips']
                             for ip in ips_resueltas:
                                 if ip not in PUBLIC_DNS_IPS and ip not in ip_origen:
                                     ips_a_analizar.add(ip)
@@ -479,23 +637,41 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                     fase_usada = 'FASE 2 (Discovery)'
                     print(f"[mapeo_ips] FASE 2 completada")
             except Exception as e:
-                print(f"[mapeo_ips] Error accediendo Discovery: {type(e).__name__}")
+                print(
+                    f"[mapeo_ips] Error accediendo Discovery: {type(e).__name__}")
 
         if not ips_a_analizar:
             raise Exception("No hay IPs para analizar")
 
         print(f"[mapeo_ips] Total IPs: {len(ips_a_analizar)} ({fase_usada})")
 
-        # 5. REVERSE DNS para cada IP
+        # 5. ENRIQUECER DATOS DE CADA IP
         ips_success = []
         ips_analizadas = []
 
         for ip in sorted(ips_a_analizar)[:100]:  # ⚠️ LÍMITE: 100 IPs
             try:
+                print(f"[mapeo_ips] Enriqueciendo {ip}...")
+
+                # Reverse DNS
                 reverse_result = _reverse_dns_multi_resolver(ip, timeout=5)
                 hostname = reverse_result['hostnames'][0] if reverse_result['hostnames'] else 'unknown'
 
-                # Obtener origen de la IP
+                # ✨ NUEVO: ASN
+                asn_info = _get_asn_info(ip)
+
+                # ✨ NUEVO: Geolocalización
+                geo_info = _get_geoip_info(ip)
+
+                # ✨ NUEVO: WHOIS
+                whois_info = _get_whois_info(ip, timeout=5)
+
+                # ✨ NUEVO: Validar reverse lookup
+                reverse_dominios = _validar_reverse_lookup(
+                    ip, dominios_scope, subdominios_scope, subdominios_discovery
+                )
+
+                # Obtener origen
                 origen = ip_origen.get(ip, {
                     'tipo': 'desconocido',
                     'fuente': 'unknown',
@@ -506,20 +682,35 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                     'ip': ip,
                     'hostname': hostname,
                     'status': reverse_result['status'],
+                    # Origen
                     'origen_tipo': origen['tipo'],
                     'origen_fuente': origen['fuente'],
                     'fase': origen['fase'],
-                    'valido': True  # ✅ Es válida si la tenemos de alguna fuente confiable
+                    # ✨ NUEVO: Información enriquecida
+                    'asn': asn_info['asn'],
+                    'isp': asn_info['isp'],
+                    'pais': geo_info['pais'],
+                    'ciudad': geo_info['ciudad'],
+                    'organizacion': whois_info['organizacion'],
+                    'red': whois_info['red'],
+                    # ✨ NUEVO: Reverse lookup
+                    'resuelve_a_dominio_scope': len([d for d in reverse_dominios if d['tipo'] == 'dominio_scope']) > 0,
+                    'resuelve_a_subdominio_scope': len([d for d in reverse_dominios if d['tipo'] == 'subdominio_scope']) > 0,
+                    'resuelve_a_subdominio_discovery': len([d for d in reverse_dominios if d['tipo'] == 'subdominio_discovery']) > 0,
+                    'dominios_que_resuelven': reverse_dominios,
+                    'valido': True
                 }
 
                 ips_analizadas.append(entry)
                 ips_success.append(entry)
 
-                print(f"[mapeo_ips] ✓ {ip} ({hostname}) [desde: {origen['fuente']}]")
+                print(
+                    f"[mapeo_ips] ✓ {ip} ({hostname}) [{asn_info['asn']}] [{geo_info['pais']}]")
 
             except Exception as e:
                 print(f"[mapeo_ips] Error {ip}: {type(e).__name__}")
-                origen = ip_origen.get(ip, {'tipo': 'desconocido', 'fuente': 'unknown', 'fase': 'UNKNOWN'})
+                origen = ip_origen.get(
+                    ip, {'tipo': 'desconocido', 'fuente': 'unknown', 'fase': 'UNKNOWN'})
                 ips_analizadas.append({
                     'ip': ip,
                     'hostname': 'unknown',
@@ -527,6 +718,13 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                     'origen_tipo': origen['tipo'],
                     'origen_fuente': origen['fuente'],
                     'fase': origen['fase'],
+                    'asn': 'unknown',
+                    'isp': 'unknown',
+                    'pais': 'unknown',
+                    'ciudad': 'unknown',
+                    'organizacion': 'unknown',
+                    'red': 'unknown',
+                    'dominios_que_resuelven': [],
                     'valido': False
                 })
                 continue
@@ -557,7 +755,6 @@ def mapeo_ips(ejecucion_id, proyecto_id):
             pass
         raise
 
-
 # ══════════════════════════════════════════════════════════════════════════════════════════
 # ENHANCED RECON_CLOUD - MULTI-CLOUD PROVIDER SUPPORT
 # ══════════════════════════════════════════════════════════════════════════════════════════
@@ -582,6 +779,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 # - Enfocado en enumeration de storage directamente accesible
 #
 # ══════════════════════════════════════════════════════════════════════════════════════════
+
 
 def recon_cloud(ejecucion_id, proyecto_id):
     """Reconocimiento multi-cloud EXTENDIDO: Storage + Databases + Caches + APIs
@@ -2626,7 +2824,7 @@ def _ejecutar_google_dork(dominio, dork_query):
     return resultados
 
 
-## ════════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════════
 # Handler SENSITIVE DATA EXTRACTION - VERSIÓN FINAL (BUGS CORREGIDOS)
 # ════════════════════════════════════════════════════════════════════════════════
 
@@ -2901,7 +3099,8 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
 
 def sensitive_data_extraction(ejecucion_id, proyecto_id):
     """Extracción de datos sensibles - VERSIÓN ESTABLE (sin crashes)"""
-    print(f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
+    print(
+        f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
         severidades = Proyecto.get_severidades()
@@ -2945,7 +3144,8 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         if len(_parse_multiline_config(subdominio)) == 0:
             urls_fase2 = {}  # ✅ CORREGIDO: Inicializar urls_fase2
             try:
-                subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+                subdominios_desc = OsintEjecucion.get_discovered_subdomains(
+                    proyecto_id)
                 if subdominios_desc:
                     for subdom in subdominios_desc[:20]:  # ⚠️ LÍMITE: 20
                         urls_fase2[f"http://{subdom}"] = subdom
@@ -2958,13 +3158,18 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         if not todas_las_urls:
             raise Exception("No hay URLs")
 
-        print(f"[sensitive_data] Total URLs: {len(todas_las_urls)} ({fase_usada})")
+        print(
+            f"[sensitive_data] Total URLs: {len(todas_las_urls)} ({fase_usada})")
 
         # ⚠️ LÍMITE: máx 30 URLs
         urls_a_analizar = list(todas_las_urls.keys())[:30]
-        urls_a_analizar = [url for url in urls_a_analizar if not url.endswith('.min.js')]
+        urls_a_analizar = [url for url in urls_a_analizar 
+                   if '.min.js' not in url.lower()]
 
         print(f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
+
+        print(
+            f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
         hallazgos_secretos = {}
         hallazgos_vulnerabilidades = {}
         total_secretos = 0
@@ -2991,7 +3196,8 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                         continue
 
                     response.raise_for_status()
-                    contenido = response.content[:5242880].decode('utf-8', errors='ignore')
+                    contenido = response.content[:5242880].decode(
+                        'utf-8', errors='ignore')
 
                 except requests.Timeout:
                     print(f"[sensitive_data] TIMEOUT {url}")
@@ -3007,7 +3213,8 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     for script in soup.find_all('script', src=True)[:5]:
                         js_url = script['src']
 
-                        if js_url.endswith('.min.js'):
+                        # ✅ MEJORADO: Chequear .min en cualquier parte
+                        if '.min.js' in js_url.lower():
                             print(f"  [SKIP] {js_url} (minificado)")
                             continue
 
@@ -3028,14 +3235,17 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                                 continue
 
                             js_response.raise_for_status()
-                            js_contenido = js_response.content[:5242880].decode('utf-8', errors='ignore')
+                            js_contenido = js_response.content[:5242880].decode(
+                                'utf-8', errors='ignore')
 
-                            secretos = _buscar_secretos_en_contenido(js_contenido, js_url)
+                            secretos = _buscar_secretos_en_contenido(
+                                js_contenido, js_url)
                             total_secretos += len(secretos)
                             if secretos:
                                 hallazgos_secretos[js_url] = secretos
 
-                            vulnerabilidades = _deteccion_de_vulnerabilidades(js_contenido, js_url, mapa_severidades)
+                            vulnerabilidades = _deteccion_de_vulnerabilidades(
+                                js_contenido, js_url, mapa_severidades)
                             total_vulnerabilidades += len(vulnerabilidades)
                             if vulnerabilidades:
                                 hallazgos_vulnerabilidades[js_url] = vulnerabilidades
@@ -3050,15 +3260,18 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                         if not script.get('src') and script.string:
                             contenido_inline = script.string.strip()
                             if len(contenido_inline) > 50:
-                                secretos = _buscar_secretos_en_contenido(contenido_inline, f"{url}#inline-{i}")
+                                secretos = _buscar_secretos_en_contenido(
+                                    contenido_inline, f"{url}#inline-{i}")
                                 if secretos:
                                     hallazgos_secretos[f"{url}#inline-{i}"] = secretos
                                     total_secretos += len(secretos)
 
-                                vulnerabilidades = _deteccion_de_vulnerabilidades(contenido_inline, f"{url}#inline-{i}", mapa_severidades)
+                                vulnerabilidades = _deteccion_de_vulnerabilidades(
+                                    contenido_inline, f"{url}#inline-{i}", mapa_severidades)
                                 if vulnerabilidades:
                                     hallazgos_vulnerabilidades[f"{url}#inline-{i}"] = vulnerabilidades
-                                    total_vulnerabilidades += len(vulnerabilidades)
+                                    total_vulnerabilidades += len(
+                                        vulnerabilidades)
 
                 except Exception as e:
                     print(f"  [WARN] Parsing {url}: {type(e).__name__}")
