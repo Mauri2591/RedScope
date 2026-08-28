@@ -3022,24 +3022,27 @@ PALABRAS_CLAVE = [
     # CRÍTICOS - API & Tokens
     'api_key', 'apikey', 'access_token', 'auth_token',
     'bearer', 'x-api-key',
-    
+
     # CRÍTICOS - Contraseñas & Secretos
     'password', 'passwd', 'secret', 'secret_key',
-    
+
     # CRÍTICOS - Cloud
     'aws_access_key', 'aws_secret', 'AKIA',
     'firebase_key', 'stripe_key', 'github_token',
     'slack_token', 'discord_token',
-    
+
     # CRÍTICOS - Bases de Datos
     'database_url', 'mongodb', 'postgresql',
     'mysql_url', 'redis_url', 'connection_string',
-    
+
     # CRÍTICOS - Auth & JWT
     'jwt', 'jwt_token', 'oauth_token', 'client_secret',
-    
+
     # CRÍTICOS - Encriptación
     'private_key', 'public_key', 'certificate',
+    # CRÍTICOS - SSH & Criptografía
+    'ssh_key', 'ssh_private_key', 'rsa_private_key',
+    'openssh_key', 'private_pem', 'id_rsa'
 ]
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -3062,17 +3065,20 @@ PATRONES_VULNERABILIDADES = {
         'descripcion': 'Código dinámico ejecutado con eval()'
     },
     'sql_injection': {
-        'patron': r"(?:SELECT|INSERT|UPDATE|DELETE)\s+.*\+\s*.*['\"]",
+        'patron': r"(?:SELECT|INSERT|UPDATE|DELETE)\s+.*\+\s*['\"]",
         'severidad_esperada': 'HIGH',
         'descripcion': 'Patrón de SQL injection'
     },
     'hardcoded_credentials': {
-        'patron': r'(?:user|pass|password)\s*[:=]\s*["\'](?![\*\{])[^\s\"\'{}\[\]]{5,}["\']',
+        # Excluye "password" literal
+        'patron': r'(?:user|pass|password)\s*[:=]\s*["\'](?!password["\'])[^\s\"\'{}\[\]]{8,}["\']',
         'severidad_esperada': 'CRITICAL',
         'descripcion': 'Credenciales hardcodeadas'
     },
+
     'shell_exec': {
-        'patron': r'(?:shell_exec|system|passthru|exec)\s*\(',
+        # Exec solo si tiene ( después
+        'patron': r'(?:shell_exec|system|passthru|exec)\s*\(\s*["\']',
         'severidad_esperada': 'CRITICAL',
         'descripcion': 'Función de ejecución del sistema'
     },
@@ -3206,6 +3212,42 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
     return secretos
 
 
+def _es_potencial_vulnerabilidad_linea(linea, nombre_patron):
+    """Filtro anti-ruido SIMPLE para vulnerabilidades"""
+    linea_limpia = linea.strip()
+
+    # Ignorar comentarios
+    if linea_limpia.startswith('//') or linea_limpia.startswith('#'):
+        return False
+
+    # Ignorar TypeScript types
+    if re.search(r':\s*(string|boolean|number|any|void)', linea_limpia):
+        return False
+
+    # Ignorar definiciones de tipos/interfaces
+    if re.search(r'interface\s+|type\s+|enum\s+', linea_limpia):
+        return False
+
+    # Para exec: solo si tiene ( inmediatamente después (evita regex.exec)
+    if nombre_patron == 'shell_exec':
+        if not re.search(r'(?:shell_exec|system|passthru|exec)\s*\(', linea_limpia):
+            return False
+
+    # Para SQL: solo si hay REAL concatenación
+    if nombre_patron == 'sql_injection':
+        if not re.search(r'SELECT.*\+|INSERT.*\+|UPDATE.*\+|DELETE.*\+', linea_limpia, re.IGNORECASE):
+            return False
+
+    # Para credenciales: NO si es "password" literal o en comentario
+    if nombre_patron == 'hardcoded_credentials':
+        if re.search(r'password\s*[:=]\s*["\']password["\']', linea_limpia):
+            return False
+
+    return True
+
+# Luego en _deteccion_de_vulnerabilidades, usa esto:
+
+
 def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
     """Detecta vulnerabilidades críticas"""
     vulnerabilidades = []
@@ -3221,6 +3263,10 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
                 linea_limpia = linea.strip()
 
                 if linea_limpia.startswith('//') or linea_limpia.startswith('#'):
+                    continue
+
+                # ✅ NUEVO: Usa el validador
+                if not _es_potencial_vulnerabilidad_linea(linea, nombre_patron):
                     continue
 
                 if regex.search(linea_limpia):
@@ -3277,7 +3323,8 @@ def _analizar_url(url, mapa_severidades):
                     js_response.raise_for_status()
                     contenido = js_response.text
 
-                    secretos = _buscar_secretos_en_contenido(contenido, js_url_completa)
+                    secretos = _buscar_secretos_en_contenido(
+                        contenido, js_url_completa)
                     secretos_encontrados.extend(secretos)
 
                     vulnerabilidades = _deteccion_de_vulnerabilidades(
@@ -3286,14 +3333,16 @@ def _analizar_url(url, mapa_severidades):
                     vulnerabilidades_encontrados.extend(vulnerabilidades)
 
                 except Exception as e:
-                    print(f"  [ERROR] Script {js_url_completa}: {type(e).__name__}")
+                    print(
+                        f"  [ERROR] Script {js_url_completa}: {type(e).__name__}")
 
             # Scripts inline
             for i, script in enumerate(soup.find_all('script')):
                 if not script.get('src') and script.string:
                     contenido = script.string.strip()
                     if len(contenido) > 50:
-                        secretos = _buscar_secretos_en_contenido(contenido, f"{url}#inline-{i}")
+                        secretos = _buscar_secretos_en_contenido(
+                            contenido, f"{url}#inline-{i}")
                         secretos_encontrados.extend(secretos)
 
                         vulnerabilidades = _deteccion_de_vulnerabilidades(
@@ -3316,13 +3365,15 @@ def _analizar_url(url, mapa_severidades):
 
 def sensitive_data_extraction(ejecucion_id, proyecto_id):
     """Extracción de datos sensibles - VERSIÓN OPTIMIZADA"""
-    print(f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
+    print(
+        f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
     print(f"[OSINT-SENSITIVE-DATA] Proyecto ID: {proyecto_id}")
 
     def job():
         # Obtener severidades
         severidades = Proyecto.get_severidades()
-        print(f"[OSINT-SENSITIVE-DATA] Severidades: {[s['nombre'] for s in severidades]}")
+        print(
+            f"[OSINT-SENSITIVE-DATA] Severidades: {[s['nombre'] for s in severidades]}")
         mapa_severidades = {sev['nombre']: sev for sev in severidades}
 
         # FASE 1: URLs desde SCOPE
@@ -3373,20 +3424,23 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             urls_fase2 = {}
 
             try:
-                subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+                subdominios_desc = OsintEjecucion.get_discovered_subdomains(
+                    proyecto_id)
                 for subdom in subdominios_desc:
                     urls_fase2[f"http://{subdom}"] = subdom
                     urls_fase2[f"https://{subdom}"] = subdom
                 print(f"[sensitive_data] FASE 2: {len(urls_fase2)} URLs")
             except Exception as e:
-                print(f"[sensitive_data] Sin subdominios descubiertos: {type(e).__name__}")
+                print(
+                    f"[sensitive_data] Sin subdominios descubiertos: {type(e).__name__}")
 
             todas_las_urls = {**urls_scope, **urls_fase2}
 
         if not todas_las_urls:
             raise Exception("No hay URLs para analizar")
 
-        print(f"[sensitive_data] Total URLs: {len(todas_las_urls)} ({fase_usada})")
+        print(
+            f"[sensitive_data] Total URLs: {len(todas_las_urls)} ({fase_usada})")
 
         # ANÁLISIS
         hallazgos_secretos = {}
@@ -3401,7 +3455,8 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     continue
 
                 print(f"[sensitive_data] Analizando: {url}")
-                secretos, vulnerabilidades = _analizar_url(url, mapa_severidades)
+                secretos, vulnerabilidades = _analizar_url(
+                    url, mapa_severidades)
 
                 if secretos:
                     hallazgos_secretos[url] = secretos
@@ -3411,10 +3466,12 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     hallazgos_vulnerabilidades[url] = vulnerabilidades
                     total_vulnerabilidades += len(vulnerabilidades)
 
-                print(f"  ✓ Secretos: {len(secretos)}, Vulnerabilidades: {len(vulnerabilidades)}")
+                print(
+                    f"  ✓ Secretos: {len(secretos)}, Vulnerabilidades: {len(vulnerabilidades)}")
 
             except Exception as e:
-                print(f"[sensitive_data] Error {url}: {type(e).__name__}: {str(e)[:100]}")
+                print(
+                    f"[sensitive_data] Error {url}: {type(e).__name__}: {str(e)[:100]}")
                 continue
 
         # RESULTADOS
