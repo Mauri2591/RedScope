@@ -399,20 +399,26 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
 def _get_asn_info(ip, timeout=5):
     """Obtiene ASN usando DNS reverse a cymru.com (LOCAL)"""
     try:
-        # cymru.com proporciona ASN info via DNS
-        # Formato: X.X.X.X.asn.cymru.com TXT
         partes = ip.split('.')
         reversed_ip = '.'.join(reversed(partes))
         query_domain = f"{reversed_ip}.asn.cymru.com"
 
-        result = socket.gethostbyname_ex(query_domain)
-        if result and result[3]:
-            # Retorna: "AS#### | ISP | País | Otros"
-            txt_record = result[3][0] if result[3] else "unknown"
-            return {
-                'asn': txt_record.split('|')[0].strip() if '|' in txt_record else 'unknown',
-                'isp': txt_record.split('|')[1].strip() if '|' in txt_record and len(txt_record.split('|')) > 1 else 'unknown'
-            }
+        # Usar dig para obtener TXT records
+        resultado = subprocess.run(
+            ['dig', query_domain, 'TXT', '+short'],
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+
+        if resultado.returncode == 0 and resultado.stdout.strip():
+            txt_record = resultado.stdout.strip().strip('"')
+            if '|' in txt_record:
+                partes_txt = txt_record.split('|')
+                return {
+                    'asn': partes_txt[0].strip() if len(partes_txt) > 0 else 'unknown',
+                    'isp': partes_txt[1].strip() if len(partes_txt) > 1 else 'unknown'
+                }
     except Exception:
         pass
 
