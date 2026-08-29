@@ -765,6 +765,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 # ENHANCED RECON_CLOUD - MULTI-CLOUD PROVIDER SUPPORT
 # ══════════════════════════════════════════════════════════════════════════════════════════
 
+
 def recon_cloud(ejecucion_id, proyecto_id):
     """Reconocimiento multi-cloud: Encuentra TODOS los recursos (públicos/privados) con POC"""
     import socket
@@ -783,7 +784,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
     def _get_status(url, timeout=3):
         """Obtiene status HTTP y determina tipo de hallazgo"""
         try:
-            response = requests.head(url, timeout=timeout, allow_redirects=False)
+            response = requests.head(
+                url, timeout=timeout, allow_redirects=False)
             return response.status_code
         except requests.exceptions.Timeout:
             return "timeout"
@@ -952,7 +954,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
         patrones_rds = [
             (f"{dominio}-db.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
             (f"{dominio}-db.c9akciq32.eu-west-1.rds.amazonaws.com", "eu-west-1"),
-            (f"{dominio}-db.c9akciq32.ap-southeast-1.rds.amazonaws.com", "ap-southeast-1"),
+            (f"{dominio}-db.c9akciq32.ap-southeast-1.rds.amazonaws.com",
+             "ap-southeast-1"),
             (f"{dominio}-database.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
             (f"db-{dominio}.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
             (f"mysql-{dominio}.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
@@ -1203,35 +1206,80 @@ def recon_cloud(ejecucion_id, proyecto_id):
         # ═══════════════════════════════════════════════════════════════════════
         proveedores = [
             {'nombre': 'AWS S3', 'id': 'aws_s3', 'categoria': 'storage'},
-            {'nombre': 'Azure Blob Storage', 'id': 'azure_blob', 'categoria': 'storage'},
-            {'nombre': 'Google Cloud Storage', 'id': 'gcp_storage', 'categoria': 'storage'},
-            {'nombre': 'DigitalOcean Spaces', 'id': 'do_spaces', 'categoria': 'storage'},
+            {'nombre': 'Azure Blob Storage',
+                'id': 'azure_blob', 'categoria': 'storage'},
+            {'nombre': 'Google Cloud Storage',
+                'id': 'gcp_storage', 'categoria': 'storage'},
+            {'nombre': 'DigitalOcean Spaces',
+                'id': 'do_spaces', 'categoria': 'storage'},
             {'nombre': 'Backblaze B2', 'id': 'b2_cloud', 'categoria': 'storage'},
             {'nombre': 'AWS RDS', 'id': 'aws_rds', 'categoria': 'database'},
-            {'nombre': 'Azure Database', 'id': 'azure_database', 'categoria': 'database'},
-            {'nombre': 'Google Cloud SQL', 'id': 'gcp_cloudsql', 'categoria': 'database'},
-            {'nombre': 'DigitalOcean Managed DB', 'id': 'do_database', 'categoria': 'database'},
-            {'nombre': 'AWS ElastiCache', 'id': 'aws_elasticache', 'categoria': 'cache'},
-            {'nombre': 'Azure Cache for Redis', 'id': 'azure_cache', 'categoria': 'cache'},
-            {'nombre': 'Google Cloud Memorystore', 'id': 'gcp_memorystore', 'categoria': 'cache'},
+            {'nombre': 'Azure Database', 'id': 'azure_database',
+                'categoria': 'database'},
+            {'nombre': 'Google Cloud SQL',
+                'id': 'gcp_cloudsql', 'categoria': 'database'},
+            {'nombre': 'DigitalOcean Managed DB',
+                'id': 'do_database', 'categoria': 'database'},
+            {'nombre': 'AWS ElastiCache',
+                'id': 'aws_elasticache', 'categoria': 'cache'},
+            {'nombre': 'Azure Cache for Redis',
+                'id': 'azure_cache', 'categoria': 'cache'},
+            {'nombre': 'Google Cloud Memorystore',
+                'id': 'gcp_memorystore', 'categoria': 'cache'},
             {'nombre': 'AWS API Gateway', 'id': 'aws_api_gateway', 'categoria': 'api'},
-            {'nombre': 'AWS Lambda URLs', 'id': 'aws_lambda_urls', 'categoria': 'serverless'},
-            {'nombre': 'AWS AppSync (GraphQL)', 'id': 'aws_appsync', 'categoria': 'api'},
-            {'nombre': 'Google Cloud Functions', 'id': 'gcp_cloudfunctions', 'categoria': 'serverless'},
-            {'nombre': 'Google Cloud Run', 'id': 'gcp_cloudrun', 'categoria': 'serverless'},
-            {'nombre': 'Google Firebase/Firestore', 'id': 'gcp_firebase', 'categoria': 'database'},
-            {'nombre': 'Azure Functions', 'id': 'azure_functions', 'categoria': 'serverless'},
+            {'nombre': 'AWS Lambda URLs', 'id': 'aws_lambda_urls',
+                'categoria': 'serverless'},
+            {'nombre': 'AWS AppSync (GraphQL)',
+             'id': 'aws_appsync', 'categoria': 'api'},
+            {'nombre': 'Google Cloud Functions',
+                'id': 'gcp_cloudfunctions', 'categoria': 'serverless'},
+            {'nombre': 'Google Cloud Run', 'id': 'gcp_cloudrun',
+                'categoria': 'serverless'},
+            {'nombre': 'Google Firebase/Firestore',
+                'id': 'gcp_firebase', 'categoria': 'database'},
+            {'nombre': 'Azure Functions', 'id': 'azure_functions',
+                'categoria': 'serverless'},
         ]
 
         hallazgos_totales = []
 
-        print(f"[recon_cloud] Iniciando escaneo de {len(proveedores)} proveedores...")
+        print(
+            f"[recon_cloud] Iniciando escaneo de {len(proveedores)} proveedores...")
 
-        # Escanear cada dominio principal
-        for dom in dominios_principales[:5]:  # Limitar a 5 dominios
-            dominio_base = dom.replace('www.', '').split('.')[0]  # Extraer nombre base
+        # EXTRAER DOMINIO RAÍZ PARA CONSTRUCCIÓN DE PATRONES
+        dominio_raiz_construccion = None
+        if dominios_principales:
+            primer_dominio = dominios_principales[0]
+            partes = primer_dominio.replace('www.', '').split('.')
+            if len(partes) >= 2:
+                # ej: "ater" de "ater.gob.ar"
+                dominio_raiz_construccion = partes[0]
+            else:
+                dominio_raiz_construccion = partes[0]
 
-            print(f"\n[recon_cloud] ═══ Escaneando dominio: {dom} (base: {dominio_base}) ═══")
+        # COMBINAR: dominios principales + subdominios descubiertos
+        todos_los_dominios = list(
+            set(dominios_principales + dominios_descubiertos))
+        # Limitar a 10 dominios totales
+        dominios_a_escanear = todos_los_dominios[:10]
+
+        print(f"[recon_cloud] Dominios a escanear: {len(dominios_a_escanear)}")
+
+        # Escanear cada dominio (principal + subdominios)
+        for dom in dominios_a_escanear:
+            partes_dom = dom.replace('www.', '').split('.')
+            primera_parte = partes_dom[0]  # ej: "vpn" de "vpn.ater.gob.ar"
+
+            # Si es el dominio principal, usar solo su base
+            # Si es un subdominio, combinar: subdomain-domainroot
+            if primera_parte == dominio_raiz_construccion:
+                dominio_base = primera_parte  # ej: "ater"
+            else:
+                # ej: "vpn-ater"
+                dominio_base = f"{primera_parte}-{dominio_raiz_construccion}"
+
+            print(
+                f"\n[recon_cloud] ═══ Escaneando: {dom} (patrón: {dominio_base}) ═══")
 
             try:
                 # S3
@@ -1248,7 +1296,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
 
                 # DigitalOcean Spaces
                 print(f"[recon_cloud] [STORAGE] Escaneando DigitalOcean Spaces...")
-                hallazgos_totales.extend(_search_digitalocean_spaces(dominio_base))
+                hallazgos_totales.extend(
+                    _search_digitalocean_spaces(dominio_base))
 
                 # RDS
                 print(f"[recon_cloud] [DATABASE] Escaneando AWS RDS...")
@@ -1263,7 +1312,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
                 hallazgos_totales.extend(_search_lambda_urls(dominio_base))
 
                 # GCP Functions
-                print(f"[recon_cloud] [SERVERLESS] Escaneando Google Cloud Functions...")
+                print(
+                    f"[recon_cloud] [SERVERLESS] Escaneando Google Cloud Functions...")
                 hallazgos_totales.extend(_search_gcp_functions(dominio_base))
 
                 # Firebase
@@ -1848,7 +1898,8 @@ def _search_gau(target):
             print(f"[gau] ✅ Encontradas {len(urls)} URLs para {target}")
             return urls
         else:
-            print(f"[gau] ⚠️ GAU no devolvió URLs (return_code={result.returncode})")
+            print(
+                f"[gau] ⚠️ GAU no devolvió URLs (return_code={result.returncode})")
 
     except subprocess.TimeoutExpired:
         print(f"[gau] ⏱️ TIMEOUT para {target} (>300s)")
@@ -2250,9 +2301,10 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         # ⚠️ LÍMITE: máx 30 URLs
         urls_a_analizar = list(todas_las_urls.keys())[:30]
         urls_a_analizar = [url for url in urls_a_analizar
-                   if '.min.js' not in url.lower()]
+                           if '.min.js' not in url.lower()]
 
-        print(f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
+        print(
+            f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
 
         hallazgos_secretos = {}
         hallazgos_vulnerabilidades = {}
