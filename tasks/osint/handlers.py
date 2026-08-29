@@ -765,7 +765,6 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 # ENHANCED RECON_CLOUD - MULTI-CLOUD PROVIDER SUPPORT
 # ══════════════════════════════════════════════════════════════════════════════════════════
 
-
 def recon_cloud(ejecucion_id, proyecto_id):
     """Reconocimiento multi-cloud: Encuentra TODOS los recursos (públicos/privados) con POC"""
     import socket
@@ -784,8 +783,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
     def _get_status(url, timeout=3):
         """Obtiene status HTTP y determina tipo de hallazgo"""
         try:
-            response = requests.head(
-                url, timeout=timeout, allow_redirects=False)
+            response = requests.head(url, timeout=timeout, allow_redirects=False)
             return response.status_code
         except requests.exceptions.Timeout:
             return "timeout"
@@ -795,47 +793,56 @@ def recon_cloud(ejecucion_id, proyecto_id):
             return "error"
 
     def _search_s3(dominio):
-        """Busca buckets S3 - solo públicos y privados (403)"""
+        """Busca buckets S3 usando aws s3 ls - más efectivo que HEAD requests"""
         hallazgos = []
         patrones_s3 = [
-            f"{dominio}.s3.amazonaws.com",
-            f"s3.{dominio}.com",
-            f"{dominio}-backup.s3.amazonaws.com",
-            f"{dominio}-assets.s3.amazonaws.com",
-            f"{dominio}-storage.s3.amazonaws.com",
-            f"{dominio}-uploads.s3.amazonaws.com",
-            f"{dominio}-files.s3.amazonaws.com",
-            f"cdn-{dominio}.s3.amazonaws.com",
-            f"media-{dominio}.s3.amazonaws.com",
-            f"static-{dominio}.s3.amazonaws.com",
-            f"public-{dominio}.s3.amazonaws.com",
-            f"bucket-{dominio}.s3.amazonaws.com",
+            dominio,  # Intenta nombre directo: "ater" o "ater.cloud"
+            f"{dominio}-backup",
+            f"{dominio}-assets",
+            f"{dominio}-storage",
+            f"{dominio}-uploads",
+            f"{dominio}-files",
+            f"cdn-{dominio}",
+            f"media-{dominio}",
+            f"static-{dominio}",
+            f"public-{dominio}",
+            f"bucket-{dominio}",
         ]
 
-        for patron in patrones_s3:
-            if _check_dns(patron):
-                url = f"https://{patron}"
-                status = _get_status(url)
-                bucket_name = patron.split('.')[0]
+        for bucket in patrones_s3:
+            try:
+                # Intenta listar el bucket con AWS CLI
+                result = subprocess.run(
+                    ['aws', 's3', 'ls', f's3://{bucket}/', '--no-sign-request'],
+                    capture_output=True,
+                    timeout=3,
+                    text=True
+                )
 
-                if status in [200, 301, 302]:
-                    print(f"[recon_cloud] [S3] ✓✓ ANÓNIMO: {patron}")
+                if result.returncode == 0:
+                    # Éxito = bucket listable públicamente
+                    print(f"[recon_cloud] [S3] ✓✓ ANÓNIMO: {bucket}")
                     hallazgos.append({
                         "HALLAZGO": "bucket s3 anónimo",
-                        "recurso": patron,
-                        "status": "accesible sin credenciales",
-                        "status_code": status,
-                        "poc": f"aws s3 ls s3://{bucket_name}/ --no-sign-request"
+                        "recurso": bucket,
+                        "status": "listable sin credenciales",
+                        "status_code": 200,
+                        "poc": f"aws s3 ls s3://{bucket}/ --no-sign-request"
                     })
-                elif status == 403:
-                    print(f"[recon_cloud] [S3] ✓ PRIVADO: {patron}")
+                elif 'Access Denied' in result.stderr:
+                    # Bucket existe pero está protegido
+                    print(f"[recon_cloud] [S3] ✓ PRIVADO: {bucket}")
                     hallazgos.append({
                         "HALLAZGO": "bucket s3 privado",
-                        "recurso": patron,
-                        "status": "requiere credenciales",
+                        "recurso": bucket,
+                        "status": "existe pero protegido",
                         "status_code": 403,
-                        "poc": f"aws s3 ls s3://{bucket_name}/ --no-sign-request"
+                        "poc": f"aws s3 ls s3://{bucket}/ --no-sign-request"
                     })
+            except subprocess.TimeoutExpired:
+                pass
+            except Exception as e:
+                pass
 
         return hallazgos
 
@@ -954,8 +961,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
         patrones_rds = [
             (f"{dominio}-db.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
             (f"{dominio}-db.c9akciq32.eu-west-1.rds.amazonaws.com", "eu-west-1"),
-            (f"{dominio}-db.c9akciq32.ap-southeast-1.rds.amazonaws.com",
-             "ap-southeast-1"),
+            (f"{dominio}-db.c9akciq32.ap-southeast-1.rds.amazonaws.com", "ap-southeast-1"),
             (f"{dominio}-database.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
             (f"db-{dominio}.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
             (f"mysql-{dominio}.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
@@ -1206,45 +1212,29 @@ def recon_cloud(ejecucion_id, proyecto_id):
         # ═══════════════════════════════════════════════════════════════════════
         proveedores = [
             {'nombre': 'AWS S3', 'id': 'aws_s3', 'categoria': 'storage'},
-            {'nombre': 'Azure Blob Storage',
-                'id': 'azure_blob', 'categoria': 'storage'},
-            {'nombre': 'Google Cloud Storage',
-                'id': 'gcp_storage', 'categoria': 'storage'},
-            {'nombre': 'DigitalOcean Spaces',
-                'id': 'do_spaces', 'categoria': 'storage'},
+            {'nombre': 'Azure Blob Storage', 'id': 'azure_blob', 'categoria': 'storage'},
+            {'nombre': 'Google Cloud Storage', 'id': 'gcp_storage', 'categoria': 'storage'},
+            {'nombre': 'DigitalOcean Spaces', 'id': 'do_spaces', 'categoria': 'storage'},
             {'nombre': 'Backblaze B2', 'id': 'b2_cloud', 'categoria': 'storage'},
             {'nombre': 'AWS RDS', 'id': 'aws_rds', 'categoria': 'database'},
-            {'nombre': 'Azure Database', 'id': 'azure_database',
-                'categoria': 'database'},
-            {'nombre': 'Google Cloud SQL',
-                'id': 'gcp_cloudsql', 'categoria': 'database'},
-            {'nombre': 'DigitalOcean Managed DB',
-                'id': 'do_database', 'categoria': 'database'},
-            {'nombre': 'AWS ElastiCache',
-                'id': 'aws_elasticache', 'categoria': 'cache'},
-            {'nombre': 'Azure Cache for Redis',
-                'id': 'azure_cache', 'categoria': 'cache'},
-            {'nombre': 'Google Cloud Memorystore',
-                'id': 'gcp_memorystore', 'categoria': 'cache'},
+            {'nombre': 'Azure Database', 'id': 'azure_database', 'categoria': 'database'},
+            {'nombre': 'Google Cloud SQL', 'id': 'gcp_cloudsql', 'categoria': 'database'},
+            {'nombre': 'DigitalOcean Managed DB', 'id': 'do_database', 'categoria': 'database'},
+            {'nombre': 'AWS ElastiCache', 'id': 'aws_elasticache', 'categoria': 'cache'},
+            {'nombre': 'Azure Cache for Redis', 'id': 'azure_cache', 'categoria': 'cache'},
+            {'nombre': 'Google Cloud Memorystore', 'id': 'gcp_memorystore', 'categoria': 'cache'},
             {'nombre': 'AWS API Gateway', 'id': 'aws_api_gateway', 'categoria': 'api'},
-            {'nombre': 'AWS Lambda URLs', 'id': 'aws_lambda_urls',
-                'categoria': 'serverless'},
-            {'nombre': 'AWS AppSync (GraphQL)',
-             'id': 'aws_appsync', 'categoria': 'api'},
-            {'nombre': 'Google Cloud Functions',
-                'id': 'gcp_cloudfunctions', 'categoria': 'serverless'},
-            {'nombre': 'Google Cloud Run', 'id': 'gcp_cloudrun',
-                'categoria': 'serverless'},
-            {'nombre': 'Google Firebase/Firestore',
-                'id': 'gcp_firebase', 'categoria': 'database'},
-            {'nombre': 'Azure Functions', 'id': 'azure_functions',
-                'categoria': 'serverless'},
+            {'nombre': 'AWS Lambda URLs', 'id': 'aws_lambda_urls', 'categoria': 'serverless'},
+            {'nombre': 'AWS AppSync (GraphQL)', 'id': 'aws_appsync', 'categoria': 'api'},
+            {'nombre': 'Google Cloud Functions', 'id': 'gcp_cloudfunctions', 'categoria': 'serverless'},
+            {'nombre': 'Google Cloud Run', 'id': 'gcp_cloudrun', 'categoria': 'serverless'},
+            {'nombre': 'Google Firebase/Firestore', 'id': 'gcp_firebase', 'categoria': 'database'},
+            {'nombre': 'Azure Functions', 'id': 'azure_functions', 'categoria': 'serverless'},
         ]
 
         hallazgos_totales = []
 
-        print(
-            f"[recon_cloud] Iniciando escaneo de {len(proveedores)} proveedores...")
+        print(f"[recon_cloud] Iniciando escaneo de {len(proveedores)} proveedores...")
 
         # EXTRAER DOMINIO RAÍZ PARA CONSTRUCCIÓN DE PATRONES
         dominio_raiz_construccion = None
@@ -1252,16 +1242,13 @@ def recon_cloud(ejecucion_id, proyecto_id):
             primer_dominio = dominios_principales[0]
             partes = primer_dominio.replace('www.', '').split('.')
             if len(partes) >= 2:
-                # ej: "ater" de "ater.gob.ar"
-                dominio_raiz_construccion = partes[0]
+                dominio_raiz_construccion = partes[0]  # ej: "ater" de "ater.gob.ar"
             else:
                 dominio_raiz_construccion = partes[0]
 
         # COMBINAR: dominios principales + subdominios descubiertos
-        todos_los_dominios = list(
-            set(dominios_principales + dominios_descubiertos))
-        # Limitar a 10 dominios totales
-        dominios_a_escanear = todos_los_dominios[:10]
+        todos_los_dominios = list(set(dominios_principales + dominios_descubiertos))
+        dominios_a_escanear = todos_los_dominios[:10]  # Limitar a 10 dominios totales
 
         print(f"[recon_cloud] Dominios a escanear: {len(dominios_a_escanear)}")
 
@@ -1275,11 +1262,9 @@ def recon_cloud(ejecucion_id, proyecto_id):
             if primera_parte == dominio_raiz_construccion:
                 dominio_base = primera_parte  # ej: "ater"
             else:
-                # ej: "vpn-ater"
-                dominio_base = f"{primera_parte}-{dominio_raiz_construccion}"
+                dominio_base = f"{primera_parte}-{dominio_raiz_construccion}"  # ej: "vpn-ater"
 
-            print(
-                f"\n[recon_cloud] ═══ Escaneando: {dom} (patrón: {dominio_base}) ═══")
+            print(f"\n[recon_cloud] ═══ Escaneando: {dom} (patrón: {dominio_base}) ═══")
 
             try:
                 # S3
@@ -1296,8 +1281,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
 
                 # DigitalOcean Spaces
                 print(f"[recon_cloud] [STORAGE] Escaneando DigitalOcean Spaces...")
-                hallazgos_totales.extend(
-                    _search_digitalocean_spaces(dominio_base))
+                hallazgos_totales.extend(_search_digitalocean_spaces(dominio_base))
 
                 # RDS
                 print(f"[recon_cloud] [DATABASE] Escaneando AWS RDS...")
@@ -1312,8 +1296,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
                 hallazgos_totales.extend(_search_lambda_urls(dominio_base))
 
                 # GCP Functions
-                print(
-                    f"[recon_cloud] [SERVERLESS] Escaneando Google Cloud Functions...")
+                print(f"[recon_cloud] [SERVERLESS] Escaneando Google Cloud Functions...")
                 hallazgos_totales.extend(_search_gcp_functions(dominio_base))
 
                 # Firebase
@@ -1898,8 +1881,7 @@ def _search_gau(target):
             print(f"[gau] ✅ Encontradas {len(urls)} URLs para {target}")
             return urls
         else:
-            print(
-                f"[gau] ⚠️ GAU no devolvió URLs (return_code={result.returncode})")
+            print(f"[gau] ⚠️ GAU no devolvió URLs (return_code={result.returncode})")
 
     except subprocess.TimeoutExpired:
         print(f"[gau] ⏱️ TIMEOUT para {target} (>300s)")
@@ -2301,10 +2283,9 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         # ⚠️ LÍMITE: máx 30 URLs
         urls_a_analizar = list(todas_las_urls.keys())[:30]
         urls_a_analizar = [url for url in urls_a_analizar
-                           if '.min.js' not in url.lower()]
+                   if '.min.js' not in url.lower()]
 
-        print(
-            f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
+        print(f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
 
         hallazgos_secretos = {}
         hallazgos_vulnerabilidades = {}
