@@ -765,12 +765,8 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 # ENHANCED RECON_CLOUD - MULTI-CLOUD PROVIDER SUPPORT
 # ══════════════════════════════════════════════════════════════════════════════════════════
 
-
 def recon_cloud(ejecucion_id, proyecto_id):
-    """Reconocimiento multi-cloud EXTENDIDO: Storage + Databases + Caches + APIs con POC"""
-    import socket
-    import requests
-    from urllib.parse import urlparse
+    """Reconocimiento multi-cloud: Encuentra TODOS los recursos (públicos/privados) con POC"""
 
     print(f"[OSINT-CLOUD] Handler iniciado para ejecución {ejecucion_id}")
 
@@ -782,21 +778,21 @@ def recon_cloud(ejecucion_id, proyecto_id):
         except:
             return False
 
-    def _check_http_accessible(url, timeout=5):
-        """Verifica si una URL es accesible (200/301/302 = SÍ, 403/404 = NO)"""
+    def _get_status(url, timeout=3):
+        """Obtiene status HTTP y determina tipo de hallazgo"""
         try:
-            response = requests.head(url, timeout=timeout, allow_redirects=True)
-            # 200-299 = accesible, 301-302 = redirige pero existe
-            if response.status_code < 400:
-                return True, response.status_code
-            else:
-                return False, response.status_code
-        except Exception as e:
-            return False, str(e)
+            response = requests.head(url, timeout=timeout, allow_redirects=False)
+            return response.status_code
+        except requests.exceptions.Timeout:
+            return "timeout"
+        except requests.exceptions.ConnectionError:
+            return "no_conecta"
+        except:
+            return "error"
 
     def _search_s3(dominio):
-        """Busca buckets S3 accesibles"""
-        recursos = []
+        """Busca buckets S3 - anónimos, privados y probables"""
+        hallazgos = []
         patrones_s3 = [
             f"{dominio}.s3.amazonaws.com",
             f"s3.{dominio}.com",
@@ -815,27 +811,51 @@ def recon_cloud(ejecucion_id, proyecto_id):
         for patron in patrones_s3:
             if _check_dns(patron):
                 url = f"https://{patron}"
-                accesible, status = _check_http_accessible(url)
-                if accesible:
-                    print(f"[recon_cloud] [S3] ✓✓ ACCESIBLE: {patron} ({status})")
-                    bucket_name = patron.split('.')[0]
-                    recursos.append({
-                        "proveedor": "AWS S3",
-                        "tipo": "bucket",
-                        "nombre": patron,
-                        "url": url,
-                        "accesible": True,
+                status = _get_status(url)
+                bucket_name = patron.split('.')[0]
+
+                if status in [200, 301, 302]:
+                    print(f"[recon_cloud] [S3] ✓✓ ANÓNIMO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "bucket s3 anónimo",
+                        "recurso": patron,
+                        "status": "accesible sin credenciales",
                         "status_code": status,
                         "poc": f"aws s3 ls s3://{bucket_name}/ --no-sign-request"
                     })
+                elif status == 403:
+                    print(f"[recon_cloud] [S3] ✓ PRIVADO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "bucket s3 privado",
+                        "recurso": patron,
+                        "status": "requiere credenciales",
+                        "status_code": 403,
+                        "poc": f"aws s3 ls s3://{bucket_name}/ --no-sign-request"
+                    })
+                elif status == 404:
+                    print(f"[recon_cloud] [S3] ✓ PROBABLE: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "bucket s3 probable",
+                        "recurso": patron,
+                        "status": "posible bucket S3 mal configurado",
+                        "status_code": 404,
+                        "poc": f"aws s3 ls s3://{bucket_name}/ --no-sign-request"
+                    })
                 else:
-                    print(f"[recon_cloud] [S3] ✓ Existe pero privado: {patron} ({status})")
+                    print(f"[recon_cloud] [S3] ✓ ENCONTRADO: {patron} (status: {status})")
+                    hallazgos.append({
+                        "HALLAZGO": "bucket s3",
+                        "recurso": patron,
+                        "status": f"status {status}",
+                        "status_code": status,
+                        "poc": f"aws s3 ls s3://{bucket_name}/ --no-sign-request"
+                    })
 
-        return recursos
+        return hallazgos
 
     def _search_azure_blob(dominio):
-        """Busca Azure Blob Storage accesible"""
-        recursos = []
+        """Busca Azure Blob Storage"""
+        hallazgos = []
         patrones_azure = [
             f"{dominio}.blob.core.windows.net",
             f"{dominio}storage.blob.core.windows.net",
@@ -847,26 +867,41 @@ def recon_cloud(ejecucion_id, proyecto_id):
         for patron in patrones_azure:
             if _check_dns(patron):
                 url = f"https://{patron}"
-                accesible, status = _check_http_accessible(url)
-                if accesible:
-                    print(f"[recon_cloud] [AZURE] ✓✓ ACCESIBLE: {patron} ({status})")
-                    recursos.append({
-                        "proveedor": "Azure Blob Storage",
-                        "tipo": "blob",
-                        "nombre": patron,
-                        "url": url,
-                        "accesible": True,
+                status = _get_status(url)
+
+                if status in [200, 301, 302]:
+                    print(f"[recon_cloud] [AZURE] ✓✓ ANÓNIMO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "azure blob storage anónimo",
+                        "recurso": patron,
+                        "status": "accesible sin credenciales",
                         "status_code": status,
                         "poc": f"curl -I https://{patron}"
                     })
+                elif status == 403:
+                    print(f"[recon_cloud] [AZURE] ✓ PRIVADO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "azure blob storage privado",
+                        "recurso": patron,
+                        "status": "requiere credenciales",
+                        "status_code": 403,
+                        "poc": f"azcopy cp 'https://{patron}/container' . --recursive"
+                    })
                 else:
-                    print(f"[recon_cloud] [AZURE] ✓ Existe pero privado: {patron} ({status})")
+                    print(f"[recon_cloud] [AZURE] ✓ ENCONTRADO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "azure blob storage",
+                        "recurso": patron,
+                        "status": f"status {status}",
+                        "status_code": status,
+                        "poc": f"curl -I https://{patron}"
+                    })
 
-        return recursos
+        return hallazgos
 
     def _search_gcp_storage(dominio):
-        """Busca Google Cloud Storage accesible"""
-        recursos = []
+        """Busca Google Cloud Storage"""
+        hallazgos = []
         patrones_gcp = [
             f"{dominio}-storage.googleapis.com",
             f"storage-{dominio}.googleapis.com",
@@ -877,26 +912,42 @@ def recon_cloud(ejecucion_id, proyecto_id):
         for patron in patrones_gcp:
             if _check_dns(patron):
                 url = f"https://{patron}"
-                accesible, status = _check_http_accessible(url)
-                if accesible:
-                    print(f"[recon_cloud] [GCP] ✓✓ ACCESIBLE: {patron} ({status})")
-                    recursos.append({
-                        "proveedor": "Google Cloud Storage",
-                        "tipo": "bucket",
-                        "nombre": patron,
-                        "url": url,
-                        "accesible": True,
+                status = _get_status(url)
+                bucket_name = patron.replace('.storage.googleapis.com', '')
+
+                if status in [200, 301, 302]:
+                    print(f"[recon_cloud] [GCP] ✓✓ ANÓNIMO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "gcp storage anónimo",
+                        "recurso": patron,
+                        "status": "accesible sin credenciales",
                         "status_code": status,
-                        "poc": f"gsutil ls gs://{patron.replace('.storage.googleapis.com', '')}"
+                        "poc": f"gsutil ls gs://{bucket_name}"
+                    })
+                elif status == 403:
+                    print(f"[recon_cloud] [GCP] ✓ PRIVADO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "gcp storage privado",
+                        "recurso": patron,
+                        "status": "requiere credenciales",
+                        "status_code": 403,
+                        "poc": f"gsutil ls gs://{bucket_name}"
                     })
                 else:
-                    print(f"[recon_cloud] [GCP] ✓ Existe pero privado: {patron} ({status})")
+                    print(f"[recon_cloud] [GCP] ✓ ENCONTRADO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "gcp storage",
+                        "recurso": patron,
+                        "status": f"status {status}",
+                        "status_code": status,
+                        "poc": f"gsutil ls gs://{bucket_name}"
+                    })
 
-        return recursos
+        return hallazgos
 
     def _search_digitalocean_spaces(dominio):
-        """Busca DigitalOcean Spaces accesible"""
-        recursos = []
+        """Busca DigitalOcean Spaces"""
+        hallazgos = []
         patrones_do = [
             f"{dominio}.nyc3.digitaloceanspaces.com",
             f"{dominio}-backup.nyc3.digitaloceanspaces.com",
@@ -906,53 +957,58 @@ def recon_cloud(ejecucion_id, proyecto_id):
         for patron in patrones_do:
             if _check_dns(patron):
                 url = f"https://{patron}"
-                accesible, status = _check_http_accessible(url)
-                if accesible:
-                    print(f"[recon_cloud] [DO] ✓✓ ACCESIBLE: {patron} ({status})")
-                    recursos.append({
-                        "proveedor": "DigitalOcean Spaces",
-                        "tipo": "space",
-                        "nombre": patron,
-                        "url": url,
-                        "accesible": True,
+                status = _get_status(url)
+
+                if status in [200, 301, 302]:
+                    print(f"[recon_cloud] [DO] ✓✓ ANÓNIMO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "digitalocean spaces anónimo",
+                        "recurso": patron,
+                        "status": "accesible sin credenciales",
                         "status_code": status,
                         "poc": f"curl https://{patron}/"
                     })
                 else:
-                    print(f"[recon_cloud] [DO] ✓ Existe pero privado: {patron} ({status})")
+                    print(f"[recon_cloud] [DO] ✓ ENCONTRADO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "digitalocean spaces",
+                        "recurso": patron,
+                        "status": f"status {status}",
+                        "status_code": status,
+                        "poc": f"curl https://{patron}/"
+                    })
 
-        return recursos
+        return hallazgos
 
     def _search_rds_endpoints(dominio):
-        """Busca AWS RDS endpoints accesibles"""
-        recursos = []
+        """Busca AWS RDS endpoints"""
+        hallazgos = []
         patrones_rds = [
-            f"{dominio}-db.c9akciq32.us-east-1.rds.amazonaws.com",
-            f"{dominio}-db.c9akciq32.eu-west-1.rds.amazonaws.com",
-            f"{dominio}-db.c9akciq32.ap-southeast-1.rds.amazonaws.com",
-            f"{dominio}-database.c9akciq32.us-east-1.rds.amazonaws.com",
-            f"db-{dominio}.c9akciq32.us-east-1.rds.amazonaws.com",
-            f"mysql-{dominio}.c9akciq32.us-east-1.rds.amazonaws.com",
-            f"postgres-{dominio}.c9akciq32.us-east-1.rds.amazonaws.com",
+            (f"{dominio}-db.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
+            (f"{dominio}-db.c9akciq32.eu-west-1.rds.amazonaws.com", "eu-west-1"),
+            (f"{dominio}-db.c9akciq32.ap-southeast-1.rds.amazonaws.com", "ap-southeast-1"),
+            (f"{dominio}-database.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
+            (f"db-{dominio}.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
+            (f"mysql-{dominio}.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
+            (f"postgres-{dominio}.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
         ]
 
-        for patron in patrones_rds:
+        for patron, region in patrones_rds:
             if _check_dns(patron):
-                print(f"[recon_cloud] [RDS] ✓ Encontrado: {patron}")
-                recursos.append({
-                    "proveedor": "AWS RDS",
-                    "tipo": "database",
-                    "nombre": patron,
-                    "accesible": "maybe",
-                    "nota": "Requiere credenciales para conectar",
-                    "poc": f"mysql -h {patron} -u admin -p (probar credenciales)"
+                print(f"[recon_cloud] [RDS] ✓ ENCONTRADO: {patron}")
+                hallazgos.append({
+                    "HALLAZGO": "aws rds database",
+                    "recurso": patron,
+                    "region": region,
+                    "status": "requiere credenciales (típico)",
+                    "poc": f"mysql -h {patron} -u admin -p (probar credenciales comunes)"
                 })
 
-        return recursos
+        return hallazgos
 
     def _search_api_gateway(dominio):
-        """Busca AWS API Gateway endpoints accesibles"""
-        recursos = []
+        """Busca AWS API Gateway endpoints"""
+        hallazgos = []
         patrones_apigw = [
             f"api-{dominio}.execute-api.us-east-1.amazonaws.com",
             f"api-{dominio}.execute-api.eu-west-1.amazonaws.com",
@@ -963,26 +1019,32 @@ def recon_cloud(ejecucion_id, proyecto_id):
         for patron in patrones_apigw:
             if _check_dns(patron):
                 url = f"https://{patron}/prod"
-                accesible, status = _check_http_accessible(url)
-                if accesible:
-                    print(f"[recon_cloud] [API-GW] ✓✓ ACCESIBLE: {patron} ({status})")
-                    recursos.append({
-                        "proveedor": "AWS API Gateway",
-                        "tipo": "api",
-                        "nombre": patron,
-                        "url": url,
-                        "accesible": True,
+                status = _get_status(url)
+
+                if status in [200, 301, 302]:
+                    print(f"[recon_cloud] [API-GW] ✓✓ ACCESIBLE: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "aws api gateway accesible",
+                        "recurso": patron,
+                        "status": "accesible",
                         "status_code": status,
                         "poc": f"curl https://{patron}/prod"
                     })
                 else:
-                    print(f"[recon_cloud] [API-GW] ✓ Existe pero no accesible: {patron} ({status})")
+                    print(f"[recon_cloud] [API-GW] ✓ ENCONTRADO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "aws api gateway",
+                        "recurso": patron,
+                        "status": f"status {status}",
+                        "status_code": status,
+                        "poc": f"curl https://{patron}/prod"
+                    })
 
-        return recursos
+        return hallazgos
 
     def _search_lambda_urls(dominio):
         """Busca AWS Lambda URLs públicas"""
-        recursos = []
+        hallazgos = []
         patrones_lambda = [
             f"{dominio}-lambda.execute-api.us-east-1.amazonaws.com",
             f"lambda-{dominio}.execute-api.us-east-1.amazonaws.com",
@@ -991,26 +1053,32 @@ def recon_cloud(ejecucion_id, proyecto_id):
         for patron in patrones_lambda:
             if _check_dns(patron):
                 url = f"https://{patron}"
-                accesible, status = _check_http_accessible(url)
-                if accesible:
-                    print(f"[recon_cloud] [LAMBDA] ✓✓ ACCESIBLE: {patron} ({status})")
-                    recursos.append({
-                        "proveedor": "AWS Lambda URLs",
-                        "tipo": "serverless",
-                        "nombre": patron,
-                        "url": url,
-                        "accesible": True,
+                status = _get_status(url)
+
+                if status in [200, 301, 302]:
+                    print(f"[recon_cloud] [LAMBDA] ✓✓ ACCESIBLE: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "aws lambda url accesible",
+                        "recurso": patron,
+                        "status": "accesible",
                         "status_code": status,
                         "poc": f"curl -X POST https://{patron}"
                     })
                 else:
-                    print(f"[recon_cloud] [LAMBDA] ✓ Existe pero no accesible: {patron} ({status})")
+                    print(f"[recon_cloud] [LAMBDA] ✓ ENCONTRADO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "aws lambda url",
+                        "recurso": patron,
+                        "status": f"status {status}",
+                        "status_code": status,
+                        "poc": f"curl -X POST https://{patron}"
+                    })
 
-        return recursos
+        return hallazgos
 
     def _search_gcp_functions(dominio):
-        """Busca Google Cloud Functions accesibles"""
-        recursos = []
+        """Busca Google Cloud Functions"""
+        hallazgos = []
         regiones = ['us-central1', 'europe-west1', 'asia-northeast1']
 
         for region in regiones:
@@ -1022,27 +1090,34 @@ def recon_cloud(ejecucion_id, proyecto_id):
             for patron in patrones_gcf:
                 if _check_dns(patron):
                     url = f"https://{patron}"
-                    accesible, status = _check_http_accessible(url)
-                    if accesible:
-                        print(f"[recon_cloud] [GCF] ✓✓ ACCESIBLE: {patron} ({status})")
-                        recursos.append({
-                            "proveedor": "Google Cloud Functions",
-                            "tipo": "serverless",
-                            "nombre": patron,
+                    status = _get_status(url)
+
+                    if status in [200, 301, 302]:
+                        print(f"[recon_cloud] [GCF] ✓✓ ACCESIBLE: {patron}")
+                        hallazgos.append({
+                            "HALLAZGO": "gcp cloud function accesible",
+                            "recurso": patron,
                             "region": region,
-                            "url": url,
-                            "accesible": True,
+                            "status": "accesible",
                             "status_code": status,
                             "poc": f"curl https://{patron}"
                         })
                     else:
-                        print(f"[recon_cloud] [GCF] ✓ Existe pero no accesible: {patron} ({status})")
+                        print(f"[recon_cloud] [GCF] ✓ ENCONTRADO: {patron}")
+                        hallazgos.append({
+                            "HALLAZGO": "gcp cloud function",
+                            "recurso": patron,
+                            "region": region,
+                            "status": f"status {status}",
+                            "status_code": status,
+                            "poc": f"curl https://{patron}"
+                        })
 
-        return recursos
+        return hallazgos
 
     def _search_firebase(dominio):
-        """Busca Google Firebase accesible"""
-        recursos = []
+        """Busca Google Firebase Realtime DB"""
+        hallazgos = []
         patrones_firebase = [
             f"{dominio}.firebaseio.com",
             f"{dominio}-db.firebaseio.com",
@@ -1052,26 +1127,41 @@ def recon_cloud(ejecucion_id, proyecto_id):
         for patron in patrones_firebase:
             if _check_dns(patron):
                 url = f"https://{patron}/.json"
-                accesible, status = _check_http_accessible(url)
-                if accesible:
-                    print(f"[recon_cloud] [FIREBASE] ✓✓ ACCESIBLE: {patron} ({status})")
-                    recursos.append({
-                        "proveedor": "Google Firebase/Firestore",
-                        "tipo": "database",
-                        "nombre": patron,
-                        "url": f"https://{patron}",
-                        "accesible": True,
+                status = _get_status(url)
+
+                if status in [200, 301, 302]:
+                    print(f"[recon_cloud] [FIREBASE] ✓✓ ANÓNIMO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "firebase realtime db anónimo",
+                        "recurso": patron,
+                        "status": "accesible sin autenticación",
                         "status_code": status,
                         "poc": f"curl https://{patron}/.json"
                     })
+                elif status == 403:
+                    print(f"[recon_cloud] [FIREBASE] ✓ PRIVADO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "firebase realtime db privado",
+                        "recurso": patron,
+                        "status": "requiere autenticación",
+                        "status_code": 403,
+                        "poc": f"curl https://{patron}/.json"
+                    })
                 else:
-                    print(f"[recon_cloud] [FIREBASE] ✓ Existe pero no accesible: {patron} ({status})")
+                    print(f"[recon_cloud] [FIREBASE] ✓ ENCONTRADO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "firebase realtime db",
+                        "recurso": patron,
+                        "status": f"status {status}",
+                        "status_code": status,
+                        "poc": f"curl https://{patron}/.json"
+                    })
 
-        return recursos
+        return hallazgos
 
     def _search_azure_functions(dominio):
-        """Busca Azure Functions accesibles"""
-        recursos = []
+        """Busca Azure Functions"""
+        hallazgos = []
         patrones_azure_func = [
             f"{dominio}func.azurewebsites.net",
             f"{dominio}-function.azurewebsites.net",
@@ -1081,22 +1171,28 @@ def recon_cloud(ejecucion_id, proyecto_id):
         for patron in patrones_azure_func:
             if _check_dns(patron):
                 url = f"https://{patron}"
-                accesible, status = _check_http_accessible(url)
-                if accesible:
-                    print(f"[recon_cloud] [AZURE-FUNC] ✓✓ ACCESIBLE: {patron} ({status})")
-                    recursos.append({
-                        "proveedor": "Azure Functions",
-                        "tipo": "serverless",
-                        "nombre": patron,
-                        "url": url,
-                        "accesible": True,
+                status = _get_status(url)
+
+                if status in [200, 301, 302]:
+                    print(f"[recon_cloud] [AZURE-FUNC] ✓✓ ACCESIBLE: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "azure functions accesible",
+                        "recurso": patron,
+                        "status": "accesible",
                         "status_code": status,
                         "poc": f"curl https://{patron}"
                     })
                 else:
-                    print(f"[recon_cloud] [AZURE-FUNC] ✓ Existe pero no accesible: {patron} ({status})")
+                    print(f"[recon_cloud] [AZURE-FUNC] ✓ ENCONTRADO: {patron}")
+                    hallazgos.append({
+                        "HALLAZGO": "azure functions",
+                        "recurso": patron,
+                        "status": f"status {status}",
+                        "status_code": status,
+                        "poc": f"curl https://{patron}"
+                    })
 
-        return recursos
+        return hallazgos
 
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
@@ -1170,7 +1266,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
             {'nombre': 'Azure Functions', 'id': 'azure_functions', 'categoria': 'serverless'},
         ]
 
-        recursos_totales = []
+        hallazgos_totales = []
 
         print(f"[recon_cloud] Iniciando escaneo de {len(proveedores)} proveedores...")
 
@@ -1183,49 +1279,49 @@ def recon_cloud(ejecucion_id, proyecto_id):
             try:
                 # S3
                 print(f"[recon_cloud] [STORAGE] Escaneando AWS S3...")
-                recursos_totales.extend(_search_s3(dominio_base))
+                hallazgos_totales.extend(_search_s3(dominio_base))
 
                 # Azure Blob
                 print(f"[recon_cloud] [STORAGE] Escaneando Azure Blob Storage...")
-                recursos_totales.extend(_search_azure_blob(dominio_base))
+                hallazgos_totales.extend(_search_azure_blob(dominio_base))
 
                 # GCP Storage
                 print(f"[recon_cloud] [STORAGE] Escaneando Google Cloud Storage...")
-                recursos_totales.extend(_search_gcp_storage(dominio_base))
+                hallazgos_totales.extend(_search_gcp_storage(dominio_base))
 
                 # DigitalOcean Spaces
                 print(f"[recon_cloud] [STORAGE] Escaneando DigitalOcean Spaces...")
-                recursos_totales.extend(_search_digitalocean_spaces(dominio_base))
+                hallazgos_totales.extend(_search_digitalocean_spaces(dominio_base))
 
                 # RDS
                 print(f"[recon_cloud] [DATABASE] Escaneando AWS RDS...")
-                recursos_totales.extend(_search_rds_endpoints(dominio_base))
+                hallazgos_totales.extend(_search_rds_endpoints(dominio_base))
 
                 # API Gateway
                 print(f"[recon_cloud] [API] Escaneando AWS API Gateway...")
-                recursos_totales.extend(_search_api_gateway(dominio_base))
+                hallazgos_totales.extend(_search_api_gateway(dominio_base))
 
                 # Lambda URLs
                 print(f"[recon_cloud] [SERVERLESS] Escaneando AWS Lambda URLs...")
-                recursos_totales.extend(_search_lambda_urls(dominio_base))
+                hallazgos_totales.extend(_search_lambda_urls(dominio_base))
 
                 # GCP Functions
                 print(f"[recon_cloud] [SERVERLESS] Escaneando Google Cloud Functions...")
-                recursos_totales.extend(_search_gcp_functions(dominio_base))
+                hallazgos_totales.extend(_search_gcp_functions(dominio_base))
 
                 # Firebase
                 print(f"[recon_cloud] [DATABASE] Escaneando Google Firebase...")
-                recursos_totales.extend(_search_firebase(dominio_base))
+                hallazgos_totales.extend(_search_firebase(dominio_base))
 
                 # Azure Functions
                 print(f"[recon_cloud] [SERVERLESS] Escaneando Azure Functions...")
-                recursos_totales.extend(_search_azure_functions(dominio_base))
+                hallazgos_totales.extend(_search_azure_functions(dominio_base))
 
             except Exception as e:
                 print(f"[recon_cloud] Error escaneando {dom}: {e}")
 
         print(f"\n[recon_cloud] ═══ ESCANEO COMPLETADO ═══")
-        print(f"[recon_cloud] Total recursos ACCESIBLES encontrados: {len(recursos_totales)}")
+        print(f"[recon_cloud] Total hallazgos: {len(hallazgos_totales)}")
 
         return {
             "tipo": "recon_cloud_extendido",
@@ -1235,9 +1331,9 @@ def recon_cloud(ejecucion_id, proyecto_id):
             "total_subdominios_descubiertos": len(dominios_descubiertos),
             "total_dominios_buscados": len(dominios_principales),
             "total_proveedores_escaneados": len(proveedores),
-            "total_recursos_accesibles": len(recursos_totales),
+            "total_hallazgos": len(hallazgos_totales),
             "proveedores": [p['nombre'] for p in proveedores],
-            "recursos": recursos_totales
+            "hallazgos": hallazgos_totales
         }
 
     return _run_osint_job(ejecucion_id, job)
@@ -1795,8 +1891,7 @@ def _search_gau(target):
             print(f"[gau] ✅ Encontradas {len(urls)} URLs para {target}")
             return urls
         else:
-            print(
-                f"[gau] ⚠️ GAU no devolvió URLs (return_code={result.returncode})")
+            print(f"[gau] ⚠️ GAU no devolvió URLs (return_code={result.returncode})")
 
     except subprocess.TimeoutExpired:
         print(f"[gau] ⏱️ TIMEOUT para {target} (>300s)")
@@ -2198,10 +2293,9 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         # ⚠️ LÍMITE: máx 30 URLs
         urls_a_analizar = list(todas_las_urls.keys())[:30]
         urls_a_analizar = [url for url in urls_a_analizar
-                           if '.min.js' not in url.lower()]
+                   if '.min.js' not in url.lower()]
 
-        print(
-            f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
+        print(f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
 
         hallazgos_secretos = {}
         hallazgos_vulnerabilidades = {}
