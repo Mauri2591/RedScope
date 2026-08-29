@@ -1257,10 +1257,10 @@ def recon_cloud(ejecucion_id, proyecto_id):
             partes_dom = dom.replace('www.', '').split('.')
             primera_parte = partes_dom[0]  # ej: "vpn" de "vpn.ater.gob.ar"
 
-            # Si es el dominio principal, usar solo su base
+            # Si es el dominio principal, usar el dominio COMPLETO
             # Si es un subdominio, combinar: subdomain-domainroot
             if primera_parte == dominio_raiz_construccion:
-                dominio_base = primera_parte  # ej: "ater"
+                dominio_base = dom.replace('www.', '')  # ej: "flaws.cloud" o "ater.gob.ar"
             else:
                 dominio_base = f"{primera_parte}-{dominio_raiz_construccion}"  # ej: "vpn-ater"
 
