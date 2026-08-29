@@ -847,111 +847,147 @@ def recon_cloud(ejecucion_id, proyecto_id):
         return hallazgos
 
     def _search_azure_blob(dominio):
-        """Busca Azure Blob Storage - solo públicos y privados (403)"""
+        """Busca Azure Blob Storage usando az CLI"""
         hallazgos = []
         patrones_azure = [
-            f"{dominio}.blob.core.windows.net",
-            f"{dominio}storage.blob.core.windows.net",
-            f"{dominio}-backup.blob.core.windows.net",
-            f"{dominio}-assets.blob.core.windows.net",
-            f"{dominio}-files.blob.core.windows.net",
+            dominio,
+            f"{dominio}-backup",
+            f"{dominio}-assets",
+            f"{dominio}-files",
+            f"{dominio}-storage",
         ]
 
-        for patron in patrones_azure:
-            if _check_dns(patron):
-                url = f"https://{patron}"
-                status = _get_status(url)
+        for account_name in patrones_azure:
+            try:
+                # Intenta listar blobs con az CLI
+                result = subprocess.run(
+                    ['az', 'storage', 'blob', 'list', '--account-name', account_name, '--auth-mode', 'login'],
+                    capture_output=True,
+                    timeout=3,
+                    text=True
+                )
 
-                if status in [200, 301, 302]:
-                    print(f"[recon_cloud] [AZURE] ✓✓ ANÓNIMO: {patron}")
+                if result.returncode == 0 and result.stdout.strip():
+                    # Éxito = storage account accesible
+                    print(f"[recon_cloud] [AZURE] ✓✓ ANÓNIMO: {account_name}")
                     hallazgos.append({
                         "HALLAZGO": "azure blob storage anónimo",
-                        "recurso": patron,
-                        "status": "accesible sin credenciales",
-                        "status_code": status,
-                        "poc": f"curl -I https://{patron}"
+                        "recurso": account_name,
+                        "status": "listable sin credenciales",
+                        "status_code": 200,
+                        "poc": f"az storage blob list --account-name {account_name} --auth-mode login"
                     })
-                elif status == 403:
-                    print(f"[recon_cloud] [AZURE] ✓ PRIVADO: {patron}")
+                elif 'not found' in result.stderr.lower() or 'resourcenotfound' in result.stderr.lower():
+                    pass  # No existe
+                elif result.returncode != 0:
+                    # Storage account existe pero no accesible
+                    print(f"[recon_cloud] [AZURE] ✓ PRIVADO: {account_name}")
                     hallazgos.append({
                         "HALLAZGO": "azure blob storage privado",
-                        "recurso": patron,
-                        "status": "requiere credenciales",
+                        "recurso": account_name,
+                        "status": "existe pero requiere autenticación",
                         "status_code": 403,
-                        "poc": f"azcopy cp 'https://{patron}/container' . --recursive"
+                        "poc": f"az storage blob list --account-name {account_name} --account-key <KEY>"
                     })
+            except subprocess.TimeoutExpired:
+                pass
+            except Exception as e:
+                pass
 
         return hallazgos
 
     def _search_gcp_storage(dominio):
-        """Busca Google Cloud Storage - solo públicos y privados (403)"""
+        """Busca Google Cloud Storage usando gsutil"""
         hallazgos = []
         patrones_gcp = [
-            f"{dominio}-storage.googleapis.com",
-            f"storage-{dominio}.googleapis.com",
-            f"{dominio}-bucket.storage.googleapis.com",
-            f"{dominio}-backup.storage.googleapis.com",
+            dominio,
+            f"{dominio}-backup",
+            f"{dominio}-assets",
+            f"{dominio}-storage",
+            f"storage-{dominio}",
         ]
 
-        for patron in patrones_gcp:
-            if _check_dns(patron):
-                url = f"https://{patron}"
-                status = _get_status(url)
-                bucket_name = patron.replace('.storage.googleapis.com', '')
+        for bucket_name in patrones_gcp:
+            try:
+                # Intenta listar bucket con gsutil
+                result = subprocess.run(
+                    ['gsutil', 'ls', f'gs://{bucket_name}'],
+                    capture_output=True,
+                    timeout=3,
+                    text=True
+                )
 
-                if status in [200, 301, 302]:
-                    print(f"[recon_cloud] [GCP] ✓✓ ANÓNIMO: {patron}")
+                if result.returncode == 0 and result.stdout.strip():
+                    # Éxito = bucket listable
+                    print(f"[recon_cloud] [GCP] ✓✓ ANÓNIMO: {bucket_name}")
                     hallazgos.append({
                         "HALLAZGO": "gcp storage anónimo",
-                        "recurso": patron,
-                        "status": "accesible sin credenciales",
-                        "status_code": status,
+                        "recurso": bucket_name,
+                        "status": "listable sin credenciales",
+                        "status_code": 200,
                         "poc": f"gsutil ls gs://{bucket_name}"
                     })
-                elif status == 403:
-                    print(f"[recon_cloud] [GCP] ✓ PRIVADO: {patron}")
+                elif 'does not exist' in result.stderr or 'not found' in result.stderr.lower():
+                    pass  # No existe
+                elif 'AccessDenied' in result.stderr or 'Forbidden' in result.stderr:
+                    # Bucket existe pero no accesible
+                    print(f"[recon_cloud] [GCP] ✓ PRIVADO: {bucket_name}")
                     hallazgos.append({
                         "HALLAZGO": "gcp storage privado",
-                        "recurso": patron,
-                        "status": "requiere credenciales",
+                        "recurso": bucket_name,
+                        "status": "existe pero requiere autenticación",
                         "status_code": 403,
                         "poc": f"gsutil ls gs://{bucket_name}"
                     })
+            except subprocess.TimeoutExpired:
+                pass
+            except FileNotFoundError:
+                pass  # gsutil no instalado
+            except Exception as e:
+                pass
 
         return hallazgos
 
     def _search_digitalocean_spaces(dominio):
-        """Busca DigitalOcean Spaces - solo públicos y privados (403)"""
+        """Busca DigitalOcean Spaces - verifica acceso y listado"""
         hallazgos = []
         patrones_do = [
-            f"{dominio}.nyc3.digitaloceanspaces.com",
-            f"{dominio}-backup.nyc3.digitaloceanspaces.com",
-            f"{dominio}-assets.nyc3.digitaloceanspaces.com",
+            dominio,
+            f"{dominio}-backup",
+            f"{dominio}-assets",
         ]
 
-        for patron in patrones_do:
-            if _check_dns(patron):
-                url = f"https://{patron}"
-                status = _get_status(url)
+        for space_name in patrones_do:
+            try:
+                url = f"https://{space_name}.nyc3.digitaloceanspaces.com/"
+                response = requests.get(url, timeout=3, allow_redirects=False)
 
-                if status in [200, 301, 302]:
-                    print(f"[recon_cloud] [DO] ✓✓ ANÓNIMO: {patron}")
+                if response.status_code in [200, 201] and 'xml' in response.text.lower():
+                    # Éxito = space listable sin credenciales
+                    print(f"[recon_cloud] [DO] ✓✓ ANÓNIMO: {space_name}")
                     hallazgos.append({
                         "HALLAZGO": "digitalocean spaces anónimo",
-                        "recurso": patron,
-                        "status": "accesible sin credenciales",
-                        "status_code": status,
-                        "poc": f"curl https://{patron}/"
+                        "recurso": space_name,
+                        "status": "listable sin credenciales",
+                        "status_code": 200,
+                        "poc": f"curl https://{space_name}.nyc3.digitaloceanspaces.com/"
                     })
-                elif status == 403:
-                    print(f"[recon_cloud] [DO] ✓ PRIVADO: {patron}")
+                elif response.status_code == 403:
+                    # Space existe pero protegido
+                    print(f"[recon_cloud] [DO] ✓ PRIVADO: {space_name}")
                     hallazgos.append({
                         "HALLAZGO": "digitalocean spaces privado",
-                        "recurso": patron,
+                        "recurso": space_name,
                         "status": "requiere credenciales",
                         "status_code": 403,
-                        "poc": f"curl https://{patron}/"
+                        "poc": f"s3cmd ls s3://{space_name}/ (con credenciales DO)"
                     })
+            except requests.exceptions.Timeout:
+                pass
+            except requests.exceptions.ConnectionError:
+                pass
+            except Exception as e:
+                pass
 
         return hallazgos
 
@@ -1091,7 +1127,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
         return hallazgos
 
     def _search_firebase(dominio):
-        """Busca Google Firebase Realtime DB - solo públicos y privados (403)"""
+        """Busca Google Firebase Realtime DB - obtiene datos reales"""
         hallazgos = []
         patrones_firebase = [
             f"{dominio}.firebaseio.com",
@@ -1099,29 +1135,37 @@ def recon_cloud(ejecucion_id, proyecto_id):
             f"{dominio}-rtdb.firebaseio.com",
         ]
 
-        for patron in patrones_firebase:
-            if _check_dns(patron):
-                url = f"https://{patron}/.json"
-                status = _get_status(url)
+        for db_name in patrones_firebase:
+            try:
+                url = f"https://{db_name}/.json"
+                response = requests.get(url, timeout=3, allow_redirects=False)
 
-                if status in [200, 301, 302]:
-                    print(f"[recon_cloud] [FIREBASE] ✓✓ ANÓNIMO: {patron}")
+                if response.status_code in [200, 201]:
+                    # Éxito = DB listable sin credenciales
+                    print(f"[recon_cloud] [FIREBASE] ✓✓ ANÓNIMO: {db_name}")
                     hallazgos.append({
                         "HALLAZGO": "firebase realtime db anónimo",
-                        "recurso": patron,
-                        "status": "accesible sin autenticación",
-                        "status_code": status,
-                        "poc": f"curl https://{patron}/.json"
+                        "recurso": db_name,
+                        "status": "datos accesibles sin autenticación",
+                        "status_code": 200,
+                        "poc": f"curl https://{db_name}/.json | jq ."
                     })
-                elif status == 403:
-                    print(f"[recon_cloud] [FIREBASE] ✓ PRIVADO: {patron}")
+                elif response.status_code == 403:
+                    # DB existe pero protegido
+                    print(f"[recon_cloud] [FIREBASE] ✓ PRIVADO: {db_name}")
                     hallazgos.append({
                         "HALLAZGO": "firebase realtime db privado",
-                        "recurso": patron,
+                        "recurso": db_name,
                         "status": "requiere autenticación",
                         "status_code": 403,
-                        "poc": f"curl https://{patron}/.json"
+                        "poc": f"curl https://{db_name}/.json"
                     })
+            except requests.exceptions.Timeout:
+                pass
+            except requests.exceptions.ConnectionError:
+                pass
+            except Exception as e:
+                pass
 
         return hallazgos
 
