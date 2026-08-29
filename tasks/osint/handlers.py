@@ -767,6 +767,8 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 
 def recon_cloud(ejecucion_id, proyecto_id):
     """Reconocimiento multi-cloud: Encuentra TODOS los recursos (públicos/privados) con POC"""
+    import socket
+    import requests
 
     print(f"[OSINT-CLOUD] Handler iniciado para ejecución {ejecucion_id}")
 
@@ -791,7 +793,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
             return "error"
 
     def _search_s3(dominio):
-        """Busca buckets S3 - anónimos, privados y probables"""
+        """Busca buckets S3 - solo públicos y privados (403)"""
         hallazgos = []
         patrones_s3 = [
             f"{dominio}.s3.amazonaws.com",
@@ -832,29 +834,11 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "status_code": 403,
                         "poc": f"aws s3 ls s3://{bucket_name}/ --no-sign-request"
                     })
-                elif status == 404:
-                    print(f"[recon_cloud] [S3] ✓ PROBABLE: {patron}")
-                    hallazgos.append({
-                        "HALLAZGO": "bucket s3 probable",
-                        "recurso": patron,
-                        "status": "posible bucket S3 mal configurado",
-                        "status_code": 404,
-                        "poc": f"aws s3 ls s3://{bucket_name}/ --no-sign-request"
-                    })
-                else:
-                    print(f"[recon_cloud] [S3] ✓ ENCONTRADO: {patron} (status: {status})")
-                    hallazgos.append({
-                        "HALLAZGO": "bucket s3",
-                        "recurso": patron,
-                        "status": f"status {status}",
-                        "status_code": status,
-                        "poc": f"aws s3 ls s3://{bucket_name}/ --no-sign-request"
-                    })
 
         return hallazgos
 
     def _search_azure_blob(dominio):
-        """Busca Azure Blob Storage"""
+        """Busca Azure Blob Storage - solo públicos y privados (403)"""
         hallazgos = []
         patrones_azure = [
             f"{dominio}.blob.core.windows.net",
@@ -887,20 +871,11 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "status_code": 403,
                         "poc": f"azcopy cp 'https://{patron}/container' . --recursive"
                     })
-                else:
-                    print(f"[recon_cloud] [AZURE] ✓ ENCONTRADO: {patron}")
-                    hallazgos.append({
-                        "HALLAZGO": "azure blob storage",
-                        "recurso": patron,
-                        "status": f"status {status}",
-                        "status_code": status,
-                        "poc": f"curl -I https://{patron}"
-                    })
 
         return hallazgos
 
     def _search_gcp_storage(dominio):
-        """Busca Google Cloud Storage"""
+        """Busca Google Cloud Storage - solo públicos y privados (403)"""
         hallazgos = []
         patrones_gcp = [
             f"{dominio}-storage.googleapis.com",
@@ -933,20 +908,11 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "status_code": 403,
                         "poc": f"gsutil ls gs://{bucket_name}"
                     })
-                else:
-                    print(f"[recon_cloud] [GCP] ✓ ENCONTRADO: {patron}")
-                    hallazgos.append({
-                        "HALLAZGO": "gcp storage",
-                        "recurso": patron,
-                        "status": f"status {status}",
-                        "status_code": status,
-                        "poc": f"gsutil ls gs://{bucket_name}"
-                    })
 
         return hallazgos
 
     def _search_digitalocean_spaces(dominio):
-        """Busca DigitalOcean Spaces"""
+        """Busca DigitalOcean Spaces - solo públicos y privados (403)"""
         hallazgos = []
         patrones_do = [
             f"{dominio}.nyc3.digitaloceanspaces.com",
@@ -968,13 +934,13 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "status_code": status,
                         "poc": f"curl https://{patron}/"
                     })
-                else:
-                    print(f"[recon_cloud] [DO] ✓ ENCONTRADO: {patron}")
+                elif status == 403:
+                    print(f"[recon_cloud] [DO] ✓ PRIVADO: {patron}")
                     hallazgos.append({
-                        "HALLAZGO": "digitalocean spaces",
+                        "HALLAZGO": "digitalocean spaces privado",
                         "recurso": patron,
-                        "status": f"status {status}",
-                        "status_code": status,
+                        "status": "requiere credenciales",
+                        "status_code": 403,
                         "poc": f"curl https://{patron}/"
                     })
 
@@ -1007,7 +973,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
         return hallazgos
 
     def _search_api_gateway(dominio):
-        """Busca AWS API Gateway endpoints"""
+        """Busca AWS API Gateway endpoints - solo públicos y privados (403)"""
         hallazgos = []
         patrones_apigw = [
             f"api-{dominio}.execute-api.us-east-1.amazonaws.com",
@@ -1030,20 +996,20 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "status_code": status,
                         "poc": f"curl https://{patron}/prod"
                     })
-                else:
-                    print(f"[recon_cloud] [API-GW] ✓ ENCONTRADO: {patron}")
+                elif status == 403:
+                    print(f"[recon_cloud] [API-GW] ✓ PRIVADO: {patron}")
                     hallazgos.append({
-                        "HALLAZGO": "aws api gateway",
+                        "HALLAZGO": "aws api gateway privado",
                         "recurso": patron,
-                        "status": f"status {status}",
-                        "status_code": status,
+                        "status": "requiere autenticación",
+                        "status_code": 403,
                         "poc": f"curl https://{patron}/prod"
                     })
 
         return hallazgos
 
     def _search_lambda_urls(dominio):
-        """Busca AWS Lambda URLs públicas"""
+        """Busca AWS Lambda URLs públicas - solo públicos y privados (403)"""
         hallazgos = []
         patrones_lambda = [
             f"{dominio}-lambda.execute-api.us-east-1.amazonaws.com",
@@ -1064,20 +1030,20 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "status_code": status,
                         "poc": f"curl -X POST https://{patron}"
                     })
-                else:
-                    print(f"[recon_cloud] [LAMBDA] ✓ ENCONTRADO: {patron}")
+                elif status == 403:
+                    print(f"[recon_cloud] [LAMBDA] ✓ PRIVADO: {patron}")
                     hallazgos.append({
-                        "HALLAZGO": "aws lambda url",
+                        "HALLAZGO": "aws lambda url privado",
                         "recurso": patron,
-                        "status": f"status {status}",
-                        "status_code": status,
+                        "status": "requiere autenticación",
+                        "status_code": 403,
                         "poc": f"curl -X POST https://{patron}"
                     })
 
         return hallazgos
 
     def _search_gcp_functions(dominio):
-        """Busca Google Cloud Functions"""
+        """Busca Google Cloud Functions - solo públicos y privados (403)"""
         hallazgos = []
         regiones = ['us-central1', 'europe-west1', 'asia-northeast1']
 
@@ -1102,21 +1068,21 @@ def recon_cloud(ejecucion_id, proyecto_id):
                             "status_code": status,
                             "poc": f"curl https://{patron}"
                         })
-                    else:
-                        print(f"[recon_cloud] [GCF] ✓ ENCONTRADO: {patron}")
+                    elif status == 403:
+                        print(f"[recon_cloud] [GCF] ✓ PRIVADO: {patron}")
                         hallazgos.append({
-                            "HALLAZGO": "gcp cloud function",
+                            "HALLAZGO": "gcp cloud function privado",
                             "recurso": patron,
                             "region": region,
-                            "status": f"status {status}",
-                            "status_code": status,
+                            "status": "requiere autenticación",
+                            "status_code": 403,
                             "poc": f"curl https://{patron}"
                         })
 
         return hallazgos
 
     def _search_firebase(dominio):
-        """Busca Google Firebase Realtime DB"""
+        """Busca Google Firebase Realtime DB - solo públicos y privados (403)"""
         hallazgos = []
         patrones_firebase = [
             f"{dominio}.firebaseio.com",
@@ -1147,20 +1113,11 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "status_code": 403,
                         "poc": f"curl https://{patron}/.json"
                     })
-                else:
-                    print(f"[recon_cloud] [FIREBASE] ✓ ENCONTRADO: {patron}")
-                    hallazgos.append({
-                        "HALLAZGO": "firebase realtime db",
-                        "recurso": patron,
-                        "status": f"status {status}",
-                        "status_code": status,
-                        "poc": f"curl https://{patron}/.json"
-                    })
 
         return hallazgos
 
     def _search_azure_functions(dominio):
-        """Busca Azure Functions"""
+        """Busca Azure Functions - solo públicos y privados (403)"""
         hallazgos = []
         patrones_azure_func = [
             f"{dominio}func.azurewebsites.net",
@@ -1182,13 +1139,13 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "status_code": status,
                         "poc": f"curl https://{patron}"
                     })
-                else:
-                    print(f"[recon_cloud] [AZURE-FUNC] ✓ ENCONTRADO: {patron}")
+                elif status == 403:
+                    print(f"[recon_cloud] [AZURE-FUNC] ✓ PRIVADO: {patron}")
                     hallazgos.append({
-                        "HALLAZGO": "azure functions",
+                        "HALLAZGO": "azure functions privado",
                         "recurso": patron,
-                        "status": f"status {status}",
-                        "status_code": status,
+                        "status": "requiere autenticación",
+                        "status_code": 403,
                         "poc": f"curl https://{patron}"
                     })
 
