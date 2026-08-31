@@ -765,6 +765,7 @@ def mapeo_ips(ejecucion_id, proyecto_id):
 # ENHANCED RECON_CLOUD - MULTI-CLOUD PROVIDER SUPPORT
 # ══════════════════════════════════════════════════════════════════════════════════════════
 
+
 def recon_cloud(ejecucion_id, proyecto_id):
     """Reconocimiento multi-cloud: Encuentra TODOS los recursos (públicos/privados) con POC"""
     import socket
@@ -783,7 +784,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
     def _get_status(url, timeout=3):
         """Obtiene status HTTP y determina tipo de hallazgo"""
         try:
-            response = requests.head(url, timeout=timeout, allow_redirects=False)
+            response = requests.head(
+                url, timeout=timeout, allow_redirects=False)
             return response.status_code
         except requests.exceptions.Timeout:
             return "timeout"
@@ -813,7 +815,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
             try:
                 # Intenta listar el bucket con AWS CLI
                 result = subprocess.run(
-                    ['aws', 's3', 'ls', f's3://{bucket}/', '--no-sign-request'],
+                    ['aws', 's3', 'ls',
+                        f's3://{bucket}/', '--no-sign-request'],
                     capture_output=True,
                     timeout=3,
                     text=True
@@ -861,7 +864,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
             try:
                 # Intenta listar blobs con az CLI
                 result = subprocess.run(
-                    ['az', 'storage', 'blob', 'list', '--account-name', account_name, '--auth-mode', 'login'],
+                    ['az', 'storage', 'blob', 'list', '--account-name',
+                        account_name, '--auth-mode', 'login'],
                     capture_output=True,
                     timeout=3,
                     text=True
@@ -997,7 +1001,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
         patrones_rds = [
             (f"{dominio}-db.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
             (f"{dominio}-db.c9akciq32.eu-west-1.rds.amazonaws.com", "eu-west-1"),
-            (f"{dominio}-db.c9akciq32.ap-southeast-1.rds.amazonaws.com", "ap-southeast-1"),
+            (f"{dominio}-db.c9akciq32.ap-southeast-1.rds.amazonaws.com",
+             "ap-southeast-1"),
             (f"{dominio}-database.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
             (f"db-{dominio}.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
             (f"mysql-{dominio}.c9akciq32.us-east-1.rds.amazonaws.com", "us-east-1"),
@@ -1256,29 +1261,45 @@ def recon_cloud(ejecucion_id, proyecto_id):
         # ═══════════════════════════════════════════════════════════════════════
         proveedores = [
             {'nombre': 'AWS S3', 'id': 'aws_s3', 'categoria': 'storage'},
-            {'nombre': 'Azure Blob Storage', 'id': 'azure_blob', 'categoria': 'storage'},
-            {'nombre': 'Google Cloud Storage', 'id': 'gcp_storage', 'categoria': 'storage'},
-            {'nombre': 'DigitalOcean Spaces', 'id': 'do_spaces', 'categoria': 'storage'},
+            {'nombre': 'Azure Blob Storage',
+                'id': 'azure_blob', 'categoria': 'storage'},
+            {'nombre': 'Google Cloud Storage',
+                'id': 'gcp_storage', 'categoria': 'storage'},
+            {'nombre': 'DigitalOcean Spaces',
+                'id': 'do_spaces', 'categoria': 'storage'},
             {'nombre': 'Backblaze B2', 'id': 'b2_cloud', 'categoria': 'storage'},
             {'nombre': 'AWS RDS', 'id': 'aws_rds', 'categoria': 'database'},
-            {'nombre': 'Azure Database', 'id': 'azure_database', 'categoria': 'database'},
-            {'nombre': 'Google Cloud SQL', 'id': 'gcp_cloudsql', 'categoria': 'database'},
-            {'nombre': 'DigitalOcean Managed DB', 'id': 'do_database', 'categoria': 'database'},
-            {'nombre': 'AWS ElastiCache', 'id': 'aws_elasticache', 'categoria': 'cache'},
-            {'nombre': 'Azure Cache for Redis', 'id': 'azure_cache', 'categoria': 'cache'},
-            {'nombre': 'Google Cloud Memorystore', 'id': 'gcp_memorystore', 'categoria': 'cache'},
+            {'nombre': 'Azure Database', 'id': 'azure_database',
+                'categoria': 'database'},
+            {'nombre': 'Google Cloud SQL',
+                'id': 'gcp_cloudsql', 'categoria': 'database'},
+            {'nombre': 'DigitalOcean Managed DB',
+                'id': 'do_database', 'categoria': 'database'},
+            {'nombre': 'AWS ElastiCache',
+                'id': 'aws_elasticache', 'categoria': 'cache'},
+            {'nombre': 'Azure Cache for Redis',
+                'id': 'azure_cache', 'categoria': 'cache'},
+            {'nombre': 'Google Cloud Memorystore',
+                'id': 'gcp_memorystore', 'categoria': 'cache'},
             {'nombre': 'AWS API Gateway', 'id': 'aws_api_gateway', 'categoria': 'api'},
-            {'nombre': 'AWS Lambda URLs', 'id': 'aws_lambda_urls', 'categoria': 'serverless'},
-            {'nombre': 'AWS AppSync (GraphQL)', 'id': 'aws_appsync', 'categoria': 'api'},
-            {'nombre': 'Google Cloud Functions', 'id': 'gcp_cloudfunctions', 'categoria': 'serverless'},
-            {'nombre': 'Google Cloud Run', 'id': 'gcp_cloudrun', 'categoria': 'serverless'},
-            {'nombre': 'Google Firebase/Firestore', 'id': 'gcp_firebase', 'categoria': 'database'},
-            {'nombre': 'Azure Functions', 'id': 'azure_functions', 'categoria': 'serverless'},
+            {'nombre': 'AWS Lambda URLs', 'id': 'aws_lambda_urls',
+                'categoria': 'serverless'},
+            {'nombre': 'AWS AppSync (GraphQL)',
+             'id': 'aws_appsync', 'categoria': 'api'},
+            {'nombre': 'Google Cloud Functions',
+                'id': 'gcp_cloudfunctions', 'categoria': 'serverless'},
+            {'nombre': 'Google Cloud Run', 'id': 'gcp_cloudrun',
+                'categoria': 'serverless'},
+            {'nombre': 'Google Firebase/Firestore',
+                'id': 'gcp_firebase', 'categoria': 'database'},
+            {'nombre': 'Azure Functions', 'id': 'azure_functions',
+                'categoria': 'serverless'},
         ]
 
         hallazgos_totales = []
 
-        print(f"[recon_cloud] Iniciando escaneo de {len(proveedores)} proveedores...")
+        print(
+            f"[recon_cloud] Iniciando escaneo de {len(proveedores)} proveedores...")
 
         # EXTRAER DOMINIO RAÍZ PARA CONSTRUCCIÓN DE PATRONES
         dominio_raiz_construccion = None
@@ -1286,13 +1307,16 @@ def recon_cloud(ejecucion_id, proyecto_id):
             primer_dominio = dominios_principales[0]
             partes = primer_dominio.replace('www.', '').split('.')
             if len(partes) >= 2:
-                dominio_raiz_construccion = partes[0]  # ej: "ater" de "ater.gob.ar"
+                # ej: "ater" de "ater.gob.ar"
+                dominio_raiz_construccion = partes[0]
             else:
                 dominio_raiz_construccion = partes[0]
 
         # COMBINAR: dominios principales + subdominios descubiertos
-        todos_los_dominios = list(set(dominios_principales + dominios_descubiertos))
-        dominios_a_escanear = todos_los_dominios[:10]  # Limitar a 10 dominios totales
+        todos_los_dominios = list(
+            set(dominios_principales + dominios_descubiertos))
+        # Limitar a 10 dominios totales
+        dominios_a_escanear = todos_los_dominios[:10]
 
         print(f"[recon_cloud] Dominios a escanear: {len(dominios_a_escanear)}")
 
@@ -1304,11 +1328,14 @@ def recon_cloud(ejecucion_id, proyecto_id):
             # Si es el dominio principal, usar el dominio COMPLETO
             # Si es un subdominio, combinar: subdomain-domainroot
             if primera_parte == dominio_raiz_construccion:
-                dominio_base = dom.replace('www.', '')  # ej: "flaws.cloud" o "ater.gob.ar"
+                # ej: "flaws.cloud" o "ater.gob.ar"
+                dominio_base = dom.replace('www.', '')
             else:
-                dominio_base = f"{primera_parte}-{dominio_raiz_construccion}"  # ej: "vpn-ater"
+                # ej: "vpn-ater"
+                dominio_base = f"{primera_parte}-{dominio_raiz_construccion}"
 
-            print(f"\n[recon_cloud] ═══ Escaneando: {dom} (patrón: {dominio_base}) ═══")
+            print(
+                f"\n[recon_cloud] ═══ Escaneando: {dom} (patrón: {dominio_base}) ═══")
 
             try:
                 # S3
@@ -1325,7 +1352,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
 
                 # DigitalOcean Spaces
                 print(f"[recon_cloud] [STORAGE] Escaneando DigitalOcean Spaces...")
-                hallazgos_totales.extend(_search_digitalocean_spaces(dominio_base))
+                hallazgos_totales.extend(
+                    _search_digitalocean_spaces(dominio_base))
 
                 # RDS
                 print(f"[recon_cloud] [DATABASE] Escaneando AWS RDS...")
@@ -1340,7 +1368,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
                 hallazgos_totales.extend(_search_lambda_urls(dominio_base))
 
                 # GCP Functions
-                print(f"[recon_cloud] [SERVERLESS] Escaneando Google Cloud Functions...")
+                print(
+                    f"[recon_cloud] [SERVERLESS] Escaneando Google Cloud Functions...")
                 hallazgos_totales.extend(_search_gcp_functions(dominio_base))
 
                 # Firebase
@@ -1925,7 +1954,8 @@ def _search_gau(target):
             print(f"[gau] ✅ Encontradas {len(urls)} URLs para {target}")
             return urls
         else:
-            print(f"[gau] ⚠️ GAU no devolvió URLs (return_code={result.returncode})")
+            print(
+                f"[gau] ⚠️ GAU no devolvió URLs (return_code={result.returncode})")
 
     except subprocess.TimeoutExpired:
         print(f"[gau] ⏱️ TIMEOUT para {target} (>300s)")
@@ -2067,7 +2097,7 @@ def _ejecutar_google_dork(dominio, dork_query):
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# SENSITIVE DATA EXTRACTION - HANDLER FINAL
+# SENSITIVE DATA EXTRACTION - ADAPTADO CON MEJORAS
 # ════════════════════════════════════════════════════════════════════════════════
 
 PALABRAS_CLAVE = [
@@ -2099,25 +2129,69 @@ PALABRAS_CLAVE = [
 PATRONES_VULNERABILIDADES = {
     'reverse_shell_bash': {
         'patron': r'bash\s+-i\s+>(&|\|)\s*/dev/tcp',
-        'severidad_esperada': 'CRITICAL',
+        'nivel_recomendado': 'CRITICAL',
         'descripcion': 'Reverse shell bash detectado'
     },
     'reverse_shell_netcat': {
         'patron': r'nc\s+(-e|--exec)\s+/bin/(sh|bash)',
-        'severidad_esperada': 'CRITICAL',
+        'nivel_recomendado': 'CRITICAL',
         'descripcion': 'Reverse shell netcat detectado'
     },
     'eval_dinamico': {
         'patron': r'\beval\s*\(',
-        'severidad_esperada': 'HIGH',
+        'nivel_recomendado': 'HIGH',
         'descripcion': 'Código dinámico ejecutado con eval()'
     },
     'hardcoded_credentials': {
         'patron': r'(?:user|pass|password)\s*[:=]\s*["\'](?!password["\'])[^\s\"\'{}\[\]]{8,}["\']',
-        'severidad_esperada': 'CRITICAL',
+        'nivel_recomendado': 'CRITICAL',
         'descripcion': 'Credenciales hardcodeadas'
     }
 }
+
+# ════════════════════════════════════════════════════════════════════════════════
+# FUNCIONES AUXILIARES
+# ════════════════════════════════════════════════════════════════════════════════
+
+def _obtener_severidad_real(nivel_recomendado, mapa_severidades):
+    """
+    ✨ NUEVO: Mapea nivel recomendado a severidad REAL de la BD
+
+    Intenta encontrar la severidad en este orden:
+    1. Exacta: Busca el nombre exacto
+    2. Aproximada: Si dice CRITICAL, busca CRITICO/CRITICAL
+    3. Default: Si no encuentra, usa la primera severidad disponible
+    """
+    if not mapa_severidades:
+        return 'MEDIUM'  # Fallback si no hay severidades
+
+    # 1. Búsqueda exacta
+    if nivel_recomendado in mapa_severidades:
+        return nivel_recomendado
+
+    # 2. Búsqueda aproximada (ignorar acentos)
+    nivel_limpio = nivel_recomendado.upper()
+    for sev_nombre in mapa_severidades.keys():
+        if sev_nombre.upper() == nivel_limpio:
+            return sev_nombre
+
+    # 3. Mapeo por similitud
+    mapeo_aproximado = {
+        'CRITICAL': ['CRITICO', 'CRÍTICO', 'CRITICAL', 'GRAVE', 'SEVERO'],
+        'HIGH': ['ALTO', 'HIGH', 'IMPORTANTE', 'SERIO'],
+        'MEDIUM': ['MEDIO', 'MEDIUM', 'MODERADO', 'NORMAL'],
+        'LOW': ['BAJO', 'LOW', 'MENOR', 'TRIVIAL'],
+        'INFO': ['INFO', 'INFORMATIVO', 'INFORMACIÓN']
+    }
+
+    for nivel, variantes in mapeo_aproximado.items():
+        if nivel_recomendado.upper() in variantes:
+            for variante in variantes:
+                if variante in mapa_severidades:
+                    return variante
+
+    # 4. Fallback: primera severidad disponible
+    return list(mapa_severidades.keys())[0]
 
 
 def _parse_multiline_config(texto):
@@ -2129,19 +2203,116 @@ def _parse_multiline_config(texto):
 
 
 def _es_ip(texto):
-    """Detectar si es una IP (IPv4)"""
-    patron_ip = r'^(\d{1,3}\.){3}\d{1,3}(:\d+)?$'
-    return bool(re.match(patron_ip, texto))
+    """Detectar si es una IP (IPv4) - MEJORADO"""
+    if not texto:
+        return False
+
+    texto_limpio = texto.strip().split(':')[0]
+    patron_ip = r'^(\d{1,3}\.){3}\d{1,3}$'
+
+    if re.match(patron_ip, texto_limpio):
+        try:
+            octetos = [int(x) for x in texto_limpio.split('.')]
+            return all(0 <= oct <= 255 for oct in octetos)
+        except:
+            return False
+    return False
 
 
-def _es_potencial_secreto_linea(linea, palabra_clave):
-    """Valida UNA LÍNEA para filtrar ruido"""
+def _generar_urls_para_ip(ip_texto):
+    """Genera URLs variantes para una IP"""
+    urls_dict = {}
+    ip_texto = ip_texto.strip()
+
+    if ':' in ip_texto:
+        ip, puerto = ip_texto.rsplit(':', 1)
+    else:
+        ip = ip_texto
+        puerto = None
+
+    if not _es_ip(ip):
+        return urls_dict
+
+    if puerto:
+        try:
+            puerto_num = int(puerto)
+            if 1 <= puerto_num <= 65535:
+                urls_dict[f"http://{ip}:{puerto}"] = f"{ip}:{puerto}"
+                urls_dict[f"https://{ip}:{puerto}"] = f"{ip}:{puerto}"
+        except:
+            pass
+    else:
+        urls_dict[f"http://{ip}"] = ip
+        urls_dict[f"https://{ip}"] = ip
+        urls_dict[f"http://{ip}:8080"] = f"{ip}:8080"
+        urls_dict[f"https://{ip}:8443"] = f"{ip}:8443"
+        urls_dict[f"http://{ip}:3000"] = f"{ip}:3000"
+        urls_dict[f"http://{ip}:5000"] = f"{ip}:5000"
+        urls_dict[f"http://{ip}:8000"] = f"{ip}:8000"
+
+    return urls_dict
+
+
+def _procesar_ips_scope(texto_ips):
+    """Parsea IPs del scope y genera URLs variantes"""
+    urls_ips = {}
+
+    if not texto_ips:
+        return urls_ips
+
+    items = [item.strip() for item in texto_ips.split('\n') if item.strip()]
+
+    for item in items:
+        if item.startswith('#') or item.startswith('//'):
+            continue
+
+        if _es_ip(item):
+            urls_variantes = _generar_urls_para_ip(item)
+            urls_ips.update(urls_variantes)
+
+    return urls_ips
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# VALIDACIÓN MEJORADA DE SECRETOS (SIN FALSOS POSITIVOS)
+# ════════════════════════════════════════════════════════════════════════════════
+
+def _es_asignacion_legit(linea, palabra_clave):
+    """
+    VALIDACIÓN MEJORADA: Detecta SOLO asignaciones REALES de credenciales
+    Filtra: función unmaskPassword(), pw.type="password", etc.
+    """
     linea_limpia = linea.strip()
 
     # Ignorar comentarios
     if linea_limpia.startswith('//') or linea_limpia.startswith('#'):
         return False
     if '/*' in linea_limpia or '*/' in linea_limpia:
+        return False
+    if '//' in linea_limpia:
+        antes_comentario = linea_limpia.split('//')[0]
+        if palabra_clave.lower() not in antes_comentario.lower():
+            return False
+        linea_limpia = antes_comentario
+
+    # Ignorar definiciones de tipos
+    if re.search(r':\s*(string|boolean|number|any|void|String|Boolean|Number)', linea_limpia):
+        return False
+    if re.search(r'\binterface\s+|\btype\s+|\benum\s+', linea_limpia):
+        return False
+
+    # Ignorar nombres de funciones
+    if re.search(rf'\b(function|const|let|var)\s+\w*{re.escape(palabra_clave)}\s*\(',
+                 linea_limpia, re.IGNORECASE):
+        return False
+    if re.search(rf'\.([a-z]*{re.escape(palabra_clave)}|{re.escape(palabra_clave)})\s*\(',
+                 linea_limpia, re.IGNORECASE):
+        return False
+
+    # Ignorar asignaciones de tipo
+    if re.search(r'\.type\s*=\s*["\']password["\']', linea_limpia, re.IGNORECASE):
+        return False
+    if re.search(r'type\s*=\s*["\']password["\']', linea_limpia, re.IGNORECASE):
         return False
 
     # La palabra debe ser palabra completa
@@ -2150,32 +2321,72 @@ def _es_potencial_secreto_linea(linea, palabra_clave):
     if not match:
         return False
 
-    # Debe haber contexto de asignación
-    idx = match.start()
-    antes = linea_limpia[:idx]
-    despues = linea_limpia[idx + len(palabra_clave):]
+    # Patrones de asignación REAL
 
-    tiene_contexto = (
-        bool(re.search(r'[=:\'"({]', despues[:15])) or
-        bool(re.search(r'[=:\'")}]', antes[-5:]))
-    )
-
-    if not tiene_contexto:
+    # Patrón 1: var/let/const password = "valor"
+    patron_var_assign = r'^(var|let|const|private|public|protected|static)?\s*\w*' + \
+        re.escape(palabra_clave) + r'\s*[:=]\s*["\']'
+    if re.search(patron_var_assign, linea_limpia, re.IGNORECASE):
+        valor_match = re.search(
+            patron_var_assign + r'([^"\']+)', linea_limpia, re.IGNORECASE)
+        if valor_match:
+            valor = valor_match.group(valor_match.lastindex)
+            if valor.lower() != palabra_clave.lower():
+                return True
         return False
 
-    # Debe haber valor significativo
-    if not re.search(r'[a-zA-Z0-9]{6,}', despues):
+    # Patrón 2: password: "valor" (objeto JS)
+    patron_obj = r'\b' + re.escape(palabra_clave) + r'\s*:\s*["\']'
+    if re.search(patron_obj, linea_limpia, re.IGNORECASE):
+        valor_match = re.search(
+            patron_obj + r'([^"\']+)', linea_limpia, re.IGNORECASE)
+        if valor_match:
+            valor = valor_match.group(1)
+            if valor.lower() != palabra_clave.lower() and len(valor) > 3:
+                return True
         return False
 
-    # Filtros anti-ruido
-    if re.search(r'typeof|instanceof|\.prototype', linea_limpia):
+    # Patrón 3: password="valor" (atributo HTML)
+    patron_html = r'\b' + re.escape(palabra_clave) + r'\s*=\s*["\']'
+    if re.search(patron_html, linea_limpia, re.IGNORECASE):
+        valor_match = re.search(
+            patron_html + r'([^"\']+)', linea_limpia, re.IGNORECASE)
+        if valor_match:
+            valor = valor_match.group(1)
+            if valor.lower() != palabra_clave.lower() and len(valor) > 3:
+                return True
         return False
 
-    return True
+    # Patrón 4: this.password = "valor"
+    if re.search(r'(this|self|obj)\.' + re.escape(palabra_clave) + r'\s*=\s*["\']',
+                 linea_limpia, re.IGNORECASE):
+        valor_match = re.search(r'(this|self|obj)\.' + re.escape(palabra_clave) + r'\s*=\s*["\']' + r'([^"\']+)',
+                                linea_limpia, re.IGNORECASE)
+        if valor_match:
+            valor = valor_match.group(valor_match.lastindex)
+            if valor.lower() != palabra_clave.lower() and len(valor) > 3:
+                return True
+        return False
+
+    # Patrón 5: tokens/keys sin comillas
+    patron_sin_comillas = r'\b' + \
+        re.escape(palabra_clave) + r'\s*[:=]\s*([a-zA-Z0-9_\-\.]{16,})'
+    match_sin_comillas = re.search(
+        patron_sin_comillas, linea_limpia, re.IGNORECASE)
+    if match_sin_comillas:
+        valor = match_sin_comillas.group(1)
+        if not re.match(r'^(string|number|boolean|any|void)$', valor, re.IGNORECASE):
+            return True
+
+    # Anti-ruido
+    if re.search(r'@\w+|typeof|instanceof|\.prototype', linea_limpia):
+        return False
+
+    return False
 
 
 def _buscar_secretos_en_contenido(contenido, url_origen):
-    """Buscar secretos - línea por línea"""
+    """Buscar secretos con validación MEJORADA"""
     secretos = []
     lineas = contenido.split('\n')
     palabras_encontradas = set()
@@ -2185,7 +2396,8 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
             if palabra_clave in palabras_encontradas:
                 continue
 
-            if _es_potencial_secreto_linea(linea, palabra_clave):
+            # USAR VALIDACIÓN MEJORADA
+            if _es_asignacion_legit(linea, palabra_clave):
                 secretos.append({
                     'url': url_origen,
                     'palabra_clave': palabra_clave,
@@ -2198,6 +2410,171 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
 
     return secretos
 
+
+# ════════════════════════════════════════════════════════════════════════════════
+# DETECCIÓN HTML SENSIBLE (NUEVO)
+# ════════════════════════════════════════════════════════════════════════════════
+
+def _analizar_valor_sensible(valor):
+    """Analiza si un valor es potencialmente sensible"""
+    if not valor or len(valor) < 8:
+        return None
+
+    valor_limpio = valor.strip()
+
+    # JWT
+    jwt_pattern = r'^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+    if re.match(jwt_pattern, valor_limpio):
+        return {
+            'tipo_valor': 'jwt_like',
+            'descripcion': 'JWT token detectado',
+            'severidad': 'CRITICAL'
+        }
+
+    # Base64 largo
+    base64_pattern = r'^[A-Za-z0-9+/]{32,}={0,2}$'
+    if re.match(base64_pattern, valor_limpio):
+        return {
+            'tipo_valor': 'base64_largo',
+            'descripcion': 'Base64 largo (probablemente encriptado/token)',
+            'severidad': 'MEDIUM'
+        }
+
+    # Hex largo
+    hex_pattern = r'^[a-f0-9]{32,}$'
+    if re.match(hex_pattern, valor_limpio):
+        return {
+            'tipo_valor': 'hex_largo',
+            'descripcion': 'Hexadecimal largo (hash o encriptado)',
+            'severidad': 'MEDIUM'
+        }
+
+    # UUID
+    uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    if re.match(uuid_pattern, valor_limpio):
+        return {
+            'tipo_valor': 'uuid',
+            'descripcion': 'UUID detectado',
+            'severidad': 'LOW'
+        }
+
+    return None
+
+
+def _buscar_inputs_hidden(contenido_html, url_origen):
+    """Busca inputs hidden y elementos HTML sensibles"""
+    hallazgos = []
+
+    try:
+        soup = BeautifulSoup(contenido_html, 'html.parser')
+
+        # Inputs hidden
+        inputs_hidden = soup.find_all('input', {'type': 'hidden'})
+
+        for input_tag in inputs_hidden:
+            nombre = input_tag.get('name', 'sin_nombre').lower()
+            valor = input_tag.get('value', '').strip()
+
+            if not valor or len(valor) < 5:
+                continue
+
+            analisis_valor = _analizar_valor_sensible(valor)
+
+            es_sensible = False
+            severidad = 'LOW'
+            razon = 'input hidden con valor'
+
+            palabras_sensibles_input = [
+                'token', 'csrf', 'auth', 'session', 'nonce',
+                'user', 'userid', 'customer', 'account', 'secret',
+                'key', 'state', 'payload', 'encrypted', 'cipher'
+            ]
+
+            for palabra in palabras_sensibles_input:
+                if palabra in nombre:
+                    es_sensible = True
+                    severidad = 'HIGH' if palabra in [
+                        'token', 'csrf', 'auth'] else 'MEDIUM'
+                    razon = f'Input hidden "{palabra}" detectado'
+                    break
+
+            if analisis_valor:
+                es_sensible = True
+                severidad = analisis_valor['severidad']
+                razon = analisis_valor['descripcion']
+
+            if not es_sensible and len(valor) > 20:
+                es_sensible = True
+                severidad = 'MEDIUM'
+                razon = 'Valor largo en input hidden (potencial credencial encriptada)'
+
+            if es_sensible:
+                hallazgos.append({
+                    'url': url_origen,
+                    'tipo': 'hidden_input',
+                    'nombre_input': nombre,
+                    'valor': valor[:100],
+                    'longitud_valor': len(valor),
+                    'severidad': severidad,
+                    'razon': razon,
+                    'analisis_valor': analisis_valor,
+                    'metodo': 'html_parsing'
+                })
+
+        # Meta tags sensibles
+        metas_sensibles = soup.find_all('meta', {'name': re.compile(
+            r'(csrf|token|nonce|auth|user|session|api)', re.IGNORECASE)})
+
+        for meta in metas_sensibles:
+            nombre = meta.get('name', '')
+            contenido = meta.get('content', '').strip()
+
+            if contenido and len(contenido) > 5:
+                analisis = _analizar_valor_sensible(contenido)
+                hallazgos.append({
+                    'url': url_origen,
+                    'tipo': 'meta_sensible',
+                    'nombre_meta': nombre,
+                    'contenido': contenido[:100],
+                    'longitud': len(contenido),
+                    'severidad': 'HIGH',
+                    'razon': f'Meta tag con nombre sensible: {nombre}',
+                    'analisis_valor': analisis,
+                    'metodo': 'html_parsing'
+                })
+
+        # Data attributes
+        elementos_data = soup.find_all(attrs={'data-token': True})
+        elementos_data += soup.find_all(attrs={'data-auth': True})
+        elementos_data += soup.find_all(attrs={'data-user': True})
+        elementos_data += soup.find_all(attrs={'data-session': True})
+
+        for elemento in elementos_data:
+            for attr, valor in elemento.attrs.items():
+                if attr.startswith('data-'):
+                    if isinstance(valor, str) and len(valor) > 8:
+                        analisis = _analizar_valor_sensible(valor)
+                        hallazgos.append({
+                            'url': url_origen,
+                            'tipo': 'data_attribute',
+                            'atributo': attr,
+                            'valor': valor[:100],
+                            'longitud_valor': len(valor),
+                            'severidad': 'MEDIUM',
+                            'razon': f'Data attribute "{attr}" con valor potencialmente sensible',
+                            'analisis_valor': analisis,
+                            'metodo': 'html_parsing'
+                        })
+
+    except Exception as e:
+        print(f"  [ERROR] Parsing HTML sensible: {type(e).__name__}")
+
+    return hallazgos
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# VULNERABILIDADES (SIN CAMBIOS)
+# ════════════════════════════════════════════════════════════════════════════════
 
 def _es_potencial_vulnerabilidad_linea(linea, nombre_patron):
     """Filtro anti-ruido SIMPLE para vulnerabilidades"""
@@ -2224,13 +2601,15 @@ def _es_potencial_vulnerabilidad_linea(linea, nombre_patron):
 
 
 def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
-    """Detecta vulnerabilidades críticas"""
+    """Detecta vulnerabilidades críticas - USA SEVERIDADES DE LA BD"""
     vulnerabilidades = []
 
     for nombre_patron, config in PATRONES_VULNERABILIDADES.items():
         try:
-            severidad_esperada = config['severidad_esperada']
-            severidad_real = severidad_esperada if severidad_esperada in mapa_severidades else 'MEDIUM'
+            # ✨ MEJORADO: Usar severidad REAL de la BD
+            nivel_recomendado = config['nivel_recomendado']
+            severidad_real = _obtener_severidad_real(
+                nivel_recomendado, mapa_severidades)
 
             regex = re.compile(config['patron'], re.IGNORECASE | re.MULTILINE)
 
@@ -2260,8 +2639,12 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
     return vulnerabilidades
 
 
+# ════════════════════════════════════════════════════════════════════════════════
+# FUNCIÓN PRINCIPAL - MEJORADA CON IPs + HTML + VALIDACIÓN
+# ════════════════════════════════════════════════════════════════════════════════
+
 def sensitive_data_extraction(ejecucion_id, proyecto_id):
-    """Extracción de datos sensibles - VERSIÓN ESTABLE (sin crashes)"""
+    """Extracción de datos sensibles - VERSIÓN MEJORADA"""
     print(
         f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
 
@@ -2276,6 +2659,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         dominio = config.get('DOMINIO', '').strip() if config else ''
         subdominio = config.get('SUBDOMINIO', '').strip() if config else ''
         servicio = config.get('SERVICIOS', '').strip() if config else ''
+        ips = config.get('IPS', '').strip() if config else ''  # ✨ NUEVO
 
         # Dominios
         for dom in _parse_multiline_config(dominio):
@@ -2300,6 +2684,11 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     urls_scope[f"http://{srv}"] = srv
                     urls_scope[f"https://{srv}"] = srv
 
+        # ✨ NUEVO: Procesar IPs
+        if ips:
+            urls_ips = _procesar_ips_scope(ips)
+            urls_scope.update(urls_ips)
+
         # FASE 2: Subdominios descubiertos SOLO si no hay en FASE 1
         todas_las_urls = urls_scope
         fase_usada = 'FASE 1'
@@ -2310,7 +2699,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                 subdominios_desc = OsintEjecucion.get_discovered_subdomains(
                     proyecto_id)
                 if subdominios_desc:
-                    for subdom in subdominios_desc[:20]:  # ⚠️ LÍMITE: 20
+                    for subdom in subdominios_desc[:20]:
                         urls_fase2[f"http://{subdom}"] = subdom
                         urls_fase2[f"https://{subdom}"] = subdom
                     todas_las_urls = {**urls_scope, **urls_fase2}
@@ -2327,14 +2716,17 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         # ⚠️ LÍMITE: máx 30 URLs
         urls_a_analizar = list(todas_las_urls.keys())[:30]
         urls_a_analizar = [url for url in urls_a_analizar
-                   if '.min.js' not in url.lower()]
+                           if '.min.js' not in url.lower()]
 
-        print(f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
+        print(
+            f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
 
         hallazgos_secretos = {}
         hallazgos_vulnerabilidades = {}
+        hallazgos_html_sensibles = {}  # ✨ NUEVO
         total_secretos = 0
         total_vulnerabilidades = 0
+        total_html_sensibles = 0  # ✨ NUEVO
 
         for url in urls_a_analizar:
             try:
@@ -2369,6 +2761,14 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
 
                 try:
                     soup = BeautifulSoup(contenido, 'html.parser')
+
+                    # ✨ NUEVO: Análisis de elementos HTML sensibles
+                    elementos_sensibles = _buscar_inputs_hidden(contenido, url)
+                    if elementos_sensibles:
+                        hallazgos_html_sensibles[url] = elementos_sensibles
+                        total_html_sensibles += len(elementos_sensibles)
+                        print(
+                            f"  [HALLAZGO] {len(elementos_sensibles)} elementos HTML sensibles")
 
                     # Scripts externos - ⚠️ LÍMITE: 5 scripts por URL
                     for script in soup.find_all('script', src=True)[:5]:
@@ -2454,11 +2854,18 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             "fase_usada": fase_usada,
             "total_urls_analizadas": len(urls_a_analizar),
             "total_secretos_encontrados": total_secretos,
-            "total_vulnerabilidades_encontradas": total_vulnerabilidades,
+            "total_vulnerabilidades_encontrados": total_vulnerabilidades,
+            "total_html_sensibles_encontrados": total_html_sensibles,  # ✨ NUEVO
             "secretos": hallazgos_secretos,
             "vulnerabilidades": hallazgos_vulnerabilidades,
+            "elementos_html_sensibles": hallazgos_html_sensibles,  # ✨ NUEVO
             "resumen": {
-                "vulnerabilidades_por_severidad": vulnerabilidades_por_severidad
+                "vulnerabilidades_por_severidad": vulnerabilidades_por_severidad,
+                "tipos_html_sensibles": {  # ✨ NUEVO
+                    'hidden_input': len([h for hh in hallazgos_html_sensibles.values() for h in hh if h.get('tipo') == 'hidden_input']),
+                    'meta_sensible': len([h for hh in hallazgos_html_sensibles.values() for h in hh if h.get('tipo') == 'meta_sensible']),
+                    'data_attribute': len([h for hh in hallazgos_html_sensibles.values() for h in hh if h.get('tipo') == 'data_attribute']),
+                }
             }
         }
 
