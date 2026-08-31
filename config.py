@@ -61,7 +61,7 @@ class Config:
     CLAUDE_HABILITAR = os.getenv("CLAUDE_HABILITAR", "true").lower() == "true"
     
     
-# Timeouts específicos por handler OSINT (en segundos)
+# Timeouts específicos por handler OSINT (RQ posee un delay de 60 segundos antes de iniciar el conteo)
 OSINT_JOB_TIMEOUTS = {
     'discovery_subdominios': 1800,              # 30 min
     'enumeracion_servicios': 1200,              # 20 min
@@ -69,8 +69,9 @@ OSINT_JOB_TIMEOUTS = {
     'recon_cloud': 1800,                        # 30 min
     'escaneo_repositorios': 600,                # 10 min
     'analisis_dns': 900,                        # 15 min
-    'busqueda_endpoints': 1200,                 # 20 min
+    'busqueda_endpoints': 1800,                 # 30 min
     'google_dorking': 900,                      # 15 min
-    'urls_historicas': 7200,                    # 2 horas ⚠️
-    'sensitive_data_extraction': 10,          # 30 min
+    'urls_historicas': 9800,                    # 3 horas (2+ horas de ejecución + 60s delay)
+    'sensitive_data_extraction': 3600,          # 1 hora
+    'default': 3600                             # Fallback 1 hora
 }
