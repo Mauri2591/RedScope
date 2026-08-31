@@ -1694,59 +1694,66 @@ def _deduplicate_github_results(hallazgos_raw, dominio=''):
 
 
 def analisis_dns(ejecucion_id, proyecto_id):
-    """Análisis de registros DNS con dig"""
+    """Análisis de registros DNS - Optimizado"""
     print(f"[OSINT-DNS] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
-        # 1. Obtener TODO el scope: DOMINIO + SUBDOMINIO + SERVICIOS
+        import dns.resolver
+        from dns.exception import DNSException
+        
+        # 1. Obtener TODO el scope
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
         todos_los_dominios = scope['dominio'] + \
             scope['subdominio'] + scope['servicios']
 
-        # 2. SIEMPRE obtener subdominios descubiertos si existen
+        # 2. Agregar subdominios descubiertos
         subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
             proyecto_id)
         todos_los_dominios.extend(subdominios_descubiertos)
 
-        # 3. Fallback: Si no hay nada, usar dominios de mapeo_ips
+        # 3. Fallback: dominios de mapeo_ips
         if not todos_los_dominios:
             dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
                 proyecto_id)
             todos_los_dominios.extend(dominios_from_ips)
 
         if not todos_los_dominios:
-            raise Exception(
-                "No hay dominios para analizar")
+            raise Exception("No hay dominios para analizar")
 
         # Deduplicar y ordenar
         todos_los_dominios = sorted(list(set(todos_los_dominios)))
 
         registros = {}
-        tipos = ['A', 'MX', 'NS', 'TXT', 'SOA', 'CNAME']
+        tipos = ['A', 'AAAA', 'MX', 'NS', 'TXT', 'SOA', 'CNAME']
 
         print(f"[analisis_dns] Analizando {len(todos_los_dominios)} dominios")
 
         for dom in todos_los_dominios:
             registros[dom] = {}
+            
+            # UNA sola consulta por dominio en lugar de 7
             for tipo in tipos:
                 try:
-                    result = subprocess.run(
-                        ['dig', dom, tipo, '+short'],
-                        capture_output=True,
-                        text=True,
-                        timeout=10
-                    )
-                    if result.stdout.strip():
-                        registros[dom][tipo] = result.stdout.strip().split(
-                            '\n')
+                    resolver = dns.resolver.Resolver()
+                    resolver.timeout = 5
+                    resolver.lifetime = 5
+                    
+                    answers = resolver.resolve(dom, tipo, raise_on_no_answer=False)
+                    
+                    if answers:
+                        registros[dom][tipo] = [str(rdata) for rdata in answers]
+                    
+                except DNSException as e:
+                    print(f"[dns] {tipo} {dom}: {type(e).__name__}")
                 except Exception as e:
-                    print(f"[dig] Error: {tipo} en {dom}: {e}")
+                    print(f"[dns] Error {tipo} {dom}: {e}")
 
         return {
             "tipo": "analisis_dns",
             "total_dominios_analizados": len(todos_los_dominios),
             "dominios_scope": len(scope['dominio']) + len(scope['subdominio']) + len(scope['servicios']),
             "subdominios_descubiertos": len(subdominios_descubiertos),
+            "tipos_registros": tipos,
             "registros": registros
         }
 
