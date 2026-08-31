@@ -1954,7 +1954,7 @@ def _search_gau(target):
 
         result = subprocess.run(
             [gau_path, '--blacklist',
-                'jpg,jpeg,png,gif,svg,css,js,woff,woff2,ttf,eot', target],
+                'svg,css,js,woff,woff2,ttf,eot,otf,ico,map', target],
             capture_output=True,
             text=True,
             timeout=300
