@@ -1248,7 +1248,7 @@ def run_osint():
     if not ejecucion_id:
         return jsonify({"success": False, "message": "Error al crear ejecución"}), 500
 
-    # ✅ TIMEOUT ESPECÍFICO por handler
+    # TIMEOUT ESPECÍFICO por handler
     job_timeout = JOB_TIMEOUTS.get(handler_name, JOB_TIMEOUTS['default'])
 
     q = Queue('osint', connection=Config.redis_conn)

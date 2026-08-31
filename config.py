@@ -63,13 +63,17 @@ class Config:
 
     #Jobs de osint    
     JOB_TIMEOUTS = {
-    'busqueda_secretos_repositorios': 600,      # 10 min
-    'urls_historicas': 7200,                     # 2 horas
-    'escaneo_puertos': 3600,                     # 1 hora
-    'escaneo_certificados': 1200,               # 20 min
-    'busqueda_dominios': 1800,                  # 30 min
-    'busqueda_direcciones_ip': 1200,            # 20 min
+    'discovery_subdominios': 1800,              # 30 min
+    'enumeracion_servicios': 1200,              # 20 min
+    'mapeo_ips': 1200,                          # 20 min
+    'recon_cloud': 1800,                        # 30 min
+    'escaneo_repositorios': 600,                # 10 min (rápido)
+    'analisis_dns': 900,                        # 15 min
+    'busqueda_endpoints': 1200,                 # 20 min
+    'google_dorking': 900,                      # 15 min
+    'urls_historicas': 7200,                    # 2 horas (MUY LENTO)
+    'sensitive_data_extraction': 1800,          # 30 min
     
-    # Otras acciones (cloud/run-roles)
-    'default': 3600  # fallback 1 hora
+    # Default para cloud/run-roles
+    'default': 3600  # 1 hora
 }
