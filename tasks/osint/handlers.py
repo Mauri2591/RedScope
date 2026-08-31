@@ -2149,6 +2149,68 @@ PATRONES_VULNERABILIDADES = {
     }
 }
 
+
+# ════════════════════════════════════════════════════════════════════════════════
+# SENSITIVE DATA EXTRACTION - ADAPTADO CON MEJORAS
+# ════════════════════════════════════════════════════════════════════════════════
+
+PALABRAS_CLAVE = [
+    # CRÍTICOS - API & Tokens
+    'api_key', 'apikey', 'access_token', 'auth_token',
+    'bearer', 'x-api-key',
+
+    # CRÍTICOS - Contraseñas & Secretos
+    'password', 'passwd', 'secret', 'secret_key',
+
+    # CRÍTICOS - Cloud
+    'aws_access_key', 'aws_secret', 'AKIA',
+    'firebase_key', 'stripe_key', 'github_token',
+    'slack_token', 'discord_token',
+
+    # CRÍTICOS - Bases de Datos
+    'database_url', 'mongodb', 'postgresql',
+    'mysql_url', 'redis_url', 'connection_string',
+
+    # CRÍTICOS - Auth & JWT
+    'jwt', 'jwt_token', 'oauth_token', 'client_secret',
+
+    # CRÍTICOS - Encriptación
+    'private_key', 'public_key', 'certificate',
+    'ssh_key', 'ssh_private_key', 'rsa_private_key',
+    'openssh_key', 'private_pem', 'id_rsa',
+
+    # ✨ NUEVO - Configuración & Sesión (Moodle, PHP, etc.)
+    'sesskey', 'csrf_token', 'csrf', 'apibase', 'api_url',
+    'admin_token', 'admin_key', 'root_token', 'root_key',
+    'session_id', 'session_token', 'sso_token',
+    'wwwroot', 'base_url', 'site_url', 'app_key',
+    'encryption_key', 'hmac_key', 'signing_key'
+]
+
+PATRONES_VULNERABILIDADES = {
+    'reverse_shell_bash': {
+        'patron': r'bash\s+-i\s+>(&|\|)\s*/dev/tcp',
+        'nivel_recomendado': 'CRITICAL',
+        'descripcion': 'Reverse shell bash detectado'
+    },
+    'reverse_shell_netcat': {
+        'patron': r'nc\s+(-e|--exec)\s+/bin/(sh|bash)',
+        'nivel_recomendado': 'CRITICAL',
+        'descripcion': 'Reverse shell netcat detectado'
+    },
+    'eval_dinamico': {
+        'patron': r'\beval\s*\(',
+        'nivel_recomendado': 'HIGH',
+        'descripcion': 'Código dinámico ejecutado con eval()'
+    },
+    'hardcoded_credentials': {
+        'patron': r'(?:user|pass|password)\s*[:=]\s*["\'](?!password["\'])[^\s\"\'{}\[\]]{8,}["\']',
+        'nivel_recomendado': 'CRITICAL',
+        'descripcion': 'Credenciales hardcodeadas'
+    }
+}
+
+
 # ════════════════════════════════════════════════════════════════════════════════
 # FUNCIONES AUXILIARES
 # ════════════════════════════════════════════════════════════════════════════════
@@ -2280,7 +2342,7 @@ def _procesar_ips_scope(texto_ips):
 def _es_asignacion_legit(linea, palabra_clave):
     """
     VALIDACIÓN MEJORADA: Detecta SOLO asignaciones REALES de credenciales
-    Filtra: función unmaskPassword(), pw.type="password", etc.
+    ✅ Filtra: función unmaskPassword(), pw.type="password", etc.
     """
     linea_limpia = linea.strip()
 
@@ -2407,6 +2469,77 @@ def _buscar_secretos_en_contenido(contenido, url_origen):
                     'metodo': 'grep'
                 })
                 palabras_encontradas.add(palabra_clave)
+
+    # ✨ NUEVO: Buscar patrones específicos de configuración JS
+    secretos_config = _buscar_config_javascript(contenido, url_origen)
+    secretos.extend(secretos_config)
+
+    return secretos
+
+
+def _buscar_config_javascript(contenido, url_origen):
+    """
+    ✨ NUEVO: Busca configuración expuesta en variables globales
+    Detecta: M.cfg = {...}, config = {...}, etc.
+    """
+    secretos = []
+
+    # Patrones de configuración comunes
+    patrones_config = {
+        'sesskey': {
+            'patron': r'["\']?sesskey["\']?\s*[:=]\s*["\']([a-zA-Z0-9]{8,})["\']',
+            'severidad': 'HIGH',
+            'razon': 'Token de sesión expuesto (CSRF risk)'
+        },
+        'csrf_token': {
+            'patron': r'["\']?csrf(?:_token)?["\']?\s*[:=]\s*["\']([a-zA-Z0-9_-]{8,})["\']',
+            'severidad': 'HIGH',
+            'razon': 'Token CSRF expuesto'
+        },
+        'apibase': {
+            'patron': r'["\']?apibase["\']?\s*[:=]\s*["\']([^"\']{10,})["\']',
+            'severidad': 'MEDIUM',
+            'razon': 'URL de API expuesta'
+        },
+        'api_key_config': {
+            'patron': r'["\']?api[_]?key["\']?\s*[:=]\s*["\']([a-zA-Z0-9_-]{20,})["\']',
+            'severidad': 'HIGH',
+            'razon': 'API Key expuesta en configuración'
+        },
+        'admin_token': {
+            'patron': r'["\']?admin[_]?token["\']?\s*[:=]\s*["\']([a-zA-Z0-9_-]{10,})["\']',
+            'severidad': 'CRITICAL',
+            'razon': 'Token de admin expuesto'
+        },
+        'wwwroot': {
+            'patron': r'["\']?wwwroot["\']?\s*[:=]\s*["\']([^"\']{10,})["\']',
+            'severidad': 'LOW',
+            'razon': 'URL raíz de aplicación expuesta (información de sistema)'
+        },
+    }
+
+    for patron_nombre, config_patron in patrones_config.items():
+        try:
+            matches = re.finditer(
+                config_patron['patron'], contenido, re.IGNORECASE)
+            for match in matches:
+                valor = match.group(1)
+
+                # Filtrar valores triviales
+                if len(valor) < 5 or valor.lower() in ['password', 'token', 'key', 'value']:
+                    continue
+
+                secretos.append({
+                    'url': url_origen,
+                    'palabra_clave': patron_nombre,
+                    'linea': f'{patron_nombre} = {valor[:80]}',
+                    'numero_linea': contenido[:match.start()].count('\n') + 1,
+                    'severidad': config_patron['severidad'],
+                    'metodo': 'js_config_pattern',
+                    'razon': config_patron['razon']
+                })
+        except Exception as e:
+            pass
 
     return secretos
 
