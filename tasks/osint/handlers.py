@@ -1835,61 +1835,55 @@ def urls_historicas(ejecucion_id, proyecto_id):
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
         dominio_config = config.get('DOMINIO', '').strip()
+        ips_config = config.get('IPS', '').strip()  # ← NUEVO
 
-        # 1. Obtener dominios del scope inicial
+        # 1. Obtener dominios del scope
         dominios_scope = _parse_multiline_config(
             dominio_config) if dominio_config else []
         if dominios_scope:
-            print(f"[gau] Dominios del scope encontrados: {dominios_scope}")
-        else:
-            print(f"[gau] Sin dominios configurados en DOMINIO")
+            print(f"[gau] Dominios del scope: {dominios_scope}")
+
+        # 1b. Obtener IPs del scope ← NUEVO
+        ips_scope = _parse_multiline_config(ips_config) if ips_config else []
+        if ips_scope:
+            print(f"[gau] IPs del scope: {ips_scope}")
 
         # 2. Fallback: Obtener dominios descubiertos por reverse DNS
         dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
             proyecto_id)
         if dominios_from_ips:
-            print(
-                f"[gau] Dominios del objetivo desde mapeo_ips: {dominios_from_ips}")
+            print(f"[gau] Dominios descubiertos: {dominios_from_ips}")
 
         # 3. Fallback: Obtener subdominios descubiertos
         subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
             proyecto_id)
         if subdominios_descubiertos:
-            print(
-                f"[gau] Subdominios descubiertos: {len(subdominios_descubiertos)}")
+            print(f"[gau] Subdominios descubiertos: {len(subdominios_descubiertos)}")
 
-        # 4. Obtener IPs válidas desde mapeo_ips
-        ips_validas = _get_valid_ips_from_mapeo(proyecto_id)
-        if ips_validas:
-            print(f"[gau] IPs válidas desde mapeo_ips: {ips_validas}")
-
-        # 5. Combinar todas las fuentes de dominios
+        # 4. Combinar todas las fuentes de dominios
         todos_los_dominios = list(
             set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
 
-        # 6. Validar que hay algo para escanear
-        if not todos_los_dominios and not ips_validas:
-            raise Exception(
-                "No hay dominios ni subdominios ni IPs para escanear")
+        # 5. Validar que hay algo para escanear
+        if not todos_los_dominios and not ips_scope:
+            raise Exception("No hay dominios ni IPs para escanear")
 
         urls = set()
 
-        # 7. Buscar URLs de dominios
+        # 6. Buscar URLs de dominios
         if todos_los_dominios:
-            print(
-                f"[gau] Buscando URLs históricas en {len(todos_los_dominios)} dominios...")
+            print(f"[gau] Buscando URLs en {len(todos_los_dominios)} dominios...")
             for dom in todos_los_dominios:
-                print(f"[gau] Escaneando dominio: {dom}...")
+                print(f"[gau] Escaneando: {dom}...")
                 urls.update(_search_gau(dom))
 
-        # 8. Buscar URLs de IPs válidas CON MÚLTIPLES PUERTOS
-        if ips_validas:
-            # Generar URLs con puertos para cada IP
+        # 7. Buscar URLs de IPs CON MÚLTIPLES PUERTOS
+        if ips_scope:
             urls_from_ips = []
             puertos = ["", "8080", "8443", "3000", "5000", "8000"]
             protocolos = ["http", "https"]
-
-            for ip in ips_validas:
+            
+            for ip in ips_scope:
                 for protocolo in protocolos:
                     for puerto in puertos:
                         if puerto:
@@ -1897,9 +1891,8 @@ def urls_historicas(ejecucion_id, proyecto_id):
                         else:
                             url = f"{protocolo}://{ip}"
                         urls_from_ips.append(url)
-
-            print(
-                f"[gau] Buscando URLs históricas en {len(ips_validas)} IPs con múltiples puertos ({len(urls_from_ips)} URLs totales)...")
+            
+            print(f"[gau] Buscando URLs en {len(ips_scope)} IPs con puertos ({len(urls_from_ips)} URLs)...")
             for url in urls_from_ips:
                 print(f"[gau] Escaneando: {url}...")
                 urls.update(_search_gau(url))
@@ -1909,12 +1902,12 @@ def urls_historicas(ejecucion_id, proyecto_id):
         return {
             "tipo": "busqueda_urls_historicas",
             "dominios_scope": dominios_scope,
+            "ips_scope": ips_scope,
             "dominios_from_ips": dominios_from_ips,
             "subdominios_descubiertos": subdominios_descubiertos,
-            "ips_validas": ips_validas,
             "total_dominios": len(todos_los_dominios),
-            "total_ips": len(ips_validas),
-            "total_urls_ips_generadas": len(urls_from_ips) if ips_validas else 0,
+            "total_ips": len(ips_scope),
+            "total_urls_ips_generadas": len(urls_from_ips) if ips_scope else 0,
             "total": len(urls),
             "urls": urls
         }
