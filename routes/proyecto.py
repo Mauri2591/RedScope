@@ -33,6 +33,20 @@ from rq import Queue
 from routes.utils import abort
 import json
 
+# Timeouts específicos por handler OSINT (en segundos)
+OSINT_JOB_TIMEOUTS = {
+    'discovery_subdominios': 1800,              # 30 min
+    'enumeracion_servicios': 1200,              # 20 min
+    'mapeo_ips': 1200,                          # 20 min
+    'recon_cloud': 1800,                        # 30 min
+    'escaneo_repositorios': 600,                # 10 min
+    'analisis_dns': 900,                        # 15 min
+    'busqueda_endpoints': 1200,                 # 20 min
+    'google_dorking': 900,                      # 15 min
+    'urls_historicas': 7200,                    # 2 horas ⚠️
+    'sensitive_data_extraction': 1800,          # 30 min
+}
+
 proyecto_bp = Blueprint('proyecto', __name__)
 
 # ------------------------------------------------------------------
@@ -1272,7 +1286,9 @@ def run_osint():
     # Encolar job en cola OSINT
     q = Queue('osint', connection=Config.redis_conn)
     full_path = f"tasks.osint.handlers.{handler_name}"
-    q.enqueue(full_path, ejecucion_id, proyecto_id, job_timeout=3600)
-
+    
+    job_timeout = OSINT_JOB_TIMEOUTS.get(handler_name, 3600)
+    q.enqueue(full_path, ejecucion_id, proyecto_id, job_timeout=job_timeout)
+    
     print(f"[OSINT/RUN] Job encolado exitosamente: {handler_name}")
     return jsonify({"success": True, "ejecucion_id": ejecucion_id})
