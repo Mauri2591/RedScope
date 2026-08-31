@@ -13,7 +13,6 @@ from flask import (
 
 from db import get_db_connection
 from config import Config
-from config import JOB_TIMEOUTS
 from models.proyecto import Proyecto
 from models.cloud_ejecucion import CloudEjecucion
 from models.osint_ejecucion import OsintEjecucion
@@ -384,15 +383,21 @@ def obtener_acciones_cloud(servicio_id):
 @login_required
 def run_roles():
     data = request.get_json(silent=True) or {}
+
     proyecto_id = data.get('proyecto_id')
     accion_id = data.get('accion_id')
     usuario_id = session.get('user_id')
 
     if not proyecto_id or not accion_id:
-        return jsonify({"success": False, "message": "proyecto_id y accion_id son obligatorios"}), 400
+        return jsonify({
+            "success": False,
+            "message": "proyecto_id y accion_id son obligatorios"
+        }), 400
 
     conn = get_db_connection()
     cursor = conn.cursor()
+
+    # Siempre inserta una nueva ejecución
     cursor.execute("""
         INSERT INTO cloud_ejecuciones
         (proyecto_id, accion_id, usuario_id, estado, fecha_creacion, estado_id)
@@ -400,13 +405,19 @@ def run_roles():
     """, (proyecto_id, accion_id, usuario_id))
 
     ejecucion_id = cursor.lastrowid
+
     conn.commit()
     cursor.close()
     conn.close()
 
+    q = Queue(connection=Config.redis_conn)
+
     accion = Proyecto.get_accion_by_id(accion_id)
     if not accion:
-        return jsonify({"success": False, "message": "Acción inválida"}), 400
+        return jsonify({
+            "success": False,
+            "message": "Acción inválida"
+        }), 400
 
     handler_path = accion['handler']
     module_path, function_name = handler_path.rsplit('.', 1)
@@ -415,15 +426,18 @@ def run_roles():
         module = importlib.import_module(f"tasks.{module_path}")
         func = getattr(module, function_name)
     except Exception as e:
-        return jsonify({"success": False, "message": f"Error cargando handler: {str(e)}"}), 500
+        return jsonify({
+            "success": False,
+            "message": f"Error cargando handler: {str(e)}"
+        }), 500
 
-    job_timeout = JOB_TIMEOUTS.get(function_name, JOB_TIMEOUTS['default'])
-
-    q = Queue(connection=Config.redis_conn)
+    # q.enqueue(func, ejecucion_id, proyecto_id)
     full_path = f"tasks.{module_path}.{function_name}"
-    q.enqueue(full_path, ejecucion_id, proyecto_id, job_timeout=job_timeout)
-
-    return jsonify({"success": True, "ejecucion_id": ejecucion_id})
+    q.enqueue(full_path, ejecucion_id, proyecto_id, job_timeout=3600)
+    return jsonify({
+        "success": True,
+        "ejecucion_id": ejecucion_id
+    })
 
 
 @proyecto_bp.route('/cloud/resultados/<int:proyecto_id>')
@@ -1216,8 +1230,6 @@ def osint_ejecuciones(proyecto_id):
 
     return jsonify(data)
 
-
-
 @proyecto_bp.route('/osint/run', methods=['POST'])
 @login_required
 def run_osint():
@@ -1226,34 +1238,41 @@ def run_osint():
     servicio_osint_id = data.get('servicio_osint_id')
     usuario_id = session.get('user_id')
 
-    print(f"[OSINT/RUN] proyecto_id={proyecto_id}, servicio_osint_id={servicio_osint_id}")
+    # DEBUG
+    print(f"[OSINT/RUN] proyecto_id={proyecto_id}, servicio_osint_id={servicio_osint_id} (type={type(servicio_osint_id)}), usuario_id={usuario_id}")
 
+    # Validar proyecto
     sector_id = session.get('sector_id')
     proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
     if not proyecto or proyecto['tipo_proyecto'] != 'OSINT':
+        print(f"[OSINT/RUN] Proyecto inválido: {proyecto}")
         return jsonify({"success": False, "message": "Proyecto OSINT no válido"}), 400
 
+    # Convertir a int si es string
     try:
         servicio_osint_id = int(servicio_osint_id)
     except (ValueError, TypeError):
         return jsonify({"success": False, "message": "servicio_osint_id inválido"}), 400
 
+    # Mapeo: ID -> nombre de función handler (DINÁMICO desde BD, no hardcodeado)
     handlers_map = OsintEjecucion.get_handlers_map()
+
     handler_name = handlers_map.get(servicio_osint_id)
-    
     if not handler_name:
         return jsonify({"success": False, "message": f"Servicio {servicio_osint_id} no encontrado"}), 400
 
+    # Crear ejecución usando el modelo
     ejecucion_id = OsintEjecucion.crear(proyecto_id, servicio_osint_id, usuario_id)
     if not ejecucion_id:
         return jsonify({"success": False, "message": "Error al crear ejecución"}), 500
 
-    # TIMEOUT ESPECÍFICO por handler
-    job_timeout = JOB_TIMEOUTS.get(handler_name, JOB_TIMEOUTS['default'])
+    # Encolar job en cola OSINT (igual que AWS - importar función directo)
+    q = Queue('osint', connection=Config.redis_conn)
 
+    # Encolar job en cola OSINT
     q = Queue('osint', connection=Config.redis_conn)
     full_path = f"tasks.osint.handlers.{handler_name}"
-    q.enqueue(full_path, ejecucion_id, proyecto_id, job_timeout=job_timeout)
+    q.enqueue(full_path, ejecucion_id, proyecto_id, job_timeout=3600)
 
-    print(f"[OSINT/RUN] Job encolado: {handler_name} (timeout={job_timeout}s)")
+    print(f"[OSINT/RUN] Job encolado exitosamente: {handler_name}")
     return jsonify({"success": True, "ejecucion_id": ejecucion_id})
