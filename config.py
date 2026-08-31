@@ -72,5 +72,5 @@ OSINT_JOB_TIMEOUTS = {
     'busqueda_endpoints': 1200,                 # 20 min
     'google_dorking': 900,                      # 15 min
     'urls_historicas': 7200,                    # 2 horas ⚠️
-    'sensitive_data_extraction': 5,          # 30 min
+    'sensitive_data_extraction': 10,          # 30 min
 }
