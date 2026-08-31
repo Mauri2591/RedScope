@@ -341,6 +341,7 @@ th {
     background-color: var(--color-blanco-secundario);
     color: #000;
     border: .1rem solid var(--color-blanco-terciario);
+    margin: .1rem 0;
 }
 
 .container-gestion-checks{
