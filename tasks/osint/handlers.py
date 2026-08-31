@@ -1870,7 +1870,7 @@ def urls_historicas(ejecucion_id, proyecto_id):
         # 6. Validar que hay algo para escanear
         if not todos_los_dominios and not ips_validas:
             raise Exception(
-                "No hay dominios ni IPs para escanear")
+                "No hay dominios ni subdominios ni IPs para escanear")
 
         urls = set()
 
