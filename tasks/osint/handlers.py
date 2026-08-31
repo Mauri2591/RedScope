@@ -2099,8 +2099,6 @@ def _ejecutar_google_dork(dominio, dork_query):
 # ════════════════════════════════════════════════════════════════════════════════
 # SENSITIVE DATA EXTRACTION - ADAPTADO CON MEJORAS
 # ════════════════════════════════════════════════════════════════════════════════
-
-
 PALABRAS_CLAVE = [
     # CRÍTICOS - API & Tokens
     'api_key', 'apikey', 'access_token', 'auth_token',
@@ -2156,6 +2154,8 @@ PATRONES_VULNERABILIDADES = {
         'descripcion': 'Credenciales hardcodeadas'
     }
 }
+
+
 # ════════════════════════════════════════════════════════════════════════════════
 # FUNCIONES AUXILIARES
 # ════════════════════════════════════════════════════════════════════════════════
@@ -2331,11 +2331,9 @@ def _es_asignacion_legit(linea, palabra_clave):
     # Patrones de asignación REAL
 
     # Patrón 1: var/let/const password = "valor"
-    patron_var_assign = r'^(var|let|const|private|public|protected|static)?\s*\w*' + \
-        re.escape(palabra_clave) + r'\s*[:=]\s*["\']'
+    patron_var_assign = r'^(var|let|const|private|public|protected|static)?\s*\w*' + re.escape(palabra_clave) + r'\s*[:=]\s*["\']'
     if re.search(patron_var_assign, linea_limpia, re.IGNORECASE):
-        valor_match = re.search(
-            patron_var_assign + r'([^"\']+)', linea_limpia, re.IGNORECASE)
+        valor_match = re.search(patron_var_assign + r'([^"\']+)', linea_limpia, re.IGNORECASE)
         if valor_match:
             valor = valor_match.group(valor_match.lastindex)
             if valor.lower() != palabra_clave.lower():
@@ -2345,8 +2343,7 @@ def _es_asignacion_legit(linea, palabra_clave):
     # Patrón 2: password: "valor" (objeto JS)
     patron_obj = r'\b' + re.escape(palabra_clave) + r'\s*:\s*["\']'
     if re.search(patron_obj, linea_limpia, re.IGNORECASE):
-        valor_match = re.search(
-            patron_obj + r'([^"\']+)', linea_limpia, re.IGNORECASE)
+        valor_match = re.search(patron_obj + r'([^"\']+)', linea_limpia, re.IGNORECASE)
         if valor_match:
             valor = valor_match.group(1)
             if valor.lower() != palabra_clave.lower() and len(valor) > 3:
@@ -2356,8 +2353,7 @@ def _es_asignacion_legit(linea, palabra_clave):
     # Patrón 3: password="valor" (atributo HTML)
     patron_html = r'\b' + re.escape(palabra_clave) + r'\s*=\s*["\']'
     if re.search(patron_html, linea_limpia, re.IGNORECASE):
-        valor_match = re.search(
-            patron_html + r'([^"\']+)', linea_limpia, re.IGNORECASE)
+        valor_match = re.search(patron_html + r'([^"\']+)', linea_limpia, re.IGNORECASE)
         if valor_match:
             valor = valor_match.group(1)
             if valor.lower() != palabra_clave.lower() and len(valor) > 3:
@@ -2368,7 +2364,7 @@ def _es_asignacion_legit(linea, palabra_clave):
     if re.search(r'(this|self|obj)\.' + re.escape(palabra_clave) + r'\s*=\s*["\']',
                  linea_limpia, re.IGNORECASE):
         valor_match = re.search(r'(this|self|obj)\.' + re.escape(palabra_clave) + r'\s*=\s*["\']' + r'([^"\']+)',
-                                linea_limpia, re.IGNORECASE)
+                               linea_limpia, re.IGNORECASE)
         if valor_match:
             valor = valor_match.group(valor_match.lastindex)
             if valor.lower() != palabra_clave.lower() and len(valor) > 3:
@@ -2376,10 +2372,8 @@ def _es_asignacion_legit(linea, palabra_clave):
         return False
 
     # Patrón 5: tokens/keys sin comillas
-    patron_sin_comillas = r'\b' + \
-        re.escape(palabra_clave) + r'\s*[:=]\s*([a-zA-Z0-9_\-\.]{16,})'
-    match_sin_comillas = re.search(
-        patron_sin_comillas, linea_limpia, re.IGNORECASE)
+    patron_sin_comillas = r'\b' + re.escape(palabra_clave) + r'\s*[:=]\s*([a-zA-Z0-9_\-\.]{16,})'
+    match_sin_comillas = re.search(patron_sin_comillas, linea_limpia, re.IGNORECASE)
     if match_sin_comillas:
         valor = match_sin_comillas.group(1)
         if not re.match(r'^(string|number|boolean|any|void)$', valor, re.IGNORECASE):
@@ -2465,8 +2459,7 @@ def _buscar_config_javascript(contenido, url_origen):
 
     for patron_nombre, config_patron in patrones_config.items():
         try:
-            matches = re.finditer(
-                config_patron['patron'], contenido, re.IGNORECASE)
+            matches = re.finditer(config_patron['patron'], contenido, re.IGNORECASE)
             for match in matches:
                 valor = match.group(1)
 
@@ -2697,8 +2690,7 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
         try:
             # ✨ MEJORADO: Usar severidad REAL de la BD
             nivel_recomendado = config['nivel_recomendado']
-            severidad_real = _obtener_severidad_real(
-                nivel_recomendado, mapa_severidades)
+            severidad_real = _obtener_severidad_real(nivel_recomendado, mapa_severidades)
 
             regex = re.compile(config['patron'], re.IGNORECASE | re.MULTILINE)
 
@@ -2734,8 +2726,7 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
 
 def sensitive_data_extraction(ejecucion_id, proyecto_id):
     """Extracción de datos sensibles - VERSIÓN MEJORADA"""
-    print(
-        f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
+    print(f"[OSINT-SENSITIVE-DATA] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
         severidades = Proyecto.get_severidades()
@@ -2786,13 +2777,11 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         for url in urls_scope.keys():
             # Extraer dominio de "http://ejemplo.com" o "https://ejemplo.com"
             if "://" in url:
-                # Quita protocolo y puerto
-                dominio_part = url.split("://", 1)[1].split(":")[0]
+                dominio_part = url.split("://", 1)[1].split(":")[0]  # Quita protocolo y puerto
                 subdominios_scope.add(dominio_part.lower())
 
         try:
-            subdominios_desc = OsintEjecucion.get_discovered_subdomains(
-                proyecto_id)
+            subdominios_desc = OsintEjecucion.get_discovered_subdomains(proyecto_id)
             if subdominios_desc:
                 for subdom in subdominios_desc[:20]:
                     subdom_lower = subdom.lower()
@@ -2801,14 +2790,11 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     if subdom_lower not in subdominios_scope:
                         urls_fase2[f"http://{subdom}"] = subdom
                         urls_fase2[f"https://{subdom}"] = subdom
-                        print(
-                            f"[sensitive_data] Discovery subdominio agregado: {subdom}")
+                        print(f"[sensitive_data] Discovery subdominio agregado: {subdom}")
                     else:
-                        print(
-                            f"[sensitive_data] Subdominio ya en scope, omitido: {subdom}")
+                        print(f"[sensitive_data] Subdominio ya en scope, omitido: {subdom}")
         except Exception as e:
-            print(
-                f"[sensitive_data] Error al obtener subdominios descubiertos: {type(e).__name__}")
+            print(f"[sensitive_data] Error al obtener subdominios descubiertos: {type(e).__name__}")
 
         # Merge: Scope (FASE 1) + Discovery (FASE 2) sin duplicados
         # Prioridad: scope (se agrega primero)
@@ -2818,16 +2804,14 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         if not todas_las_urls:
             raise Exception("No hay URLs")
 
-        print(
-            f"[sensitive_data] Total URLs: {len(todas_las_urls)} ({fase_usada})")
+        print(f"[sensitive_data] Total URLs: {len(todas_las_urls)} ({fase_usada})")
 
-        # ⚠️ LÍMITE: máx 50 URLs (aumentado para mejor cobertura de IPs + puertos)
-        urls_a_analizar = list(todas_las_urls.keys())[:50]
+        # ⚠️ LÍMITE: máx 200 URLs (aumentado para cobertura completa: IPs + puertos + subdominios)
+        urls_a_analizar = list(todas_las_urls.keys())[:200]
         urls_a_analizar = [url for url in urls_a_analizar
-                           if '.min.js' not in url.lower()]
+                   if '.min.js' not in url.lower()]
 
-        print(
-            f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
+        print(f"[sensitive_data] URLs después de filtrar minificados: {len(urls_a_analizar)}")
 
         hallazgos_secretos = {}
         hallazgos_vulnerabilidades = {}
@@ -2857,14 +2841,12 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                         continue
 
                     response.raise_for_status()
-                    contenido = response.content[:5242880].decode(
-                        'utf-8', errors='ignore')
+                    contenido = response.content[:5242880].decode('utf-8', errors='ignore')
 
                     # ✨ MEJORADO: Capturar URL final después de redirects
                     final_url = response.url
                     if final_url != url:
-                        print(
-                            f"[sensitive_data] Redirigido: {url} → {final_url}")
+                        print(f"[sensitive_data] Redirigido: {url} → {final_url}")
 
                 except requests.Timeout:
                     print(f"[sensitive_data] TIMEOUT {url}")
@@ -2878,13 +2860,11 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
 
                     # ✨ NUEVO: Análisis de elementos HTML sensibles
                     # Usar final_url (la URL después de redirects) para reportar hallazgos
-                    elementos_sensibles = _buscar_inputs_hidden(
-                        contenido, final_url)
+                    elementos_sensibles = _buscar_inputs_hidden(contenido, final_url)
                     if elementos_sensibles:
                         hallazgos_html_sensibles[final_url] = elementos_sensibles
                         total_html_sensibles += len(elementos_sensibles)
-                        print(
-                            f"  [HALLAZGO] {len(elementos_sensibles)} elementos HTML sensibles")
+                        print(f"  [HALLAZGO] {len(elementos_sensibles)} elementos HTML sensibles")
 
                     # Scripts externos - ⚠️ LÍMITE: 5 scripts por URL
                     for script in soup.find_all('script', src=True)[:5]:
@@ -2912,11 +2892,9 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                                 continue
 
                             js_response.raise_for_status()
-                            js_contenido = js_response.content[:5242880].decode(
-                                'utf-8', errors='ignore')
+                            js_contenido = js_response.content[:5242880].decode('utf-8', errors='ignore')
 
-                            secretos = _buscar_secretos_en_contenido(
-                                js_contenido, js_url)
+                            secretos = _buscar_secretos_en_contenido(js_contenido, js_url)
                             total_secretos += len(secretos)
                             if secretos:
                                 hallazgos_secretos[js_url] = secretos
@@ -2949,8 +2927,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                                     contenido_inline, inline_url, mapa_severidades)
                                 if vulnerabilidades:
                                     hallazgos_vulnerabilidades[inline_url] = vulnerabilidades
-                                    total_vulnerabilidades += len(
-                                        vulnerabilidades)
+                                    total_vulnerabilidades += len(vulnerabilidades)
 
                 except Exception as e:
                     print(f"  [WARN] Parsing {url}: {type(e).__name__}")
