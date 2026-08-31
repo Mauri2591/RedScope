@@ -59,3 +59,17 @@ class Config:
     #Anthropic
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
     CLAUDE_HABILITAR = os.getenv("CLAUDE_HABILITAR", "true").lower() == "true"
+    
+
+    #Jobs de osint    
+    JOB_TIMEOUTS = {
+    'busqueda_secretos_repositorios': 600,      # 10 min
+    'urls_historicas': 7200,                     # 2 horas
+    'escaneo_puertos': 3600,                     # 1 hora
+    'escaneo_certificados': 1200,               # 20 min
+    'busqueda_dominios': 1800,                  # 30 min
+    'busqueda_direcciones_ip': 1200,            # 20 min
+    
+    # Otras acciones (cloud/run-roles)
+    'default': 3600  # fallback 1 hora
+}
