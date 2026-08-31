@@ -456,8 +456,7 @@ def _get_whois_info(ip, timeout=5):
     if cached:
         return {
             'organizacion': cached.get('organizacion', 'unknown'),
-            'pais': cached.get('pais', 'unknown'),
-            'red': 'unknown'
+            'pais': cached.get('pais', 'unknown')
         }
     
     try:
@@ -474,15 +473,14 @@ def _get_whois_info(ip, timeout=5):
             
             result = {
                 'organizacion': asn,
-                'pais': data.get('country', 'unknown'),
-                'red': 'unknown'
+                'pais': data.get('country', 'unknown')
             }
             _save_ipinfo_cache(ip, result)
             return result
     except Exception as e:
         print(f"[whois] Error: {type(e).__name__}")
     
-    return {'organizacion': 'unknown', 'pais': 'unknown', 'red': 'unknown'}
+    return {'organizacion': 'unknown', 'pais': 'unknown'}
 
 def _get_cached_ipinfo(ip):
     """Obtiene datos del cache local"""
@@ -569,8 +567,7 @@ def _get_whois_info(ip, timeout=5):
     
     return {
         'organizacion': 'unknown',
-        'pais': 'unknown',
-        'red': 'unknown'
+        'pais': 'unknown'
     }
 
 
@@ -801,7 +798,6 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                     'pais': 'unknown',
                     'ciudad': 'unknown',
                     'organizacion': 'unknown',
-                    'red': 'unknown',
                     'dominios_que_resuelven': [],
                     'valido': False
                 })
