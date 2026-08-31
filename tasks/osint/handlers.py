@@ -397,61 +397,52 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
 # ════════════════════════════════════════════════════════════════════════════════
 
 def _get_asn_info(ip, timeout=5):
-    """Obtiene ASN usando DNS reverse a cymru.com (LOCAL)"""
+    """Obtiene ASN usando API HTTP (abuseipdb o ipinfo) - sin cymru.com"""
     try:
-        partes = ip.split('.')
-        reversed_ip = '.'.join(reversed(partes))
-        query_domain = f"{reversed_ip}.asn.cymru.com"
-
-        # Usar dig para obtener TXT records
-        resultado = subprocess.run(
-            ['dig', query_domain, 'TXT', '+short'],
-            capture_output=True,
-            text=True,
-            timeout=timeout
+        import requests
+        
+        response = requests.get(
+            f"https://ipinfo.io/{ip}/json",
+            timeout=timeout,
+            verify=False
         )
-
-        if resultado.returncode == 0 and resultado.stdout.strip():
-            txt_record = resultado.stdout.strip().strip('"')
-            if '|' in txt_record:
-                partes_txt = txt_record.split('|')
-                return {
-                    'asn': partes_txt[0].strip() if len(partes_txt) > 0 else 'unknown',
-                    'isp': partes_txt[1].strip() if len(partes_txt) > 1 else 'unknown'
-                }
-    except Exception:
-        pass
-
+        
+        if response.status_code == 200:
+            data = response.json()
+            asn = data.get('asn', 'unknown')
+            org = data.get('org', 'unknown')
+            return {
+                'asn': asn.split()[0] if asn else 'unknown',
+                'isp': org
+            }
+    except Exception as e:
+        print(f"[asn-api] Error: {type(e).__name__}")
+    
     return {'asn': 'unknown', 'isp': 'unknown'}
 
 
-def _get_geoip_info(ip):
-    """Obtiene geolocalización usando geoip2 (LOCAL si está instalado)"""
+def _get_geoip_info(ip, timeout=5):
+    """Obtiene geolocalización usando API HTTP (ipinfo.io)"""
     try:
-        # Intenta usar geoip2-python si está instalado
-        import geoip2.database
-
-        # Rutas comunes de MaxMind GeoIP2
-        db_paths = [
-            '/usr/share/GeoIP/GeoLite2-City.mmdb',
-            '/var/lib/GeoIP/GeoLite2-City.mmdb',
-            '/opt/GeoIP/GeoLite2-City.mmdb'
-        ]
-
-        for db_path in db_paths:
-            if os.path.exists(db_path):
-                reader = geoip2.database.Reader(db_path)
-                response = reader.city(ip)
-                return {
-                    'pais': response.country.iso_code or 'unknown',
-                    'ciudad': response.city.name or 'unknown',
-                    'latitud': response.location.latitude or 'unknown',
-                    'longitud': response.location.longitude or 'unknown'
-                }
-    except Exception:
-        pass
-
-    # Fallback: retorna unknown
+        import requests
+        
+        response = requests.get(
+            f"https://ipinfo.io/{ip}/json",
+            timeout=timeout,
+            verify=False
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                'pais': data.get('country', 'unknown'),
+                'ciudad': data.get('city', 'unknown'),
+                'latitud': data.get('loc', 'unknown').split(',')[0] if data.get('loc') else 'unknown',
+                'longitud': data.get('loc', 'unknown').split(',')[1] if data.get('loc') else 'unknown'
+            }
+    except Exception as e:
+        print(f"[geoip-api] Error: {type(e).__name__}")
+    
     return {
         'pais': 'unknown',
         'ciudad': 'unknown',
@@ -461,40 +452,27 @@ def _get_geoip_info(ip):
 
 
 def _get_whois_info(ip, timeout=5):
-    """Obtiene WHOIS info (LOCAL usando comando whois)"""
+    """Obtiene info usando API HTTP (ipinfo.io) - sin WHOIS directo"""
     try:
-        resultado = subprocess.run(
-            ['whois', ip],
-            capture_output=True,
-            text=True,
-            timeout=timeout
+        import requests
+        
+        # ipinfo.io - GRATIS, requiere HTTP/HTTPS
+        response = requests.get(
+            f"https://ipinfo.io/{ip}/json",
+            timeout=timeout,
+            verify=False  # Por si hay cert issues
         )
-
-        if resultado.returncode == 0:
-            lineas = resultado.stdout.split('\n')
-            info = {
-                'organizacion': 'unknown',
-                'pais': 'unknown',
-                'red': 'unknown'
+        
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                'organizacion': data.get('org', 'unknown').split()[0] if data.get('org') else 'unknown',
+                'pais': data.get('country', 'unknown'),
+                'red': data.get('asn', 'unknown')
             }
-
-            for linea in lineas:
-                linea_lower = linea.lower()
-
-                if 'organization' in linea_lower:
-                    info['organizacion'] = linea.split(
-                        ':')[1].strip() if ':' in linea else 'unknown'
-                elif 'country' in linea_lower and info['pais'] == 'unknown':
-                    info['pais'] = linea.split(
-                        ':')[1].strip() if ':' in linea else 'unknown'
-                elif 'netname' in linea_lower or 'network name' in linea_lower:
-                    info['red'] = linea.split(
-                        ':')[1].strip() if ':' in linea else 'unknown'
-
-            return info
-    except Exception:
-        pass
-
+    except Exception as e:
+        print(f"[whois-api] Error: {type(e).__name__}")
+    
     return {
         'organizacion': 'unknown',
         'pais': 'unknown',
