@@ -20,6 +20,7 @@ import sys
 from bs4 import BeautifulSoup
 import re
 from urllib.parse import urljoin
+CACHE_FILE = '/tmp/ipinfo_cache.json'
 
 # ══════════════════════════════════════════════════════════════════
 # HELPERS GLOBALES OSINT
@@ -397,32 +398,121 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
 # ════════════════════════════════════════════════════════════════════════════════
 
 def _get_asn_info(ip, timeout=5):
-    """Obtiene ASN desde ipinfo.io"""
+    """Obtiene ASN desde ipinfo.io (con cache)"""
+    cached = _get_cached_ipinfo(ip)
+    if cached:
+        return {'asn': cached['asn'], 'isp': cached['isp']}
+    
     try:
         import requests
-        
         response = requests.get(
             f"https://ipinfo.io/{ip}/json",
             timeout=timeout,
             verify=False
         )
-        
         if response.status_code == 200:
             data = response.json()
-            asn = data.get('asn', 'unknown')
             isp = data.get('org', 'unknown')
+            asn = isp.split()[0] if isp and isp != 'unknown' else 'unknown'
             
-            # Extraer ASN del campo asn (ej: "AS7303")
-            asn_number = asn.split()[0] if asn and asn != 'unknown' else 'unknown'
-            
-            return {
-                'asn': asn_number,
-                'isp': isp
-            }
+            result = {'asn': asn, 'isp': isp}
+            _save_ipinfo_cache(ip, result)
+            return result
     except Exception as e:
         print(f"[asn] Error: {type(e).__name__}")
     
     return {'asn': 'unknown', 'isp': 'unknown'}
+
+
+def _get_geoip_info(ip, timeout=5):
+    """Obtiene geolocalización desde ipinfo.io (con cache)"""
+    cached = _get_cached_ipinfo(ip)
+    if cached:
+        return {'pais': cached['pais'], 'ciudad': cached['ciudad']}
+    
+    try:
+        import requests
+        response = requests.get(
+            f"https://ipinfo.io/{ip}/json",
+            timeout=timeout,
+            verify=False
+        )
+        if response.status_code == 200:
+            data = response.json()
+            result = {
+                'pais': data.get('country', 'unknown'),
+                'ciudad': data.get('city', 'unknown')
+            }
+            _save_ipinfo_cache(ip, result)
+            return result
+    except Exception as e:
+        print(f"[geoip] Error: {type(e).__name__}")
+    
+    return {'pais': 'unknown', 'ciudad': 'unknown'}
+
+def _get_whois_info(ip, timeout=5):
+    """Obtiene info WHOIS desde ipinfo.io (con cache)"""
+    cached = _get_cached_ipinfo(ip)
+    if cached:
+        return {
+            'organizacion': cached.get('organizacion', 'unknown'),
+            'pais': cached.get('pais', 'unknown'),
+            'red': 'unknown'
+        }
+    
+    try:
+        import requests
+        response = requests.get(
+            f"https://ipinfo.io/{ip}/json",
+            timeout=timeout,
+            verify=False
+        )
+        if response.status_code == 200:
+            data = response.json()
+            isp = data.get('org', 'unknown')
+            asn = isp.split()[0] if isp and isp != 'unknown' else 'unknown'
+            
+            result = {
+                'organizacion': asn,
+                'pais': data.get('country', 'unknown'),
+                'red': 'unknown'
+            }
+            _save_ipinfo_cache(ip, result)
+            return result
+    except Exception as e:
+        print(f"[whois] Error: {type(e).__name__}")
+    
+    return {'organizacion': 'unknown', 'pais': 'unknown', 'red': 'unknown'}
+
+def _get_cached_ipinfo(ip):
+    """Obtiene datos del cache local"""
+    try:
+        from pathlib import Path
+        cache_file = '/tmp/ipinfo_cache.json'
+        if Path(cache_file).exists():
+            with open(cache_file, 'r') as f:
+                cache = json.load(f)
+                if ip in cache:
+                    return cache[ip]
+    except:
+        pass
+    return None
+
+
+def _save_ipinfo_cache(ip, ipinfo):
+    """Guarda datos en cache local"""
+    try:
+        from pathlib import Path
+        cache_file = '/tmp/ipinfo_cache.json'
+        cache = {}
+        if Path(cache_file).exists():
+            with open(cache_file, 'r') as f:
+                cache = json.load(f)
+        cache[ip] = ipinfo
+        with open(cache_file, 'w') as f:
+            json.dump(cache, f, indent=2)
+    except:
+        pass
 
 
 def _get_geoip_info(ip, timeout=5):
