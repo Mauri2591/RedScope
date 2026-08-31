@@ -12,7 +12,7 @@ from flask import (
 )
 
 from db import get_db_connection
-from config import Config
+from config import Config,OSINT_JOB_TIMEOUTS
 from models.proyecto import Proyecto
 from models.cloud_ejecucion import CloudEjecucion
 from models.osint_ejecucion import OsintEjecucion
@@ -32,20 +32,6 @@ from redis import Redis
 from rq import Queue
 from routes.utils import abort
 import json
-
-# Timeouts específicos por handler OSINT (en segundos)
-OSINT_JOB_TIMEOUTS = {
-    'discovery_subdominios': 1800,              # 30 min
-    'enumeracion_servicios': 1200,              # 20 min
-    'mapeo_ips': 1200,                          # 20 min
-    'recon_cloud': 1800,                        # 30 min
-    'escaneo_repositorios': 600,                # 10 min
-    'analisis_dns': 900,                        # 15 min
-    'busqueda_endpoints': 1200,                 # 20 min
-    'google_dorking': 900,                      # 15 min
-    'urls_historicas': 7200,                    # 2 horas ⚠️
-    'sensitive_data_extraction': 1800,          # 30 min
-}
 
 proyecto_bp = Blueprint('proyecto', __name__)
 
