@@ -397,7 +397,7 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
 # ════════════════════════════════════════════════════════════════════════════════
 
 def _get_asn_info(ip, timeout=5):
-    """Obtiene ASN usando API HTTP (abuseipdb o ipinfo) - sin cymru.com"""
+    """Obtiene ASN desde ipinfo.io"""
     try:
         import requests
         
@@ -410,13 +410,17 @@ def _get_asn_info(ip, timeout=5):
         if response.status_code == 200:
             data = response.json()
             asn = data.get('asn', 'unknown')
-            org = data.get('org', 'unknown')
+            isp = data.get('org', 'unknown')
+            
+            # Extraer ASN del campo asn (ej: "AS7303")
+            asn_number = asn.split()[0] if asn and asn != 'unknown' else 'unknown'
+            
             return {
-                'asn': asn.split()[0] if asn else 'unknown',
-                'isp': org
+                'asn': asn_number,
+                'isp': isp
             }
     except Exception as e:
-        print(f"[asn-api] Error: {type(e).__name__}")
+        print(f"[asn] Error: {type(e).__name__}")
     
     return {'asn': 'unknown', 'isp': 'unknown'}
 
