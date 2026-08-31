@@ -428,7 +428,12 @@ def _get_geoip_info(ip, timeout=5):
     """Obtiene geolocalización desde ipinfo.io (con cache)"""
     cached = _get_cached_ipinfo(ip)
     if cached:
-        return {'pais': cached['pais'], 'ciudad': cached['ciudad']}
+        return {
+            'pais': cached['pais'], 
+            'ciudad': cached['ciudad'],
+            'latitud': cached.get('latitud', 'unknown'),
+            'longitud': cached.get('longitud', 'unknown')
+        }
     
     try:
         import requests
@@ -439,16 +444,24 @@ def _get_geoip_info(ip, timeout=5):
         )
         if response.status_code == 200:
             data = response.json()
+            
+            # Extraer coordenadas del campo "loc" (formato: "latitud,longitud")
+            loc = data.get('loc', '').split(',')
+            latitud = loc[0] if len(loc) > 0 else 'unknown'
+            longitud = loc[1] if len(loc) > 1 else 'unknown'
+            
             result = {
                 'pais': data.get('country', 'unknown'),
-                'ciudad': data.get('city', 'unknown')
+                'ciudad': data.get('city', 'unknown'),
+                'latitud': latitud,
+                'longitud': longitud
             }
             _save_ipinfo_cache(ip, result)
             return result
     except Exception as e:
         print(f"[geoip] Error: {type(e).__name__}")
     
-    return {'pais': 'unknown', 'ciudad': 'unknown'}
+    return {'pais': 'unknown', 'ciudad': 'unknown', 'latitud': 'unknown', 'longitud': 'unknown'}
 
 def _get_whois_info(ip, timeout=5):
     """Obtiene info WHOIS desde ipinfo.io (con cache)"""
@@ -760,11 +773,12 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                     'origen_tipo': origen['tipo'],
                     'origen_fuente': origen['fuente'],
                     'fase': origen['fase'],
-                    # ✨ NUEVO: Información enriquecida
                     'asn': asn_info['asn'],
                     'isp': asn_info['isp'],
                     'pais': geo_info['pais'],
                     'ciudad': geo_info['ciudad'],
+                    'latitud': geo_info['latitud'],        # ← Cambiar ipinfo por geo_info
+                    'longitud': geo_info['longitud'],
                     'organizacion': whois_info['organizacion'],
                     'resuelve_a_dominio_scope': len([d for d in reverse_dominios if d['tipo'] == 'dominio_scope']) > 0,
                     'resuelve_a_subdominio_scope': len([d for d in reverse_dominios if d['tipo'] == 'subdominio_scope']) > 0,
