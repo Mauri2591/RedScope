@@ -2099,67 +2099,6 @@ def _ejecutar_google_dork(dominio, dork_query):
 # ════════════════════════════════════════════════════════════════════════════════
 # SENSITIVE DATA EXTRACTION - ADAPTADO CON MEJORAS
 # ════════════════════════════════════════════════════════════════════════════════
-
-PALABRAS_CLAVE = [
-    # CRÍTICOS - API & Tokens
-    'api_key', 'apikey', 'access_token', 'auth_token',
-    'bearer', 'x-api-key',
-
-    # CRÍTICOS - Contraseñas & Secretos
-    'password', 'passwd', 'secret', 'secret_key',
-
-    # CRÍTICOS - Cloud
-    'aws_access_key', 'aws_secret', 'AKIA',
-    'firebase_key', 'stripe_key', 'github_token',
-    'slack_token', 'discord_token',
-
-    # CRÍTICOS - Bases de Datos
-    'database_url', 'mongodb', 'postgresql',
-    'mysql_url', 'redis_url', 'connection_string',
-
-    # CRÍTICOS - Auth & JWT
-    'jwt', 'jwt_token', 'oauth_token', 'client_secret',
-
-    # CRÍTICOS - Encriptación
-    'private_key', 'public_key', 'certificate',
-    'ssh_key', 'ssh_private_key', 'rsa_private_key',
-    'openssh_key', 'private_pem', 'id_rsa'
-]
-
-PATRONES_VULNERABILIDADES = {
-    'reverse_shell_bash': {
-        'patron': r'bash\s+-i\s+>(&|\|)\s*/dev/tcp',
-        'nivel_recomendado': 'CRITICAL',
-        'descripcion': 'Reverse shell bash detectado'
-    },
-    'reverse_shell_netcat': {
-        'patron': r'nc\s+(-e|--exec)\s+/bin/(sh|bash)',
-        'nivel_recomendado': 'CRITICAL',
-        'descripcion': 'Reverse shell netcat detectado'
-    },
-    'eval_dinamico': {
-        'patron': r'\beval\s*\(',
-        'nivel_recomendado': 'HIGH',
-        'descripcion': 'Código dinámico ejecutado con eval()'
-    },
-    'hardcoded_credentials': {
-        'patron': r'(?:user|pass|password)\s*[:=]\s*["\'](?!password["\'])[^\s\"\'{}\[\]]{8,}["\']',
-        'nivel_recomendado': 'CRITICAL',
-        'descripcion': 'Credenciales hardcodeadas'
-    }
-}
-
-
-# ════════════════════════════════════════════════════════════════════════════════
-# SENSITIVE DATA EXTRACTION - ADAPTADO CON MEJORAS
-# ✅ Validación precisa + HTML sensible + IPs del scope
-# ════════════════════════════════════════════════════════════════════════════════
-
-import re
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-import requests
-
 PALABRAS_CLAVE = [
     # CRÍTICOS - API & Tokens
     'api_key', 'apikey', 'access_token', 'auth_token',
@@ -2889,6 +2828,11 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     response.raise_for_status()
                     contenido = response.content[:5242880].decode('utf-8', errors='ignore')
 
+                    # ✨ MEJORADO: Capturar URL final después de redirects
+                    final_url = response.url
+                    if final_url != url:
+                        print(f"[sensitive_data] Redirigido: {url} → {final_url}")
+
                 except requests.Timeout:
                     print(f"[sensitive_data] TIMEOUT {url}")
                     continue
@@ -2900,9 +2844,10 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     soup = BeautifulSoup(contenido, 'html.parser')
 
                     # ✨ NUEVO: Análisis de elementos HTML sensibles
-                    elementos_sensibles = _buscar_inputs_hidden(contenido, url)
+                    # Usar final_url (la URL después de redirects) para reportar hallazgos
+                    elementos_sensibles = _buscar_inputs_hidden(contenido, final_url)
                     if elementos_sensibles:
-                        hallazgos_html_sensibles[url] = elementos_sensibles
+                        hallazgos_html_sensibles[final_url] = elementos_sensibles
                         total_html_sensibles += len(elementos_sensibles)
                         print(f"  [HALLAZGO] {len(elementos_sensibles)} elementos HTML sensibles")
 
@@ -2916,7 +2861,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                             continue
 
                         if not js_url.startswith('http'):
-                            js_url = urljoin(url, js_url)
+                            js_url = urljoin(final_url, js_url)
 
                         try:
                             js_response = requests.get(
@@ -2955,16 +2900,18 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                         if not script.get('src') and script.string:
                             contenido_inline = script.string.strip()
                             if len(contenido_inline) > 50:
+                                # ✨ MEJORADO: Usar final_url (después de redirects)
+                                inline_url = f"{final_url}#inline-{i}"
                                 secretos = _buscar_secretos_en_contenido(
-                                    contenido_inline, f"{url}#inline-{i}")
+                                    contenido_inline, inline_url)
                                 if secretos:
-                                    hallazgos_secretos[f"{url}#inline-{i}"] = secretos
+                                    hallazgos_secretos[inline_url] = secretos
                                     total_secretos += len(secretos)
 
                                 vulnerabilidades = _deteccion_de_vulnerabilidades(
-                                    contenido_inline, f"{url}#inline-{i}", mapa_severidades)
+                                    contenido_inline, inline_url, mapa_severidades)
                                 if vulnerabilidades:
-                                    hallazgos_vulnerabilidades[f"{url}#inline-{i}"] = vulnerabilidades
+                                    hallazgos_vulnerabilidades[inline_url] = vulnerabilidades
                                     total_vulnerabilidades += len(vulnerabilidades)
 
                 except Exception as e:
