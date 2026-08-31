@@ -559,8 +559,7 @@ def _get_whois_info(ip, timeout=5):
             data = response.json()
             return {
                 'organizacion': data.get('org', 'unknown').split()[0] if data.get('org') else 'unknown',
-                'pais': data.get('country', 'unknown'),
-                'red': data.get('asn', 'unknown')
+                'pais': data.get('country', 'unknown')
             }
     except Exception as e:
         print(f"[whois-api] Error: {type(e).__name__}")
@@ -767,8 +766,6 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                     'pais': geo_info['pais'],
                     'ciudad': geo_info['ciudad'],
                     'organizacion': whois_info['organizacion'],
-                    'red': whois_info['red'],
-                    # ✨ NUEVO: Reverse lookup
                     'resuelve_a_dominio_scope': len([d for d in reverse_dominios if d['tipo'] == 'dominio_scope']) > 0,
                     'resuelve_a_subdominio_scope': len([d for d in reverse_dominios if d['tipo'] == 'subdominio_scope']) > 0,
                     'resuelve_a_subdominio_discovery': len([d for d in reverse_dominios if d['tipo'] == 'subdominio_discovery']) > 0,
