@@ -1274,6 +1274,7 @@ def run_osint():
     full_path = f"tasks.osint.handlers.{handler_name}"
     
     job_timeout = OSINT_JOB_TIMEOUTS.get(handler_name, 3600)
+    print(f"[OSINT/RUN] Handler: {handler_name}, Timeout: {job_timeout}s")  # ← AGREGA ESTO
     q.enqueue(full_path, ejecucion_id, proyecto_id, job_timeout=job_timeout)
     
     print(f"[OSINT/RUN] Job encolado exitosamente: {handler_name}")
