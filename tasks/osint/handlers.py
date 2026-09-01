@@ -1966,7 +1966,7 @@ def urls_historicas(ejecucion_id, proyecto_id):
         # 7. Buscar URLs de IPs CON MÚLTIPLES PUERTOS
         if ips_scope:
             urls_from_ips = []
-            puertos = ["", "8080", "8443", "3000", "5000", "8000"]
+            puertos = ["", "8080", "8443", "3000", "3001", "5000", "8000"]
             protocolos = ["http", "https"]
             
             for ip in ips_scope:
@@ -2348,6 +2348,7 @@ def _generar_urls_para_ip(ip_texto):
         urls_dict[f"http://{ip}:8080"] = f"{ip}:8080"
         urls_dict[f"https://{ip}:8443"] = f"{ip}:8443"
         urls_dict[f"http://{ip}:3000"] = f"{ip}:3000"
+        urls_dict[f"http://{ip}:3001"] = f"{ip}:3001"
         urls_dict[f"http://{ip}:5000"] = f"{ip}:5000"
         urls_dict[f"http://{ip}:8000"] = f"{ip}:8000"
 

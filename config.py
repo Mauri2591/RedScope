@@ -63,11 +63,11 @@ class Config:
     
 # Timeouts específicos por handler OSINT (RQ posee un delay de 60 segundos antes de iniciar el conteo)
 OSINT_JOB_TIMEOUTS = {
-    'discovery_subdominios': 1800,              # 30 min
+    'discovery_subdominios': 1200,              # 20 min
     'enumeracion_servicios': 1200,              # 20 min
     'mapeo_ips': 1200,                          # 20 min
-    'recon_cloud': 1800,                        # 30 min
-    'escaneo_repositorios': 600,                # 10 min
+    'recon_cloud': 3600,                        # 1 hora
+    'escaneo_repositorios': 1200,                # 20 min
     'analisis_dns': 900,                        # 15 min
     'busqueda_endpoints': 1800,                 # 30 min
     'google_dorking': 900,                      # 15 min
