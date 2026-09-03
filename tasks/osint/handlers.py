@@ -22,6 +22,8 @@ import re
 from urllib.parse import urljoin
 import dns.resolver
 from dns.exception import DNSException
+import phonenumbers
+from phonenumbers import PhoneNumberType, carrier, geocoder, timezone
 CACHE_FILE = '/tmp/ipinfo_cache.json'
 
 
@@ -2859,6 +2861,52 @@ def _extraer_emails_de_contenido(contenido, url_origen, dominios_scope=None):
 
 
 # ════════════════════════════════════════════════════════════════════════════════
+# EXTRACCIÓN DE TELÉFONOS (alimenta al handler phone_intelligence)
+# ════════════════════════════════════════════════════════════════════════════════
+
+# Región por defecto para interpretar números sin prefijo internacional
+_TEL_REGION_DEFAULT = "AR"
+_TIPO_TEL = {
+    PhoneNumberType.FIXED_LINE: "fijo",
+    PhoneNumberType.MOBILE: "movil",
+    PhoneNumberType.FIXED_LINE_OR_MOBILE: "fijo/movil",
+    PhoneNumberType.VOIP: "voip",
+    PhoneNumberType.TOLL_FREE: "gratuito",
+    PhoneNumberType.PREMIUM_RATE: "premium",
+}
+
+
+def _extraer_telefonos_de_contenido(contenido, url_origen, region=_TEL_REGION_DEFAULT):
+    """Extrae números de teléfono VÁLIDOS del contenido (HTML o JS) con phonenumbers.
+
+    Usa PhoneNumberMatcher + is_valid_number para evitar los falsos positivos de
+    un regex crudo (IDs, fechas, ViewState). Normaliza a E.164 y deduplica.
+    Devuelve: [{'telefono': E164, 'tipo': str, 'url': str}, ...]
+    """
+    encontrados = []
+    if not contenido:
+        return encontrados
+    vistos = set()
+    try:
+        for match in phonenumbers.PhoneNumberMatcher(contenido, region):
+            num = match.number
+            if not phonenumbers.is_valid_number(num):
+                continue
+            e164 = phonenumbers.format_number(num, phonenumbers.PhoneNumberFormat.E164)
+            if e164 in vistos:
+                continue
+            vistos.add(e164)
+            encontrados.append({
+                "telefono": e164,
+                "tipo": _TIPO_TEL.get(phonenumbers.number_type(num), "desconocido"),
+                "url": url_origen,
+            })
+    except Exception as e:
+        print(f"[_extraer_telefonos] Error en {url_origen}: {type(e).__name__}")
+    return encontrados
+
+
+# ════════════════════════════════════════════════════════════════════════════════
 # FUNCIÓN PRINCIPAL - MEJORADA CON IPs + HTML + VALIDACIÓN
 # ════════════════════════════════════════════════════════════════════════════════
 
@@ -2963,6 +3011,8 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         hallazgos_vulnerabilidades = {}
         hallazgos_html_sensibles = {}  # ✨ NUEVO
         hallazgos_emails = {}  # ✨ NUEVO: emails hardcodeados por URL
+        hallazgos_telefonos = {}  # ✨ NUEVO: teléfonos por URL
+        total_telefonos = 0  # ✨ NUEVO
         total_secretos = 0
         total_vulnerabilidades = 0
         total_html_sensibles = 0  # ✨ NUEVO
@@ -3028,6 +3078,13 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                         total_emails += len(emails_html)
                         print(f"  [HALLAZGO] {len(emails_html)} emails en HTML")
 
+                    # ✨ NUEVO: extraer teléfonos del HTML
+                    telefonos_html = _extraer_telefonos_de_contenido(contenido, final_url)
+                    if telefonos_html:
+                        hallazgos_telefonos[final_url] = telefonos_html
+                        total_telefonos += len(telefonos_html)
+                        print(f"  [HALLAZGO] {len(telefonos_html)} teléfonos en HTML")
+
                     # Scripts externos - ⚠️ LÍMITE: 5 scripts por URL
                     for script in soup.find_all('script', src=True)[:5]:
                         js_url = script['src']
@@ -3063,6 +3120,12 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                             if emails_js:
                                 hallazgos_emails.setdefault(js_url, []).extend(emails_js)
                                 total_emails += len(emails_js)
+
+                            # ✨ NUEVO: extraer teléfonos del JS
+                            telefonos_js = _extraer_telefonos_de_contenido(js_contenido, js_url)
+                            if telefonos_js:
+                                hallazgos_telefonos.setdefault(js_url, []).extend(telefonos_js)
+                                total_telefonos += len(telefonos_js)
 
                             secretos = _buscar_secretos_en_contenido(
                                 js_contenido, js_url)
@@ -3124,10 +3187,12 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             "total_vulnerabilidades_encontrados": total_vulnerabilidades,
             "total_html_sensibles_encontrados": total_html_sensibles,  # ✨ NUEVO
             "total_emails_encontrados": total_emails,  # ✨ NUEVO
+            "total_telefonos_encontrados": total_telefonos,  # ✨ NUEVO
             "secretos": hallazgos_secretos,
             "vulnerabilidades": hallazgos_vulnerabilidades,
             "elementos_html_sensibles": hallazgos_html_sensibles,  # ✨ NUEVO
             "emails_encontrados": hallazgos_emails,  # ✨ NUEVO
+            "telefonos_encontrados": hallazgos_telefonos,  # ✨ NUEVO
             "resumen": {
                 "vulnerabilidades_por_severidad": vulnerabilidades_por_severidad,
                 "tipos_html_sensibles": {  # ✨ NUEVO
@@ -3269,7 +3334,9 @@ def _holehe_lookup(email):
             # holehe marca los servicios con cuenta como: [+] servicio.com
             if linea.startswith("[+]"):
                 servicio = linea[3:].strip()
-                if servicio:
+                # Excluir la línea de leyenda "[+] Email used, [-] ..." y cualquier
+                # cosa que no sea un dominio (los servicios reales no llevan espacios ni comas)
+                if servicio and " " not in servicio and "," not in servicio:
                     servicios.append(servicio)
     except subprocess.TimeoutExpired:
         print(f"[_holehe_lookup] Timeout en holehe para {email}")
@@ -3337,7 +3404,9 @@ def data_emails(ejecucion_id, proyecto_id):
         # 4b. Fusionar emails hardcodeados extraídos por Sensitive Data Extraction
         emails_sensitive = []
         try:
-            emails_sensitive = OsintEjecucion.get_discovered_emails(proyecto_id)
+            # solo_scope=True: solo correos del dominio objetivo, para descartar
+            # el ruido de librerías JS (autores tipo @google.com, @mozilla.org, etc.)
+            emails_sensitive = OsintEjecucion.get_discovered_emails(proyecto_id, solo_scope=True)
         except Exception as e:
             print(f"[discovery_email] No se pudieron leer emails de sensitive_data: {type(e).__name__}: {e}")
         if emails_sensitive:
@@ -3387,6 +3456,121 @@ def data_emails(ejecucion_id, proyecto_id):
             "total_emails_unicos": len(emails_dedup),
             "total_emails_verificados_holehe": verificados,
             "emails": emails_ordenados
+        }
+
+    return _run_osint_job(ejecucion_id, job)
+
+
+# ══════════════════════════════════════════════════════════════════
+# HANDLER PHONE INTELLIGENCE
+# ══════════════════════════════════════════════════════════════════
+# Tope de números a enriquecer (evita corridas eternas si hay muchos)
+_PHONE_MAX = 40
+
+
+def _enriquecer_telefono(e164, region=_TEL_REGION_DEFAULT):
+    """Enriquece un número (E.164) con datos de phonenumbers + links OSINT.
+
+    Devuelve: pais, operador, tipo, zona horaria, ubicación y URLs de investigación.
+    """
+    info = {
+        "telefono": e164,
+        "valido": False,
+        "pais_iso": None,
+        "codigo_pais": None,
+        "operador": None,
+        "tipo": "desconocido",
+        "ubicacion": None,
+        "zonas_horarias": [],
+        "osint_links": {},
+    }
+    try:
+        num = phonenumbers.parse(e164, region)
+        info["valido"] = phonenumbers.is_valid_number(num)
+        info["codigo_pais"] = num.country_code
+        info["pais_iso"] = phonenumbers.region_code_for_number(num)
+        info["operador"] = carrier.name_for_number(num, "es") or None
+        info["ubicacion"] = geocoder.description_for_number(num, "es") or None
+        info["zonas_horarias"] = list(timezone.time_zones_for_number(num))
+        info["tipo"] = _TIPO_TEL.get(phonenumbers.number_type(num), "desconocido")
+
+        # Links OSINT para investigación manual (sin consultar nada de pago)
+        sin_mas = e164.lstrip("+")
+        info["osint_links"] = {
+            "google": f"https://www.google.com/search?q=%22{e164}%22",
+            "whatsapp": f"https://wa.me/{sin_mas}",
+            "truecaller": f"https://www.truecaller.com/search/{(info['pais_iso'] or 'ar').lower()}/{sin_mas}",
+            "sync_me": f"https://sync.me/search/?number={sin_mas}",
+        }
+    except Exception as e:
+        print(f"[_enriquecer_telefono] Error con {e164}: {type(e).__name__}")
+    return info
+
+
+def _phoneinfoga_lookup(e164):
+    """Best-effort: corre PhoneInfoga si está instalado y devuelve su salida cruda.
+
+    PhoneInfoga v2 no exporta JSON limpio por CLI, así que se captura el texto.
+    Si el binario no está, se omite sin romper el handler.
+    """
+    try:
+        proc = subprocess.run(
+            ["phoneinfoga", "scan", "-n", e164],
+            capture_output=True, text=True, timeout=120
+        )
+        salida = (proc.stdout or "").strip()
+        return salida[:4000] if salida else None
+    except FileNotFoundError:
+        return None
+    except subprocess.TimeoutExpired:
+        print(f"[_phoneinfoga_lookup] Timeout con {e164}")
+        return None
+    except Exception as e:
+        print(f"[_phoneinfoga_lookup] Error con {e164}: {type(e).__name__}")
+        return None
+
+
+def phone_intelligence(ejecucion_id, proyecto_id):
+    """Inteligencia de teléfonos: lee los números extraídos por Sensitive Data
+    Extraction y los enriquece (país, operador, tipo, links OSINT) + PhoneInfoga
+    si está disponible.
+    """
+    def job():
+        # 1. Números descubiertos por Sensitive Data Extraction
+        telefonos = OsintEjecucion.get_discovered_phones(proyecto_id)
+        if not telefonos:
+            raise Exception("No hay teléfonos para analizar (ejecutá primero Sensitive Data Extraction)")
+
+        print(f"[phone_intelligence] Teléfonos a analizar: {len(telefonos)}")
+
+        # 2. ¿Está PhoneInfoga disponible? (se chequea una vez)
+        phoneinfoga_ok = False
+        try:
+            chk = subprocess.run(["phoneinfoga", "version"], capture_output=True, text=True, timeout=20)
+            phoneinfoga_ok = (chk.returncode == 0)
+        except Exception:
+            phoneinfoga_ok = False
+        print(f"[phone_intelligence] PhoneInfoga disponible: {phoneinfoga_ok}")
+
+        resultados = []
+        analizados = 0
+        for tel in telefonos:
+            if analizados >= _PHONE_MAX:
+                resultados.append({"telefono": tel, "analizado": False, "motivo": "tope alcanzado"})
+                continue
+            print(f"[phone_intelligence] [{analizados + 1}] {tel} ...")
+            info = _enriquecer_telefono(tel)
+            if phoneinfoga_ok:
+                info["phoneinfoga"] = _phoneinfoga_lookup(tel)
+            resultados.append(info)
+            analizados += 1
+
+        return {
+            "tipo": "phone_intelligence",
+            "total_telefonos": len(telefonos),
+            "total_analizados": analizados,
+            "phoneinfoga_disponible": phoneinfoga_ok,
+            "telefonos": resultados,
         }
 
     return _run_osint_job(ejecucion_id, job)

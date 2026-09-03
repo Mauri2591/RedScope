@@ -9,7 +9,8 @@ from .handlers import (
     busqueda_endpoints,
     google_dorking,
     sensitive_data_extraction,
-    data_emails
+    data_emails,
+    phone_intelligence
 )
 
 __all__ = [
@@ -23,5 +24,6 @@ __all__ = [
     'busqueda_endpoints',
     'google_dorking',
     'sensitive_data_extraction',
-    'data_emails'
+    'data_emails',
+    'phone_intelligence'
 ]

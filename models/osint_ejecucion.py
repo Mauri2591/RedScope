@@ -312,6 +312,46 @@ class OsintEjecucion:
         return emails
 
     @staticmethod
+    def get_discovered_phones(proyecto_id):
+        """Obtiene los teléfonos extraídos por Sensitive Data Extraction.
+
+        Lee el ÚLTIMO resultado COMPLETED y habilitado del servicio
+        'Sensitive Data Extraction' y aplana la clave 'telefonos_encontrados'
+        (dict url -> [{'telefono','tipo'}, ...]) en una lista de números E.164 únicos.
+
+        Retorna lista de strings de teléfono (deduplicada).
+        """
+        telefonos = []
+        try:
+            resultado = OsintEjecucion.get_latest_resultado(
+                proyecto_id, 'Sensitive Data Extraction')
+
+            if not resultado:
+                print(f"[OsintEjecucion] Sin teléfonos de Sensitive Data Extraction para proyecto {proyecto_id}")
+                return telefonos
+
+            telefonos_encontrados = resultado.get('telefonos_encontrados', {}) or {}
+            vistos = set()
+            for _url, lista in telefonos_encontrados.items():
+                for item in (lista or []):
+                    # item puede ser dict {'telefono','tipo'} o un string suelto
+                    if isinstance(item, dict):
+                        tel = (item.get('telefono') or '').strip()
+                    else:
+                        tel = str(item).strip()
+                    if not tel or tel in vistos:
+                        continue
+                    vistos.add(tel)
+                    telefonos.append(tel)
+
+            print(f"[OsintEjecucion] Teléfonos (Sensitive Data): {len(telefonos)}")
+
+        except Exception as e:
+            print(f"[OsintEjecucion] Error obteniendo teléfonos descubiertos: {e}")
+
+        return telefonos
+
+    @staticmethod
     def get_discovered_domains_from_ips(proyecto_id):
         """Obtiene dominios del OBJETIVO descubiertos en mapeo_ips (servicio_osint_id=3)
 
@@ -618,7 +658,8 @@ class OsintEjecucion:
             'Google Dorking': 'google_dorking',
             'URLs Historicas': 'urls_historicas',
             'Sensitive Data Extraction' : 'sensitive_data_extraction',
-            'Data Emails' : 'data_emails'
+            'Data Emails' : 'data_emails',
+            'Phone Intelligence' : 'phone_intelligence'
 
         }
 
