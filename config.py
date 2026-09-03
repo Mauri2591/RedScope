@@ -73,5 +73,6 @@ OSINT_JOB_TIMEOUTS = {
     'google_dorking': 900,                      # 15 min
     'urls_historicas': 9800,                    # 3 horas (2+ horas de ejecución + 60s delay)
     'sensitive_data_extraction': 3600,          # 1 hora
+    'data_emails': 3600,                        # 1 hora
     'default': 3600                             # Fallback 1 hora
 }

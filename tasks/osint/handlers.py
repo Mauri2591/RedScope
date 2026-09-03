@@ -3181,7 +3181,7 @@ def _harvest_emails(objetivo):
             "-f", tmp_base,
         ]
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=300
+            cmd, capture_output=True, text=True, timeout=120
         )
         # theHarvester devuelve rc=1 aunque una sola fuente falle (rate limit, etc.);
         # por eso NO se corta por returncode: si el JSON existe, se lee igual.
@@ -3326,13 +3326,18 @@ def data_emails(ejecucion_id, proyecto_id):
 
         # 4a. Recolección con theHarvester por cada objetivo
         emails_raw = []
-        for obj in objetivos:
-            emails_raw.extend(_harvest_emails(obj))
+        total_obj = len(objetivos)
+        for i, obj in enumerate(objetivos, 1):
+            print(f"[discovery_email] [{i}/{total_obj}] theHarvester sobre {obj} ...")
+            encontrados = _harvest_emails(obj)
+            if encontrados:
+                print(f"[discovery_email] [{i}/{total_obj}] {obj}: {len(encontrados)} emails")
+            emails_raw.extend(encontrados)
 
         # 4b. Fusionar emails hardcodeados extraídos por Sensitive Data Extraction
         emails_sensitive = []
         try:
-            emails_sensitive = OsintEjecucion.get_discovered_emails(proyecto_id, solo_scope=True)
+            emails_sensitive = OsintEjecucion.get_discovered_emails(proyecto_id)
         except Exception as e:
             print(f"[discovery_email] No se pudieron leer emails de sensitive_data: {type(e).__name__}: {e}")
         if emails_sensitive:
@@ -3356,9 +3361,11 @@ def data_emails(ejecucion_id, proyecto_id):
             emails_dedup, key=lambda e: (not _es_institucional(e["email"]), e["email"])
         )
 
+        print(f"[discovery_email] Emails únicos: {len(emails_dedup)}. Verificando con holehe...")
         verificados = 0
         for e in emails_ordenados:
             if verificados < _HOLEHE_MAX_EMAILS:
+                print(f"[discovery_email] holehe [{verificados + 1}] {e['email']} ...")
                 e['servicios_registrados'] = _holehe_lookup(e['email'])
                 verificados += 1
             else:
