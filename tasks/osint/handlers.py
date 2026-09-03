@@ -2823,6 +2823,42 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
 
 
 # ════════════════════════════════════════════════════════════════════════════════
+# EXTRACCIÓN DE EMAILS HARDCODEADOS (alimenta al handler data_emails / holehe)
+# ════════════════════════════════════════════════════════════════════════════════
+
+# Regex de email para contenido descargado (no anclado: busca dentro del texto)
+_EMAIL_CONTENIDO_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
+# Extensiones que generan falsos positivos (foo@2x.png, sprite@3x.jpg, etc.)
+_EMAIL_BASURA_EXT = ('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css', '.js', '.ico')
+
+
+def _extraer_emails_de_contenido(contenido, url_origen, dominios_scope=None):
+    """Extrae emails hardcodeados del contenido descargado (HTML o JS).
+
+    Si dominios_scope está dado, marca (no descarta) los del dominio objetivo.
+    Devuelve: [{'email', 'url', 'en_scope'}, ...]
+    """
+    encontrados = []
+    vistos = set()
+    for m in _EMAIL_CONTENIDO_RE.finditer(contenido or ""):
+        email = m.group(0).strip().lower()
+        if email in vistos:
+            continue
+        if email.endswith(_EMAIL_BASURA_EXT):
+            continue
+        dominio_email = email.split('@')[-1]
+        # descartar cosas tipo version@1.2.3 o dominios sin punto / solo numéricos
+        if '.' not in dominio_email or dominio_email.replace('.', '').isdigit():
+            continue
+        vistos.add(email)
+        en_scope = bool(dominios_scope) and any(
+            dominio_email == d or dominio_email.endswith('.' + d) for d in dominios_scope
+        )
+        encontrados.append({"email": email, "url": url_origen, "en_scope": en_scope})
+    return encontrados
+
+
+# ════════════════════════════════════════════════════════════════════════════════
 # FUNCIÓN PRINCIPAL - MEJORADA CON IPs + HTML + VALIDACIÓN
 # ════════════════════════════════════════════════════════════════════════════════
 
@@ -2926,9 +2962,13 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         hallazgos_secretos = {}
         hallazgos_vulnerabilidades = {}
         hallazgos_html_sensibles = {}  # ✨ NUEVO
+        hallazgos_emails = {}  # ✨ NUEVO: emails hardcodeados por URL
         total_secretos = 0
         total_vulnerabilidades = 0
         total_html_sensibles = 0  # ✨ NUEVO
+        total_emails = 0  # ✨ NUEVO
+        # Dominios raíz del scope para marcar emails institucionales
+        dominios_scope_email = [d.lower() for d in _parse_multiline_config(dominio)] if dominio else []
 
         for url in urls_a_analizar:
             try:
@@ -2980,6 +3020,14 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                         print(
                             f"  [HALLAZGO] {len(elementos_sensibles)} elementos HTML sensibles")
 
+                    # ✨ NUEVO: extraer emails hardcodeados del HTML
+                    emails_html = _extraer_emails_de_contenido(
+                        contenido, final_url, dominios_scope_email)
+                    if emails_html:
+                        hallazgos_emails[final_url] = emails_html
+                        total_emails += len(emails_html)
+                        print(f"  [HALLAZGO] {len(emails_html)} emails en HTML")
+
                     # Scripts externos - ⚠️ LÍMITE: 5 scripts por URL
                     for script in soup.find_all('script', src=True)[:5]:
                         js_url = script['src']
@@ -3008,6 +3056,13 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                             js_response.raise_for_status()
                             js_contenido = js_response.content[:5242880].decode(
                                 'utf-8', errors='ignore')
+
+                            # ✨ NUEVO: extraer emails hardcodeados del JS
+                            emails_js = _extraer_emails_de_contenido(
+                                js_contenido, js_url, dominios_scope_email)
+                            if emails_js:
+                                hallazgos_emails.setdefault(js_url, []).extend(emails_js)
+                                total_emails += len(emails_js)
 
                             secretos = _buscar_secretos_en_contenido(
                                 js_contenido, js_url)
@@ -3068,9 +3123,11 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             "total_secretos_encontrados": total_secretos,
             "total_vulnerabilidades_encontrados": total_vulnerabilidades,
             "total_html_sensibles_encontrados": total_html_sensibles,  # ✨ NUEVO
+            "total_emails_encontrados": total_emails,  # ✨ NUEVO
             "secretos": hallazgos_secretos,
             "vulnerabilidades": hallazgos_vulnerabilidades,
             "elementos_html_sensibles": hallazgos_html_sensibles,  # ✨ NUEVO
+            "emails_encontrados": hallazgos_emails,  # ✨ NUEVO
             "resumen": {
                 "vulnerabilidades_por_severidad": vulnerabilidades_por_severidad,
                 "tipos_html_sensibles": {  # ✨ NUEVO
@@ -3100,6 +3157,10 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 # Fuentes de theHarvester que NO requieren API key de pago
 _THEHARVESTER_SOURCES = "crtsh,duckduckgo,yahoo,mojeek,rapiddns,otx,urlscan,certspotter,hackertarget,waybackarchive"
+# Patrón de dominio/subdominio válido (descarta basura tipo entradas con Markdown)
+_DOM_RE = re.compile(r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63})+$")
+# Tope de emails a verificar con holehe (holehe consulta ~120 sitios por email)
+_HOLEHE_MAX_EMAILS = 40
 def _harvest_emails(objetivo):
     """Corre theHarvester sobre un dominio/subdominio y devuelve lista de emails.
 
@@ -3122,9 +3183,8 @@ def _harvest_emails(objetivo):
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=300
         )
-        if proc.returncode != 0:
-            print(f"[_harvest_emails] theHarvester rc={proc.returncode} para {objetivo}: {proc.stderr[:300]}")
-
+        # theHarvester devuelve rc=1 aunque una sola fuente falle (rate limit, etc.);
+        # por eso NO se corta por returncode: si el JSON existe, se lee igual.
         if os.path.exists(tmp_path):
             with open(tmp_path, "r", encoding="utf-8", errors="ignore") as f:
                 data = json.load(f)
@@ -3136,6 +3196,10 @@ def _harvest_emails(objetivo):
                         "origen": objetivo,
                         "fuente": "theHarvester",
                     })
+        else:
+            # Sin archivo = falla real; theHarvester escribe el error por stdout
+            salida = (proc.stdout or "")[-300:] + " " + (proc.stderr or "")[-100:]
+            print(f"[_harvest_emails] Sin salida para {objetivo} (rc={proc.returncode}): {salida.strip()}")
     except subprocess.TimeoutExpired:
         print(f"[_harvest_emails] Timeout en theHarvester para {objetivo}")
     except Exception as e:
@@ -3186,16 +3250,22 @@ def _deduplicate_emails(hallazgos_raw, objetivos):
     return salida
 
 
+# Códigos de color ANSI (holehe colorea los marcadores [+]/[-]/[x])
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
 def _holehe_lookup(email):
     """Ejecuta holehe sobre un email y devuelve los servicios donde está registrado."""
     servicios = []
     try:
-        cmd = ["holehe", "--only-used", "--no-color", email]
+        # Nota: no se usa --no-color porque no existe en todas las versiones de holehe
+        # y haría fallar el proceso; en su lugar se filtran los códigos ANSI del stdout.
+        cmd = ["holehe", "--only-used", email]
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=180
         )
         for linea in proc.stdout.splitlines():
-            linea = linea.strip()
+            linea = _ANSI_RE.sub("", linea).strip()
             # holehe marca los servicios con cuenta como: [+] servicio.com
             if linea.startswith("[+]"):
                 servicio = linea[3:].strip()
@@ -3238,24 +3308,64 @@ def data_emails(ejecucion_id, proyecto_id):
             else:
                 print(f"[discovery_email] Sin subdominios en scope ni descubiertos")
 
-        # 3. Consolidar objetivos (dominios raíz + subdominios de scope o fallback)
+        # 3. Consolidar y SANITIZAR objetivos (descarta entradas mal formadas)
         objetivos = list(set(dominios_config + subdominios_config + subdominios_fallback))
+        objetivos_validos = [o.strip().lower() for o in objetivos if _DOM_RE.match(o.strip().lower())]
+        descartados = [o for o in objetivos if o.strip().lower() not in objetivos_validos]
+        if descartados:
+            print(f"[discovery_email] Objetivos descartados por formato inválido: {descartados}")
+        objetivos = objetivos_validos
 
         if not objetivos:
-            raise Exception("No hay dominios ni subdominios para buscar emails")
+            raise Exception("No hay dominios ni subdominios válidos para buscar emails")
+
+        # Dominios raíz del scope (para marcar emails institucionales / priorizar holehe)
+        dominios_scope_email = [d.strip().lower() for d in dominios_config if d.strip()]
 
         print(f"[discovery_email] Objetivos a analizar: {len(objetivos)}")
 
-        # 4. Recolección de emails por cada objetivo
+        # 4a. Recolección con theHarvester por cada objetivo
         emails_raw = []
         for obj in objetivos:
             emails_raw.extend(_harvest_emails(obj))
 
+        # 4b. Fusionar emails hardcodeados extraídos por Sensitive Data Extraction
+        emails_sensitive = []
+        try:
+            emails_sensitive = OsintEjecucion.get_discovered_emails(proyecto_id, solo_scope=True)
+        except Exception as e:
+            print(f"[discovery_email] No se pudieron leer emails de sensitive_data: {type(e).__name__}: {e}")
+        if emails_sensitive:
+            print(f"[discovery_email] Emails de Sensitive Data Extraction: {len(emails_sensitive)}")
+            for em in emails_sensitive:
+                emails_raw.append({
+                    "email": em,
+                    "origen": "sensitive_data",
+                    "fuente": "sensitive_data_extraction",
+                })
+
         emails_dedup = _deduplicate_emails(emails_raw, objetivos)
 
-        # 5. Enriquecimiento: enumeración de servicios con holehe
-        for e in emails_dedup:
-            e['servicios_registrados'] = _holehe_lookup(e['email'])
+        # 5. Enriquecimiento con holehe. Se prioriza a los emails del dominio objetivo
+        #    (institucionales) y se aplica un tope para no disparar cientos de consultas.
+        def _es_institucional(email):
+            dom = email.split("@")[-1]
+            return any(dom == d or dom.endswith("." + d) for d in dominios_scope_email)
+
+        emails_ordenados = sorted(
+            emails_dedup, key=lambda e: (not _es_institucional(e["email"]), e["email"])
+        )
+
+        verificados = 0
+        for e in emails_ordenados:
+            if verificados < _HOLEHE_MAX_EMAILS:
+                e['servicios_registrados'] = _holehe_lookup(e['email'])
+                verificados += 1
+            else:
+                e['servicios_registrados'] = []
+                e['holehe_omitido'] = True
+        if len(emails_dedup) > _HOLEHE_MAX_EMAILS:
+            print(f"[discovery_email] holehe limitado a {_HOLEHE_MAX_EMAILS} de {len(emails_dedup)} emails")
 
         return {
             "tipo": "discovery_email",
@@ -3265,8 +3375,11 @@ def data_emails(ejecucion_id, proyecto_id):
             "total_subdominios_scope": len(subdominios_config),
             "total_subdominios_fallback": len(subdominios_fallback),
             "total_objetivos": len(objetivos),
+            "total_emails_theharvester": len([1 for h in emails_raw if h.get("fuente") == "theHarvester"]),
+            "total_emails_sensitive_data": len(emails_sensitive),
             "total_emails_unicos": len(emails_dedup),
-            "emails": emails_dedup
+            "total_emails_verificados_holehe": verificados,
+            "emails": emails_ordenados
         }
 
     return _run_osint_job(ejecucion_id, job)

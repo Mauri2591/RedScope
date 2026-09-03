@@ -263,6 +263,55 @@ class OsintEjecucion:
         return subdomains
 
     @staticmethod
+    def get_discovered_emails(proyecto_id, solo_scope=False):
+        """Obtiene los emails hardcodeados extraídos por Sensitive Data Extraction.
+
+        Lee el ÚLTIMO resultado COMPLETED y habilitado (estado_id=1) del servicio
+        'Sensitive Data Extraction' y aplana la clave 'emails_encontrados'
+        (dict url -> [{'email','en_scope'}, ...]) en una lista de correos únicos.
+
+        Args:
+            proyecto_id: ID del proyecto
+            solo_scope: si True, devuelve solo los emails marcados en_scope=True
+                        (dominios institucionales del objetivo)
+
+        Retorna lista de strings de email (deduplicada).
+        """
+        emails = []
+        try:
+            resultado = OsintEjecucion.get_latest_resultado(
+                proyecto_id, 'Sensitive Data Extraction')
+
+            if not resultado:
+                print(f"[OsintEjecucion] Sin emails de Sensitive Data Extraction para proyecto {proyecto_id}")
+                return emails
+
+            emails_encontrados = resultado.get('emails_encontrados', {}) or {}
+            vistos = set()
+            for _url, lista in emails_encontrados.items():
+                for item in (lista or []):
+                    # item puede ser dict {'email','en_scope'} o un string suelto
+                    if isinstance(item, dict):
+                        email = (item.get('email') or '').strip().lower()
+                        en_scope = bool(item.get('en_scope'))
+                    else:
+                        email = str(item).strip().lower()
+                        en_scope = False
+                    if not email or email in vistos:
+                        continue
+                    if solo_scope and not en_scope:
+                        continue
+                    vistos.add(email)
+                    emails.append(email)
+
+            print(f"[OsintEjecucion] Emails hardcodeados (Sensitive Data): {len(emails)}")
+
+        except Exception as e:
+            print(f"[OsintEjecucion] Error obteniendo emails descubiertos: {e}")
+
+        return emails
+
+    @staticmethod
     def get_discovered_domains_from_ips(proyecto_id):
         """Obtiene dominios del OBJETIVO descubiertos en mapeo_ips (servicio_osint_id=3)
 

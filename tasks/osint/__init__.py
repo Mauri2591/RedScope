@@ -7,7 +7,9 @@ from .handlers import (
     escaneo_repositorios,
     analisis_dns,
     busqueda_endpoints,
-    google_dorking
+    google_dorking,
+    sensitive_data_extraction,
+    data_emails
 )
 
 __all__ = [
@@ -19,5 +21,7 @@ __all__ = [
     'escaneo_repositorios',
     'analisis_dns',
     'busqueda_endpoints',
-    'google_dorking'
+    'google_dorking',
+    'sensitive_data_extraction',
+    'data_emails'
 ]
