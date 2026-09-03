@@ -2892,18 +2892,42 @@ def _extraer_telefonos_de_contenido(contenido, url_origen, region=_TEL_REGION_DE
             num = match.number
             if not phonenumbers.is_valid_number(num):
                 continue
+            # Filtro de calidad: descartar números de tipo desconocido, que son
+            # casi siempre secuencias de dígitos que "parecen" teléfono (tracking, IDs)
+            tipo_num = phonenumbers.number_type(num)
+            if tipo_num == PhoneNumberType.UNKNOWN:
+                continue
             e164 = phonenumbers.format_number(num, phonenumbers.PhoneNumberFormat.E164)
             if e164 in vistos:
                 continue
             vistos.add(e164)
             encontrados.append({
                 "telefono": e164,
-                "tipo": _TIPO_TEL.get(phonenumbers.number_type(num), "desconocido"),
+                "tipo": _TIPO_TEL.get(tipo_num, "desconocido"),
                 "url": url_origen,
             })
     except Exception as e:
         print(f"[_extraer_telefonos] Error en {url_origen}: {type(e).__name__}")
     return encontrados
+
+
+def _host_de_url(url):
+    """Devuelve el host (minúscula) de una URL, o '' si no se puede parsear."""
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except Exception:
+        return ""
+
+
+def _host_en_scope(url, dominios_root, hosts_scope):
+    """True si el host de la URL pertenece al scope (dominio raíz, subdominio
+    del objetivo o host explícito de la lista de scope)."""
+    h = _host_de_url(url)
+    if not h:
+        return False
+    if h in hosts_scope:
+        return True
+    return any(h == d or h.endswith('.' + d) for d in dominios_root if d)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -3019,6 +3043,13 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         total_emails = 0  # ✨ NUEVO
         # Dominios raíz del scope para marcar emails institucionales
         dominios_scope_email = [d.lower() for d in _parse_multiline_config(dominio)] if dominio else []
+        # Hosts del scope (todas las URLs que vamos a analizar SON del scope):
+        # se usa para NO minar teléfonos/emails de JS de terceros (google, CDNs, etc.)
+        hosts_scope = set()
+        for _u in urls_a_analizar:
+            _h = _host_de_url(_u)
+            if _h:
+                hosts_scope.add(_h)
 
         for url in urls_a_analizar:
             try:
@@ -3114,18 +3145,24 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                             js_contenido = js_response.content[:5242880].decode(
                                 'utf-8', errors='ignore')
 
-                            # ✨ NUEVO: extraer emails hardcodeados del JS
-                            emails_js = _extraer_emails_de_contenido(
-                                js_contenido, js_url, dominios_scope_email)
-                            if emails_js:
-                                hallazgos_emails.setdefault(js_url, []).extend(emails_js)
-                                total_emails += len(emails_js)
+                            # ✨ Emails/teléfonos SOLO de JS del scope (no de terceros: google, CDNs)
+                            js_en_scope = _host_en_scope(js_url, dominios_scope_email, hosts_scope)
+                            if not js_en_scope:
+                                print(f"  [SKIP PII] {js_url} (JS de tercero, fuera de scope)")
 
-                            # ✨ NUEVO: extraer teléfonos del JS
-                            telefonos_js = _extraer_telefonos_de_contenido(js_contenido, js_url)
-                            if telefonos_js:
-                                hallazgos_telefonos.setdefault(js_url, []).extend(telefonos_js)
-                                total_telefonos += len(telefonos_js)
+                            if js_en_scope:
+                                # ✨ NUEVO: extraer emails hardcodeados del JS
+                                emails_js = _extraer_emails_de_contenido(
+                                    js_contenido, js_url, dominios_scope_email)
+                                if emails_js:
+                                    hallazgos_emails.setdefault(js_url, []).extend(emails_js)
+                                    total_emails += len(emails_js)
+
+                                # ✨ NUEVO: extraer teléfonos del JS
+                                telefonos_js = _extraer_telefonos_de_contenido(js_contenido, js_url)
+                                if telefonos_js:
+                                    hallazgos_telefonos.setdefault(js_url, []).extend(telefonos_js)
+                                    total_telefonos += len(telefonos_js)
 
                             secretos = _buscar_secretos_en_contenido(
                                 js_contenido, js_url)
