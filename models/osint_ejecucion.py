@@ -568,7 +568,9 @@ class OsintEjecucion:
             'Busqueda de Endpoints': 'busqueda_endpoints',
             'Google Dorking': 'google_dorking',
             'URLs Historicas': 'urls_historicas',
-            'Sensitive Data Extraction' : 'sensitive_data_extraction'
+            'Sensitive Data Extraction' : 'sensitive_data_extraction',
+            'Data Emails' : 'data_emails'
+
         }
 
         servicios_map = OsintEjecucion.get_servicios_map()
