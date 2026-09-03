@@ -24,11 +24,10 @@ import dns.resolver
 from dns.exception import DNSException
 CACHE_FILE = '/tmp/ipinfo_cache.json'
 
+
 # ══════════════════════════════════════════════════════════════════
 # HELPERS GLOBALES OSINT
 # ══════════════════════════════════════════════════════════════════
-
-
 def _get_severidad_por_confianza(confianza_score):
     """
     Mapea confianza (0-100) a severidad de BD.
@@ -3093,6 +3092,123 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             pass
         raise
 
+
+# ══════════════════════════════════════════════════════════════════
+# HANDLER DATA EMAILS
+# ══════════════════════════════════════════════════════════════════
+# Regex simple de validación de email
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+# Fuentes de theHarvester que NO requieren API key de pago
+_THEHARVESTER_SOURCES = "bing,duckduckgo,crtsh,dnsdumpster,otx,rapiddns,threatminer,urlscan"
+
+def _harvest_emails(objetivo):
+    """Corre theHarvester sobre un dominio/subdominio y devuelve lista de emails.
+
+    Devuelve: [{'email': str, 'origen': objetivo, 'fuente': 'theHarvester'}, ...]
+    """
+    resultados = []
+    tmp_path = None
+    try:
+        # theHarvester guarda en <archivo>.json
+        fd, tmp_base = tempfile.mkstemp(prefix="th_", suffix="")
+        os.close(fd)
+        tmp_path = tmp_base + ".json"
+
+        cmd = [
+            "theHarvester",
+            "-d", objetivo,
+            "-b", _THEHARVESTER_SOURCES,
+            "-f", tmp_base,
+        ]
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=300
+        )
+        if proc.returncode != 0:
+            print(f"[_harvest_emails] theHarvester rc={proc.returncode} para {objetivo}: {proc.stderr[:300]}")
+
+        if os.path.exists(tmp_path):
+            with open(tmp_path, "r", encoding="utf-8", errors="ignore") as f:
+                data = json.load(f)
+            for email in data.get("emails", []) or []:
+                email = email.strip().lower()
+                if _EMAIL_RE.match(email):
+                    resultados.append({
+                        "email": email,
+                        "origen": objetivo,
+                        "fuente": "theHarvester",
+                    })
+    except subprocess.TimeoutExpired:
+        print(f"[_harvest_emails] Timeout en theHarvester para {objetivo}")
+    except Exception as e:
+        print(f"[_harvest_emails] Error en {objetivo}: {e}")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        # theHarvester a veces también crea .xml
+        xml_path = (tmp_path[:-5] + ".xml") if tmp_path else None
+        if xml_path and os.path.exists(xml_path):
+            try:
+                os.remove(xml_path)
+            except OSError:
+                pass
+
+    return resultados
+
+
+def _deduplicate_emails(hallazgos_raw, objetivos):
+    """Normaliza, valida y deduplica emails por dirección, agrupando orígenes/fuentes."""
+    dedup = {}
+    for h in hallazgos_raw:
+        email = h.get("email", "").strip().lower()
+        if not email or not _EMAIL_RE.match(email):
+            continue
+        if email not in dedup:
+            dedup[email] = {
+                "email": email,
+                "origenes": set(),
+                "fuentes": set(),
+            }
+        if h.get("origen"):
+            dedup[email]["origenes"].add(h["origen"])
+        if h.get("fuente"):
+            dedup[email]["fuentes"].add(h["fuente"])
+
+    # Convertir sets a listas para que sea serializable (JSON)
+    salida = []
+    for e in dedup.values():
+        salida.append({
+            "email": e["email"],
+            "origenes": sorted(e["origenes"]),
+            "fuentes": sorted(e["fuentes"]),
+        })
+    return salida
+
+
+def _holehe_lookup(email):
+    """Ejecuta holehe sobre un email y devuelve los servicios donde está registrado."""
+    servicios = []
+    try:
+        cmd = ["holehe", "--only-used", "--no-color", email]
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=180
+        )
+        for linea in proc.stdout.splitlines():
+            linea = linea.strip()
+            # holehe marca los servicios con cuenta como: [+] servicio.com
+            if linea.startswith("[+]"):
+                servicio = linea[3:].strip()
+                if servicio:
+                    servicios.append(servicio)
+    except subprocess.TimeoutExpired:
+        print(f"[_holehe_lookup] Timeout en holehe para {email}")
+    except FileNotFoundError:
+        print(f"[_holehe_lookup] holehe no está instalado / no está en el PATH")
+    except Exception as e:
+        print(f"[_holehe_lookup] Error con {email}: {e}")
+    return servicios
 
 def data_emails(ejecucion_id, proyecto_id):
     """Recolección de emails por dominio/subdominio + verificación con holehe.
