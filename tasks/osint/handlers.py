@@ -2873,6 +2873,11 @@ _TIPO_TEL = {
     PhoneNumberType.VOIP: "voip",
     PhoneNumberType.TOLL_FREE: "gratuito",
     PhoneNumberType.PREMIUM_RATE: "premium",
+    PhoneNumberType.SHARED_COST: "costo_compartido",  # 0810 en Argentina
+    PhoneNumberType.UAN: "numero_universal",           # 0800/0810 corporativos
+    PhoneNumberType.PERSONAL_NUMBER: "personal",
+    PhoneNumberType.PAGER: "pager",
+    PhoneNumberType.VOICEMAIL: "voicemail",
 }
 
 
@@ -3608,6 +3613,223 @@ def phone_intelligence(ejecucion_id, proyecto_id):
             "total_analizados": analizados,
             "phoneinfoga_disponible": phoneinfoga_ok,
             "telefonos": resultados,
+        }
+
+    return _run_osint_job(ejecucion_id, job)
+
+
+# ══════════════════════════════════════════════════════════════════
+# HANDLER DOCUMENT METADATA
+# ══════════════════════════════════════════════════════════════════
+import hashlib
+
+# Extensiones de documentos/imágenes con metadata útil
+_METADATA_EXTS = (
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.odt', '.ods', '.odp', '.rtf', '.jpg', '.jpeg', '.png', '.tiff', '.tif',
+)
+
+# Carpeta base para las descargas, relativa al repo (portable Win/Linux):
+# <repo_root>/data/osint/documentosMetadata
+_METADATA_BASE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "data", "osint", "documentosMetadata"
+)
+
+# Campos de exiftool que interesan (todo lo demás es ruido)
+_EXIF_CAMPOS_UTILES = [
+    "Author", "Creator", "LastModifiedBy", "Company", "Manager",
+    "Producer", "CreatorTool", "Software", "Application",
+    "Title", "Subject", "Keywords", "Description", "Comment",
+    "CreateDate", "ModifyDate", "MetadataDate",
+    "GPSLatitude", "GPSLongitude", "GPSPosition", "GPSAltitude",
+    "Make", "Model",
+]
+_EXIF_CAMPOS_AUTOR = ["Author", "Creator", "LastModifiedBy"]
+_EXIF_CAMPOS_SOFTWARE = ["Producer", "CreatorTool", "Software", "Application"]
+
+_METADATA_MAX_ARCHIVOS = 50
+_METADATA_MAX_BYTES = 20 * 1024 * 1024  # 20 MB por archivo
+# Rutas embebidas que revelan usuario del sistema (Windows/Unix)
+_RUTA_USUARIO_RE = re.compile(r"(?:[A-Za-z]:\\Users\\|/Users/|/home/)([^\\/\s\"']{1,40})")
+
+
+def _descargar_archivo(url, destino):
+    """Descarga un archivo a 'destino' con límite de tamaño/timeout. True si OK."""
+    try:
+        resp = requests.get(url, timeout=20, verify=False, stream=True,
+                            headers={'User-Agent': 'Mozilla/5.0'})
+        resp.raise_for_status()
+        cl = int(resp.headers.get('content-length', 0) or 0)
+        if cl and cl > _METADATA_MAX_BYTES:
+            return False
+        escrito = 0
+        with open(destino, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                if not chunk:
+                    continue
+                escrito += len(chunk)
+                if escrito > _METADATA_MAX_BYTES:
+                    break
+                f.write(chunk)
+        if escrito == 0 or escrito > _METADATA_MAX_BYTES:
+            if os.path.exists(destino):
+                os.remove(destino)
+            return False
+        return True
+    except Exception as e:
+        print(f"[document_metadata] Error descargando {url}: {type(e).__name__}")
+        try:
+            if os.path.exists(destino):
+                os.remove(destino)
+        except OSError:
+            pass
+        return False
+
+
+def _correr_exiftool(carpeta):
+    """Corre exiftool -json sobre toda la carpeta. Devuelve (lista_dicts, disponible)."""
+    try:
+        proc = subprocess.run(
+            ["exiftool", "-json", carpeta],
+            capture_output=True, text=True, timeout=300
+        )
+        if proc.stdout.strip():
+            return json.loads(proc.stdout), True
+        return [], True
+    except FileNotFoundError:
+        print("[document_metadata] exiftool no está instalado / no está en el PATH")
+        return [], False
+    except subprocess.TimeoutExpired:
+        print("[document_metadata] Timeout en exiftool")
+        return [], True
+    except Exception as e:
+        print(f"[document_metadata] Error en exiftool: {type(e).__name__}: {e}")
+        return [], True
+
+
+def _curar_metadata(raw_item):
+    """Filtra un dict crudo de exiftool a los campos útiles + usuarios de rutas."""
+    curado = {}
+    for campo in _EXIF_CAMPOS_UTILES:
+        val = raw_item.get(campo)
+        if val not in (None, "", []):
+            curado[campo] = val
+    usuarios = set()
+    for v in raw_item.values():
+        if isinstance(v, str):
+            for m in _RUTA_USUARIO_RE.finditer(v):
+                usuarios.add(m.group(1))
+    if usuarios:
+        curado["usuarios_en_rutas"] = sorted(usuarios)
+    return curado
+
+
+def document_metadata(ejecucion_id, proyecto_id):
+    """Extrae metadatos de documentos públicos (autores, usuarios, software, GPS).
+
+    Fuente: URLs Historicas (servicio 9). Descarga los documentos a una carpeta
+    hash, corre exiftool y devuelve un resumen curado (sin el ruido de exiftool).
+    El crudo completo queda en <carpeta>/metadata.json.
+    """
+    def job():
+        # 1. URLs de URLs Historicas, filtradas a documentos/imágenes
+        urls = OsintEjecucion.get_discovered_urls(proyecto_id)
+        docs = []
+        vistos = set()
+        for u in urls:
+            base = u.split('?', 1)[0].split('#', 1)[0].lower()
+            if base.endswith(_METADATA_EXTS) and u not in vistos:
+                vistos.add(u)
+                docs.append(u)
+        if not docs:
+            raise Exception("No hay documentos en URLs Historicas (ejecutá primero URLs Historicas)")
+        docs = docs[:_METADATA_MAX_ARCHIVOS]
+        print(f"[document_metadata] Documentos candidatos: {len(docs)}")
+
+        # 2. Crear carpeta hash y registrarla en osint_ejecuciones_carpeta
+        sello = f"{proyecto_id}-{ejecucion_id}-{datetime.now().isoformat()}"
+        hash_carpeta = hashlib.sha1(sello.encode()).hexdigest()[:16]
+        carpeta = os.path.join(_METADATA_BASE_PATH, hash_carpeta)
+        os.makedirs(carpeta, exist_ok=True)
+        OsintEjecucion.registrar_carpeta(ejecucion_id, hash_carpeta)
+        print(f"[document_metadata] Carpeta: {carpeta}")
+
+        # 3. Descargar
+        descargados = []  # (nombre_local, url)
+        for i, url in enumerate(docs):
+            ext = os.path.splitext(url.split('?', 1)[0])[1][:10].lower() or ".bin"
+            nombre_local = f"{i:03d}{ext}"
+            destino = os.path.join(carpeta, nombre_local)
+            print(f"[document_metadata] [{i+1}/{len(docs)}] descargando {url}")
+            if _descargar_archivo(url, destino):
+                descargados.append((nombre_local, url))
+        print(f"[document_metadata] Descargados: {len(descargados)}")
+
+        if not descargados:
+            return {
+                "tipo": "document_metadata",
+                "carpeta": hash_carpeta,
+                "total_candidatos": len(docs),
+                "total_descargados": 0,
+                "exiftool_disponible": None,
+                "total_documentos_con_metadata": 0,
+                "resumen": {"autores": [], "usuarios": [], "software": [], "con_gps": 0},
+                "documentos": [],
+            }
+
+        # 4. exiftool sobre toda la carpeta
+        raw, exif_ok = _correr_exiftool(carpeta)
+
+        # 4b. Guardar el crudo completo como respaldo en la carpeta
+        try:
+            with open(os.path.join(carpeta, "metadata.json"), "w", encoding="utf-8") as f:
+                json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
+        except Exception as e:
+            print(f"[document_metadata] No se pudo guardar metadata.json: {type(e).__name__}")
+
+        # 5. Curar + mapear cada item a su URL de origen
+        mapa_local_url = {nl: u for nl, u in descargados}
+        documentos = []
+        autores, usuarios, software = set(), set(), set()
+        con_gps = 0
+        for item in raw:
+            src = os.path.basename(item.get("SourceFile", ""))
+            curado = _curar_metadata(item)
+            if not curado:
+                continue
+            for c in _EXIF_CAMPOS_AUTOR:
+                if item.get(c):
+                    autores.add(str(item[c]).strip())
+            for c in _EXIF_CAMPOS_SOFTWARE:
+                if item.get(c):
+                    software.add(str(item[c]).strip())
+            for us in curado.get("usuarios_en_rutas", []):
+                usuarios.add(us)
+            if any(k.startswith("GPS") for k in curado):
+                con_gps += 1
+            documentos.append({
+                "url": mapa_local_url.get(src, src),
+                "archivo": src,
+                "metadata": curado,
+            })
+
+        print(f"[document_metadata] Documentos con metadata: {len(documentos)} | autores: {len(autores)} | usuarios: {len(usuarios)}")
+
+        return {
+            "tipo": "document_metadata",
+            "carpeta": hash_carpeta,
+            "total_candidatos": len(docs),
+            "total_descargados": len(descargados),
+            "exiftool_disponible": exif_ok,
+            "total_documentos_con_metadata": len(documentos),
+            "resumen": {
+                "autores": sorted(autores),
+                "usuarios": sorted(usuarios),
+                "software": sorted(software),
+                "con_gps": con_gps,
+            },
+            "documentos": documentos,
         }
 
     return _run_osint_job(ejecucion_id, job)

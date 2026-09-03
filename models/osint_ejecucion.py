@@ -352,6 +352,54 @@ class OsintEjecucion:
         return telefonos
 
     @staticmethod
+    def get_discovered_urls(proyecto_id):
+        """Obtiene las URLs del último resultado de URLs Historicas (servicio 9).
+
+        Retorna la lista de strings de 'urls' del resultado COMPLETED más reciente.
+        """
+        urls = []
+        try:
+            resultado = OsintEjecucion.get_latest_resultado(
+                proyecto_id, 'URLs Historicas')
+
+            if not resultado:
+                print(f"[OsintEjecucion] Sin URLs Historicas para proyecto {proyecto_id}")
+                return urls
+
+            urls = resultado.get('urls', []) or []
+            print(f"[OsintEjecucion] URLs Historicas: {len(urls)}")
+
+        except Exception as e:
+            print(f"[OsintEjecucion] Error obteniendo URLs históricas: {e}")
+
+        return urls
+
+    @staticmethod
+    def registrar_carpeta(osint_ejecuciones_id, nombre_carpeta, estado_id=1):
+        """Registra una carpeta de descarga (hash) para una ejecución OSINT.
+
+        Inserta en osint_ejecuciones_carpeta y devuelve el id insertado, o None.
+        """
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO osint_ejecuciones_carpeta
+                    (osint_ejecuciones_id, nombre_carpeta, estado_id, creacion)
+                VALUES (%s, %s, %s, NOW())
+            """, (osint_ejecuciones_id, nombre_carpeta, estado_id))
+            conn.commit()
+            nuevo_id = cursor.lastrowid
+            print(f"[OsintEjecucion] Carpeta registrada: id={nuevo_id}, hash={nombre_carpeta}")
+            return nuevo_id
+        except Exception as e:
+            print(f"[OsintEjecucion] Error registrando carpeta: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+
+    @staticmethod
     def get_discovered_domains_from_ips(proyecto_id):
         """Obtiene dominios del OBJETIVO descubiertos en mapeo_ips (servicio_osint_id=3)
 
@@ -659,7 +707,8 @@ class OsintEjecucion:
             'URLs Historicas': 'urls_historicas',
             'Sensitive Data Extraction' : 'sensitive_data_extraction',
             'Data Emails' : 'data_emails',
-            'Phone Intelligence' : 'phone_intelligence'
+            'Phone Intelligence' : 'phone_intelligence',
+            'Document Metadata' : 'document_metadata'
         }
 
         servicios_map = OsintEjecucion.get_servicios_map()

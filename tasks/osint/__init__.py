@@ -10,7 +10,8 @@ from .handlers import (
     google_dorking,
     sensitive_data_extraction,
     data_emails,
-    phone_intelligence
+    phone_intelligence,
+    document_metadata
 )
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     'google_dorking',
     'sensitive_data_extraction',
     'data_emails',
-    'phone_intelligence'
+    'phone_intelligence',
+    'document_metadata'
 ]
