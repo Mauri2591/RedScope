@@ -3648,7 +3648,7 @@ _EXIF_CAMPOS_UTILES = [
 _EXIF_CAMPOS_AUTOR = ["Author", "Creator", "LastModifiedBy"]
 _EXIF_CAMPOS_SOFTWARE = ["Producer", "CreatorTool", "Software", "Application"]
 
-_METADATA_MAX_ARCHIVOS = 50
+_METADATA_MAX_ARCHIVOS = 150
 _METADATA_MAX_BYTES = 20 * 1024 * 1024  # 20 MB por archivo
 # Rutas embebidas que revelan usuario del sistema (Windows/Unix)
 _RUTA_USUARIO_RE = re.compile(r"(?:[A-Za-z]:\\Users\\|/Users/|/home/)([^\\/\s\"']{1,40})")
@@ -3706,6 +3706,33 @@ def _correr_exiftool(carpeta):
     except Exception as e:
         print(f"[document_metadata] Error en exiftool: {type(e).__name__}: {e}")
         return [], True
+
+
+def _decodificar_valor(val):
+    """Decodifica cadenas UTF-16 que exiftool deja escapadas en octal (\\376\\377...).
+
+    Ej: '\\376\\377\\000i\\000s...' -> 'is12133312'. Si no es UTF-16, devuelve el valor tal cual.
+    """
+    if not isinstance(val, str) or '\\' not in val:
+        return val
+    try:
+        out = bytearray()
+        i, n = 0, len(val)
+        while i < n:
+            if val[i] == '\\' and i + 3 < n + 1 and val[i+1:i+4].isdigit() and len(val[i+1:i+4]) == 3:
+                out.append(int(val[i+1:i+4], 8) & 0xFF)
+                i += 4
+            else:
+                out.append(ord(val[i]) & 0xFF)
+                i += 1
+        b = bytes(out)
+        if b[:2] == b'\xfe\xff':
+            return b.decode('utf-16-be').lstrip('﻿').strip()
+        if b[:2] == b'\xff\xfe':
+            return b.decode('utf-16-le').lstrip('﻿').strip()
+    except Exception:
+        pass
+    return val
 
 
 def _curar_metadata(raw_item):
@@ -3780,6 +3807,12 @@ def document_metadata(ejecucion_id, proyecto_id):
 
         # 4. exiftool sobre toda la carpeta
         raw, exif_ok = _correr_exiftool(carpeta)
+
+        # 4a. Normalizar: decodificar cadenas UTF-16 escapadas por exiftool
+        for item in raw:
+            for k, v in list(item.items()):
+                if isinstance(v, str):
+                    item[k] = _decodificar_valor(v)
 
         # 4b. Guardar el crudo completo como respaldo en la carpeta
         try:
