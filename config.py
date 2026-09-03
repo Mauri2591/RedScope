@@ -67,12 +67,14 @@ OSINT_JOB_TIMEOUTS = {
     'enumeracion_servicios': 1200,              # 20 min
     'mapeo_ips': 1200,                          # 20 min
     'recon_cloud': 3600,                        # 1 hora
-    'escaneo_repositorios': 1200,                # 20 min
+    'escaneo_repositorios': 1200,               # 20 min
     'analisis_dns': 900,                        # 15 min
     'busqueda_endpoints': 1800,                 # 30 min
     'google_dorking': 900,                      # 15 min
     'urls_historicas': 9800,                    # 3 horas (2+ horas de ejecución + 60s delay)
     'sensitive_data_extraction': 3600,          # 1 hora
-    'data_emails': 3600,                        # 1 hora
+    'data_emails': 1200,                        # 20 min
+    'phone_intelligence': 1200,                 # 20 min
+    'document_metadata': 2700,                  # 45 min
     'default': 3600                             # Fallback 1 hora
 }
