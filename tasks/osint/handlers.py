@@ -3099,8 +3099,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
 # Regex simple de validación de email
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 # Fuentes de theHarvester que NO requieren API key de pago
-_THEHARVESTER_SOURCES = "bing,duckduckgo,crtsh,dnsdumpster,otx,rapiddns,threatminer,urlscan"
-
+_THEHARVESTER_SOURCES = "crtsh,duckduckgo,yahoo,mojeek,rapiddns,otx,urlscan,certspotter,hackertarget,waybackarchive"
 def _harvest_emails(objetivo):
     """Corre theHarvester sobre un dominio/subdominio y devuelve lista de emails.
 
