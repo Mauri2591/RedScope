@@ -308,6 +308,7 @@ th {
 .google-dorking { font-size: .7rem; font-weight: bold; background-color: #f39c12; color: var(--color-blanco-primario); padding: 0; }
 .urls-historicas { font-size: .7rem; font-weight: bold; background-color: #610088; color: var(--color-blanco-primario); padding: 0; }
 .sensitive-data-extraction { font-size: .7rem; font-weight: bold; background-color: #ff7300; color: var(--color-blanco-primario); padding: 0; }
+.data-emails { font-size: .7rem; font-weight: bold; background-color: #ffc400; color: var(--color-blanco-primario); padding: 0; }
 
 .icono-spin {
     display: inline-block;

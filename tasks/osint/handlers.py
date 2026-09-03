@@ -20,6 +20,8 @@ import sys
 from bs4 import BeautifulSoup
 import re
 from urllib.parse import urljoin
+import dns.resolver
+from dns.exception import DNSException
 CACHE_FILE = '/tmp/ipinfo_cache.json'
 
 # ══════════════════════════════════════════════════════════════════
@@ -1777,9 +1779,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
     print(f"[OSINT-DNS] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
-        import dns.resolver
-        from dns.exception import DNSException
-        
+
         # 1. Obtener TODO el scope
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
         todos_los_dominios = scope['dominio'] + \
@@ -2218,7 +2218,7 @@ PALABRAS_CLAVE = [
     'ssh_key', 'ssh_private_key', 'rsa_private_key',
     'openssh_key', 'private_pem', 'id_rsa',
 
-    # ✨ NUEVO - Configuración & Sesión (Moodle, PHP, etc.)
+    # NUEVO - Configuración & Sesión (Moodle, PHP, etc.)
     'sesskey', 'csrf_token', 'csrf', 'apibase', 'api_url',
     'admin_token', 'admin_key', 'root_token', 'root_key',
     'session_id', 'session_token', 'sso_token',
@@ -3092,3 +3092,66 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         except:
             pass
         raise
+
+
+def data_emails(ejecucion_id, proyecto_id):
+    """Recolección de emails por dominio/subdominio + verificación con holehe.
+
+    Scope inicial: dominios y subdominios de la configuración del proyecto.
+    Fallback: subdominios descubiertos (discovery_subdominios).
+    """
+    def job():
+        config = Proyecto.get_osint_config(proyecto_id)
+        dominio_scope = config.get('DOMINIO', '').strip() if config else ''
+        subdominio_scope = config.get('SUBDOMINIO', '').strip() if config else ''
+
+        # 1. Dominios y subdominios del scope inicial
+        dominios_config = _parse_multiline_config(dominio_scope) if dominio_scope else []
+        subdominios_config = _parse_multiline_config(subdominio_scope) if subdominio_scope else []
+
+        if dominios_config:
+            print(f"[discovery_email] Dominios del scope: {dominios_config}")
+        if subdominios_config:
+            print(f"[discovery_email] Subdominios del scope: {subdominios_config}")
+
+        # 2. FALLBACK: subdominios descubiertos (solo si el scope no trae subdominios)
+        subdominios_fallback = []
+        if not subdominios_config:
+            subdominios_fallback = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+            if subdominios_fallback:
+                print(f"[discovery_email] Fallback a discovery_subdominios: {len(subdominios_fallback)} subdominios")
+            else:
+                print(f"[discovery_email] Sin subdominios en scope ni descubiertos")
+
+        # 3. Consolidar objetivos (dominios raíz + subdominios de scope o fallback)
+        objetivos = list(set(dominios_config + subdominios_config + subdominios_fallback))
+
+        if not objetivos:
+            raise Exception("No hay dominios ni subdominios para buscar emails")
+
+        print(f"[discovery_email] Objetivos a analizar: {len(objetivos)}")
+
+        # 4. Recolección de emails por cada objetivo
+        emails_raw = []
+        for obj in objetivos:
+            emails_raw.extend(_harvest_emails(obj))
+
+        emails_dedup = _deduplicate_emails(emails_raw, objetivos)
+
+        # 5. Enriquecimiento: enumeración de servicios con holehe
+        for e in emails_dedup:
+            e['servicios_registrados'] = _holehe_lookup(e['email'])
+
+        return {
+            "tipo": "discovery_email",
+            "dominio_scope": dominio_scope,
+            "subdominio_scope": subdominio_scope,
+            "total_dominios_scope": len(dominios_config),
+            "total_subdominios_scope": len(subdominios_config),
+            "total_subdominios_fallback": len(subdominios_fallback),
+            "total_objetivos": len(objetivos),
+            "total_emails_unicos": len(emails_dedup),
+            "emails": emails_dedup
+        }
+
+    return _run_osint_job(ejecucion_id, job)
