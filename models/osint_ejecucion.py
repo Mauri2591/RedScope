@@ -660,7 +660,6 @@ class OsintEjecucion:
             'Sensitive Data Extraction' : 'sensitive_data_extraction',
             'Data Emails' : 'data_emails',
             'Phone Intelligence' : 'phone_intelligence'
-
         }
 
         servicios_map = OsintEjecucion.get_servicios_map()
