@@ -76,5 +76,6 @@ OSINT_JOB_TIMEOUTS = {
     'data_emails': 1200,                        # 20 min
     'phone_intelligence': 1200,                 # 20 min
     'document_metadata': 2700,                  # 45 min
+    'document_metadata': 900,                   # 15 min
     'default': 3600                             # Fallback 1 hora
 }
