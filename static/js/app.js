@@ -1779,7 +1779,7 @@
                     badgeClass = 'bg-primary';
                     hayRunning = true;
                 } else if (exec.estado === 'QUEUED') {
-                    badgeClass = 'bg-warning text-dark';
+                    badgeClass = 'bg-secondary';
                     hayRunning = true;  // seguir el polling mientras haya encolados
                 }
 
