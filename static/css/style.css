@@ -311,7 +311,7 @@ th {
 .data-emails { font-size: .7rem; font-weight: bold; background-color: #ffc400; color: var(--color-blanco-primario); padding: 0; }
 .phone-intelligence { font-size: .7rem; font-weight: bold; background-color: #25b800; color: var(--color-blanco-primario); padding: 0; }
 .document-metadata { font-size: .7rem; font-weight: bold; background-color: #00b3c0; color: var(--color-blanco-primario); padding: 0; }
-.username-enumeration { font-size: .7rem; font-weight: bold; background-color: #00b3c0; color: var(--color-blanco-primario); padding: 0; }
+.username-enumeration { font-size: .7rem; font-weight: bold; background-color: #4f2fff; color: var(--color-blanco-primario); padding: 0; }
 
 .icono-spin {
     display: inline-block;
