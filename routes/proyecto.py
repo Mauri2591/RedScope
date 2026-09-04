@@ -1276,6 +1276,60 @@ def run_osint():
     job_timeout = OSINT_JOB_TIMEOUTS.get(handler_name, 3600)
     print(f"[OSINT/RUN] Handler: {handler_name}, Timeout: {job_timeout}s")  # ← AGREGA ESTO
     q.enqueue(full_path, ejecucion_id, proyecto_id, job_timeout=job_timeout)
-    
+
     print(f"[OSINT/RUN] Job encolado exitosamente: {handler_name}")
     return jsonify({"success": True, "ejecucion_id": ejecucion_id})
+
+
+@proyecto_bp.route('/osint/run-all', methods=['POST'])
+@login_required
+def run_all_osint():
+    """Encola TODOS los servicios PASIVO en cadena (por 'orden').
+
+    La primera queda RUNNING y el resto QUEUED; el worker las procesa de a una
+    en secuencia. Se encadenan con depends_on (allow_failure=True) para que, si
+    una falla, las siguientes igual se ejecuten.
+    """
+    from rq.job import Dependency
+
+    data = request.get_json()
+    proyecto_id = data.get('proyecto_id')
+    usuario_id = session.get('user_id')
+
+    sector_id = session.get('sector_id')
+    proyecto = Proyecto.get_by_id(proyecto_id, sector_id)
+    if not proyecto or proyecto['tipo_proyecto'] != 'OSINT':
+        return jsonify({"success": False, "message": "Proyecto OSINT no válido"}), 400
+
+    # Servicios PASIVO habilitados, ya vienen ordenados por 'orden'
+    servicios = Proyecto.get_servicios_osint_pasivo()
+    handlers_map = OsintEjecucion.get_handlers_map()
+
+    q = Queue('osint', connection=Config.redis_conn)
+    prev_job = None
+    ejecuciones = []
+
+    for svc in servicios:
+        handler_name = handlers_map.get(svc['id'])
+        if not handler_name:
+            print(f"[OSINT/RUN-ALL] Sin handler para servicio {svc['id']} ({svc['nombre']}), se omite")
+            continue
+
+        ejecucion_id = OsintEjecucion.crear(proyecto_id, svc['id'], usuario_id)
+        if not ejecucion_id:
+            continue
+
+        full_path = f"tasks.osint.handlers.{handler_name}"
+        job_timeout = OSINT_JOB_TIMEOUTS.get(handler_name, 3600)
+
+        depends = Dependency(jobs=[prev_job], allow_failure=True) if prev_job else None
+        job = q.enqueue(full_path, ejecucion_id, proyecto_id,
+                        job_timeout=job_timeout, depends_on=depends)
+        prev_job = job
+        ejecuciones.append(ejecucion_id)
+
+    if not ejecuciones:
+        return jsonify({"success": False, "message": "No hay servicios para ejecutar"}), 400
+
+    print(f"[OSINT/RUN-ALL] Encoladas {len(ejecuciones)} ejecuciones en cadena")
+    return jsonify({"success": True, "ejecuciones": ejecuciones, "total": len(ejecuciones)})
