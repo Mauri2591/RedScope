@@ -410,17 +410,17 @@ class OsintEjecucion:
     def registrar_carpeta(osint_ejecuciones_id, nombre_carpeta, estado_id=1):
         """Registra una carpeta de descarga (hash) para una ejecución OSINT.
 
-        Antes de insertar la nueva, desactiva (estado_id=0) las carpetas anteriores
+        Antes de insertar la nueva, desactiva (estado_id=2) las carpetas anteriores
         de la misma ejecución, para que quede una sola carpeta activa = la última.
         Devuelve el id insertado, o None.
         """
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
-            # Desactivar carpetas previas de esta ejecución
+            # Desactivar carpetas previas de esta ejecución (2 = inactivo)
             cursor.execute("""
                 UPDATE osint_ejecuciones_carpeta
-                SET estado_id=0
+                SET estado_id=2
                 WHERE osint_ejecuciones_id=%s AND estado_id=1
             """, (osint_ejecuciones_id,))
             # Insertar la nueva como activa
