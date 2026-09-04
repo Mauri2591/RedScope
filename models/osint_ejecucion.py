@@ -1,6 +1,22 @@
 from db import get_db_connection
 import json
+import re
 from datetime import datetime
+
+# Extrae el primer dominio/subdominio válido de una cadena (limpia basura tipo
+# "[www.ater.gob.ar](https://www.ater.gob.ar)" -> "www.ater.gob.ar" y quita protocolos)
+_DOMINIO_RE = re.compile(
+    r'([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+)'
+)
+
+
+def _sanitizar_dominio(valor):
+    """Devuelve el primer dominio válido dentro de 'valor', en minúscula, o None."""
+    if not valor:
+        return None
+    m = _DOMINIO_RE.search(str(valor).strip())
+    return m.group(1).lower() if m else None
+
 
 class OsintEjecucion:
 
@@ -247,7 +263,15 @@ class OsintEjecucion:
             if result and result.get('resultado'):
                 try:
                     data = json.loads(result['resultado'])
-                    subdomains = data.get('subdominios', [])
+                    # Sanitizar: limpiar entradas mal formadas (Markdown, protocolos)
+                    # y deduplicar, para no contaminar a los servicios que consumen esto
+                    vistos = set()
+                    subdomains = []
+                    for s in data.get('subdominios', []):
+                        d = _sanitizar_dominio(s)
+                        if d and d not in vistos:
+                            vistos.add(d)
+                            subdomains.append(d)
                     print(f"[OsintEjecucion] Subdominios descubiertos (habilitados): {len(subdomains)}")
                 except json.JSONDecodeError as e:
                     print(f"[OsintEjecucion] Error parseando JSON: {e}")

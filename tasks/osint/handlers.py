@@ -76,6 +76,33 @@ def _parse_multiline_config(value):
     return [item.strip() for item in value.replace('\r\n', '\n').split('\n') if item.strip()]
 
 
+# Extrae el primer dominio/subdominio válido de una cadena (limpia basura tipo
+# "[www.ater.gob.ar](https://www.ater.gob.ar)" -> "www.ater.gob.ar" y quita protocolos)
+_EXTRAER_DOMINIO_RE = re.compile(
+    r'([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+)'
+)
+
+
+def _extraer_dominio(valor):
+    """Devuelve el primer dominio válido dentro de 'valor', en minúscula, o None."""
+    if not valor:
+        return None
+    m = _EXTRAER_DOMINIO_RE.search(str(valor).strip())
+    return m.group(1).lower() if m else None
+
+
+def _sanitizar_lista_dominios(lista):
+    """Sanitiza y deduplica una lista de dominios/subdominios (descarta inválidos)."""
+    vistos = set()
+    salida = []
+    for x in (lista or []):
+        d = _extraer_dominio(x)
+        if d and d not in vistos:
+            vistos.add(d)
+            salida.append(d)
+    return salida
+
+
 def _find_gau_path():
     """Busca el ejecutable 'gau' en múltiples ubicaciones"""
     import shutil
@@ -229,16 +256,18 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
     print(f"[OSINT-DISCOVERY] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
-        # 1. Obtener scope: DOMINIO + SUBDOMINIO + SERVICIOS
+        # 1. Obtener scope: DOMINIO + SUBDOMINIO + SERVICIOS (sanitizado)
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
-        todos_los_dominios = scope['dominio'] + \
-            scope['subdominio'] + scope['servicios']
+        # Limpiar entradas mal formadas del scope (Markdown, protocolos) en el origen
+        dominios_scope = _sanitizar_lista_dominios(
+            scope['dominio'] + scope['subdominio'] + scope['servicios'])
+        todos_los_dominios = list(dominios_scope)
 
         # 2. Fallback: Obtener dominios de mapeo_ips
         dominios_from_ips = []
         if not todos_los_dominios:
-            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
-                proyecto_id)
+            dominios_from_ips = _sanitizar_lista_dominios(
+                OsintEjecucion.get_discovered_domains_from_ips(proyecto_id))
             todos_los_dominios = dominios_from_ips
 
         if not todos_los_dominios:
@@ -254,7 +283,7 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
                 print(f"[subfinder] Escaneando {dom}...")
                 OsintEjecucion.update_resultado(ejecucion_id, {
                     "tipo": "discovery_subdominios",
-                    "dominios_scope": scope['dominio'] + scope['subdominio'] + scope['servicios'],
+                    "dominios_scope": dominios_scope,
                     "total_dominios_escaneados": len(todos_los_dominios),
                     "total_subdominios": len(subdominios),
                     "subdominios": sorted(list(filter(None, subdominios))),
@@ -268,7 +297,8 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
                     timeout=60
                 )
                 if result.stdout:
-                    nuevos = result.stdout.strip().split('\n')
+                    # Sanitizar la salida de subfinder por las dudas
+                    nuevos = _sanitizar_lista_dominios(result.stdout.strip().split('\n'))
                     subdominios.update(nuevos)
                     print(f"[subfinder] {dom} → {len(nuevos)} subdominios")
             except subprocess.TimeoutExpired:
@@ -280,7 +310,7 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
 
         return {
             "tipo": "discovery_subdominios",
-            "dominios_scope": scope['dominio'] + scope['subdominio'] + scope['servicios'],
+            "dominios_scope": dominios_scope,
             "total_dominios_escaneados": len(todos_los_dominios),
             "total_subdominios": len(subdominios),
             "subdominios": subdominios
