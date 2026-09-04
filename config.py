@@ -72,10 +72,10 @@ OSINT_JOB_TIMEOUTS = {
     'busqueda_endpoints': 1800,                 # 30 min
     'google_dorking': 900,                      # 15 min
     'urls_historicas': 21600,                   # 6 horas
-    'sensitive_data_extraction': 7200,          # 1 hora
+    'sensitive_data_extraction': 7200,          # 2 horas
     'data_emails': 1200,                        # 20 min
     'phone_intelligence': 1200,                 # 20 min
-    'document_metadata': 2700,                  # 45 min
-    'document_metadata': 900,                   # 15 min
+    'document_metadata': 3600,                  # 1 hora
+    'username-enumeration': 2700,               # 45 min
     'default': 3600                             # Fallback 1 hora
 }
