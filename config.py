@@ -71,8 +71,8 @@ OSINT_JOB_TIMEOUTS = {
     'analisis_dns': 900,                        # 15 min
     'busqueda_endpoints': 1800,                 # 30 min
     'google_dorking': 900,                      # 15 min
-    'urls_historicas': 9800,                    # 3 horas (2+ horas de ejecución + 60s delay)
-    'sensitive_data_extraction': 3600,          # 1 hora
+    'urls_historicas': 21600,                   # 6 horas
+    'sensitive_data_extraction': 7200,          # 1 hora
     'data_emails': 1200,                        # 20 min
     'phone_intelligence': 1200,                 # 20 min
     'document_metadata': 2700,                  # 45 min
