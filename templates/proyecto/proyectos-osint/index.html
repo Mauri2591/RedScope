@@ -31,8 +31,9 @@
                             onclick="ejecutar_todos_osint()">Ejecutar todos</button>
                     </div>
                     {% for servicio_osint in servicios_osint %}
-                        <button value="{{ servicio_osint.id }}" type="button" 
+                        <button value="{{ servicio_osint.id }}" type="button"
                             title="{{ servicio_osint.descripcion }}"
+                            data-orden="{{ servicio_osint.orden if servicio_osint.orden is not none else '' }}"
                             class="btn btn-sm px-3 m-1 btn-servicio-osint {{ servicio_osint.nombre|lower|replace(' ', '-') }}">
                             {{ servicio_osint.nombre }}
                         </button>

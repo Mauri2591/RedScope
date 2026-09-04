@@ -1512,9 +1512,10 @@ class Proyecto:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT id, nombre, descripcion, tipo_analisis 
-            FROM servicios_osint 
-            WHERE tipos_servicio_id = 4 AND tipo_analisis = 'PASIVO' AND estado_id = 1;
+            SELECT id, nombre, descripcion, tipo_analisis, orden
+            FROM servicios_osint
+            WHERE tipos_servicio_id = 4 AND tipo_analisis = 'PASIVO' AND estado_id = 1
+            ORDER BY (orden IS NULL), orden ASC, id ASC;
         """)
         servicios = cursor.fetchall()
         cursor.close()

@@ -1711,9 +1711,87 @@
         }, 2000);
     }
 
-    function ejecutar_todos_osint() {
+    // Ejecuta un servicio y devuelve una Promise que resuelve cuando termina
+    // (COMPLETED o FAILED). No pregunta confirmación: la usa "Ejecutar todos".
+    function ejecutarOsintEsperar(servicioId, nombreServicio) {
+        return new Promise((resolve) => {
+            const hallazgosEl = document.getElementById('hallazgosWorkspace');
+            if (!hallazgosEl) { resolve(); return; }
+
+            const proyectoId = hallazgosEl.dataset.proyectoId;
+            const terminal = document.getElementById('terminalOSINT');
+
+            fetch('/osint/run', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCSRFToken()
+                    },
+                    body: JSON.stringify({
+                        proyecto_id: proyectoId,
+                        servicio_osint_id: servicioId
+                    })
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        if (terminal) terminal.textContent += `\n[ERROR] ${nombreServicio}: ${data.message}\n`;
+                        resolve();
+                        return;
+                    }
+                    mostrarToast();
+                    if (terminal) {
+                        terminal.textContent = `[${new Date().toLocaleTimeString()}] Iniciando: ${nombreServicio}\nEjecutando...\n`;
+                    }
+                    const terminalBox = document.querySelector('.borde-terminal-salida');
+                    if (terminalBox) terminalBox.classList.add('borde-terminal-running');
+
+                    const interval = setInterval(() => {
+                        fetch(BASE_PATH + `/osint/status/${data.ejecucion_id}`)
+                            .then(r => r.json())
+                            .then(status => {
+                                if (terminal) {
+                                    let output = `Estado: ${status.estado}\n` + '═'.repeat(50) + '\n\n';
+                                    if (status.resultado) {
+                                        try { output += JSON.stringify(JSON.parse(status.resultado), null, 2); }
+                                        catch { output += status.resultado; }
+                                    } else { output += 'Cargando...'; }
+                                    if (status.error) output += '\n\n ERROR:\n' + status.error;
+                                    terminal.textContent = output;
+                                    terminal.scrollTop = terminal.scrollHeight;
+                                }
+                                cargarEjecucionesOSINT();
+                                if (status.estado === 'COMPLETED' || status.estado === 'FAILED') {
+                                    clearInterval(interval);
+                                    const tb = document.querySelector('.borde-terminal-salida');
+                                    if (tb) tb.classList.remove('borde-terminal-running');
+                                    cargarResultadosOSINT();
+                                    resolve();
+                                }
+                            })
+                            .catch(() => { /* reintenta en el próximo tick */ });
+                    }, 2000);
+                })
+                .catch(() => resolve());
+        });
+    }
+
+    async function ejecutar_todos_osint() {
+        // Confirmación ÚNICA: no vuelve a preguntar por cada servicio
         if (!confirm("¿Desea ejecutar todos los Servicios OSINT?")) return;
-        document.querySelectorAll('.btn-servicio-osint').forEach(btn => btn.click());
+
+        // Ordenar por data-orden (asc); los sin orden quedan al final
+        const botones = Array.from(document.querySelectorAll('.btn-servicio-osint'));
+        botones.sort((a, b) => {
+            const oa = parseInt(a.dataset.orden, 10);
+            const ob = parseInt(b.dataset.orden, 10);
+            return (isNaN(oa) ? 9999 : oa) - (isNaN(ob) ? 9999 : ob);
+        });
+
+        // Ejecutar de a uno, esperando que cada uno termine antes del siguiente
+        for (const btn of botones) {
+            await ejecutarOsintEsperar(btn.value, btn.textContent.trim());
+        }
     }
 
     async function cargarEjecucionesOSINT() {
