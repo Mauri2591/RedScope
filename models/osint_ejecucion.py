@@ -384,6 +384,63 @@ class OsintEjecucion:
         return telefonos
 
     @staticmethod
+    def get_discovered_usernames(proyecto_id):
+        """Junta nombres de usuario candidatos desde los resultados existentes.
+
+        Fuentes:
+          - Document Metadata: 'resumen.usuarios' (cuentas de rutas) y los autores
+            que parezcan legajo (alfanuméricos con al menos un dígito).
+          - Data Emails: la parte local de cada correo (antes del @), salvo casillas
+            genéricas (info, contacto, etc.).
+
+        Retorna [{'username': str, 'fuentes': [str, ...]}, ...]
+        """
+        # legajo/handle con al menos un dígito (descarta software y nombres con espacios)
+        legajo_re = re.compile(r'^(?=.*\d)[A-Za-z0-9._-]{4,30}$')
+        # handle general (para usuarios de rutas)
+        handle_re = re.compile(r'^[A-Za-z0-9._-]{3,30}$')
+        genericas = {
+            'info', 'contacto', 'consultas', 'ventas', 'soporte', 'webmaster',
+            'admin', 'administrador', 'noreply', 'no-reply', 'mesadeayuda', 'ayuda',
+            'contact', 'sales', 'support', 'hello', 'hola', 'prensa', 'rrhh',
+            'notificaciones', 'sistemas', 'mail', 'correo'
+        }
+        usernames = {}  # username -> set(fuentes)
+
+        # 1. Document Metadata
+        try:
+            meta = OsintEjecucion.get_latest_resultado(proyecto_id, 'Document Metadata')
+            if meta:
+                resumen = meta.get('resumen', {}) or {}
+                for a in (resumen.get('autores', []) or []):
+                    a = str(a).strip()
+                    if legajo_re.match(a):
+                        usernames.setdefault(a.lower(), set()).add('document_metadata:autor')
+                for u in (resumen.get('usuarios', []) or []):
+                    u = str(u).strip()
+                    if u and handle_re.match(u):
+                        usernames.setdefault(u.lower(), set()).add('document_metadata:usuario')
+        except Exception as e:
+            print(f"[OsintEjecucion] Error leyendo usernames de Document Metadata: {e}")
+
+        # 2. Data Emails (parte local del correo)
+        try:
+            de = OsintEjecucion.get_latest_resultado(proyecto_id, 'Data Emails')
+            if de:
+                for item in (de.get('emails', []) or []):
+                    email = (item.get('email') if isinstance(item, dict) else str(item)).strip().lower()
+                    if '@' in email:
+                        local = email.split('@')[0]
+                        if handle_re.match(local) and local not in genericas:
+                            usernames.setdefault(local, set()).add('data_emails')
+        except Exception as e:
+            print(f"[OsintEjecucion] Error leyendo usernames de Data Emails: {e}")
+
+        salida = [{"username": u, "fuentes": sorted(f)} for u, f in usernames.items()]
+        print(f"[OsintEjecucion] Usernames candidatos: {len(salida)}")
+        return salida
+
+    @staticmethod
     def get_discovered_urls(proyecto_id):
         """Obtiene las URLs del último resultado de URLs Historicas (servicio 9).
 
@@ -773,7 +830,8 @@ class OsintEjecucion:
             'Sensitive Data Extraction' : 'sensitive_data_extraction',
             'Data Emails' : 'data_emails',
             'Phone Intelligence' : 'phone_intelligence',
-            'Document Metadata' : 'document_metadata'
+            'Document Metadata' : 'document_metadata',
+            'Username Enumeration' : 'username_enumeration'
         }
 
         servicios_map = OsintEjecucion.get_servicios_map()

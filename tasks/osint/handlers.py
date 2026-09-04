@@ -3905,3 +3905,94 @@ def document_metadata(ejecucion_id, proyecto_id):
         }
 
     return _run_osint_job(ejecucion_id, job)
+
+
+# ══════════════════════════════════════════════════════════════════
+# HANDLER USERNAME ENUMERATION (Sherlock)
+# ══════════════════════════════════════════════════════════════════
+import shutil
+
+# Tope de usernames a verificar (Sherlock consulta cientos de sitios por handle)
+_USERNAME_MAX = 30
+
+
+def _sherlock_lookup(username):
+    """Corre Sherlock sobre un username y devuelve los perfiles encontrados.
+
+    Devuelve: [{'sitio': str, 'url': str}, ...]
+    """
+    perfiles = []
+    tmpdir = tempfile.mkdtemp(prefix="sherlock_")
+    try:
+        proc = subprocess.run(
+            ["sherlock", username, "--print-found", "--no-color", "--timeout", "10"],
+            capture_output=True, text=True, timeout=300, cwd=tmpdir
+        )
+        for linea in proc.stdout.splitlines():
+            linea = _ANSI_RE.sub("", linea).strip()
+            # formato: [+] Sitio: https://url
+            if linea.startswith("[+]"):
+                resto = linea[3:].strip()
+                if ":" in resto:
+                    sitio, url = resto.split(":", 1)
+                    sitio, url = sitio.strip(), url.strip()
+                    if url.startswith("http"):
+                        perfiles.append({"sitio": sitio, "url": url})
+    except subprocess.TimeoutExpired:
+        print(f"[_sherlock_lookup] Timeout con {username}")
+    except FileNotFoundError:
+        print(f"[_sherlock_lookup] sherlock no está instalado / no está en el PATH")
+    except Exception as e:
+        print(f"[_sherlock_lookup] Error con {username}: {type(e).__name__}: {e}")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    return perfiles
+
+
+def username_enumeration(ejecucion_id, proyecto_id):
+    """Enumeración de usernames en plataformas online con Sherlock.
+
+    Toma los usernames candidatos (Document Metadata + Data Emails) y por cada uno
+    verifica en qué sitios existe una cuenta con ese handle.
+    """
+    def job():
+        candidatos = OsintEjecucion.get_discovered_usernames(proyecto_id)
+        if not candidatos:
+            raise Exception("No hay usernames para analizar (ejecutá antes Document Metadata y/o Data Emails)")
+
+        print(f"[username_enumeration] Usernames a analizar: {len(candidatos)}")
+
+        # ¿Está Sherlock disponible?
+        sherlock_ok = shutil.which("sherlock") is not None
+        print(f"[username_enumeration] Sherlock disponible: {sherlock_ok}")
+        if not sherlock_ok:
+            raise Exception("Sherlock no está instalado en el worker (pip install sherlock-project)")
+
+        resultados = []
+        analizados = 0
+        for c in candidatos:
+            username = c.get("username")
+            if analizados >= _USERNAME_MAX:
+                resultados.append({"username": username, "fuentes": c.get("fuentes", []),
+                                   "analizado": False, "motivo": "tope alcanzado"})
+                continue
+            print(f"[username_enumeration] [{analizados + 1}] {username} ...")
+            perfiles = _sherlock_lookup(username)
+            resultados.append({
+                "username": username,
+                "fuentes": c.get("fuentes", []),
+                "total_perfiles": len(perfiles),
+                "perfiles": perfiles,
+            })
+            analizados += 1
+
+        total_perfiles = sum(r.get("total_perfiles", 0) for r in resultados)
+        return {
+            "tipo": "username_enumeration",
+            "total_usernames": len(candidatos),
+            "total_analizados": analizados,
+            "total_perfiles_encontrados": total_perfiles,
+            "usernames": resultados,
+        }
+
+    return _run_osint_job(ejecucion_id, job)

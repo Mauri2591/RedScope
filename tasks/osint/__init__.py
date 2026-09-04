@@ -11,7 +11,8 @@ from .handlers import (
     sensitive_data_extraction,
     data_emails,
     phone_intelligence,
-    document_metadata
+    document_metadata,
+    username_enumeration
 )
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     'sensitive_data_extraction',
     'data_emails',
     'phone_intelligence',
-    'document_metadata'
+    'document_metadata',
+    'username_enumeration'
 ]
