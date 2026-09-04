@@ -75,7 +75,7 @@ OSINT_JOB_TIMEOUTS = {
     'sensitive_data_extraction': 7200,          # 2 horas
     'data_emails': 1200,                        # 20 min
     'phone_intelligence': 1200,                 # 20 min
-    'document_metadata': 3600,                  # 1 hora
+    'document_metadata': 7200,                  # 2 horas
     'username-enumeration': 2700,               # 45 min
     'default': 3600                             # Fallback 1 hora
 }
