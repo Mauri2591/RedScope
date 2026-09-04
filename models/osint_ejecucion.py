@@ -317,9 +317,10 @@ class OsintEjecucion:
 
         Lee el ÚLTIMO resultado COMPLETED y habilitado del servicio
         'Sensitive Data Extraction' y aplana la clave 'telefonos_encontrados'
-        (dict url -> [{'telefono','tipo'}, ...]) en una lista de números E.164 únicos.
+        (dict url -> [{'telefono','tipo'}, ...]) agrupando por número único.
 
-        Retorna lista de strings de teléfono (deduplicada).
+        Retorna lista de dicts: [{'telefono': E164, 'origenes': [url, ...]}, ...]
+        para poder relacionar cada número con la página/cliente donde apareció.
         """
         telefonos = []
         try:
@@ -331,19 +332,26 @@ class OsintEjecucion:
                 return telefonos
 
             telefonos_encontrados = resultado.get('telefonos_encontrados', {}) or {}
-            vistos = set()
-            for _url, lista in telefonos_encontrados.items():
+            mapa = {}  # tel -> set(urls de origen)
+            for url, lista in telefonos_encontrados.items():
                 for item in (lista or []):
-                    # item puede ser dict {'telefono','tipo'} o un string suelto
+                    # item puede ser dict {'telefono','tipo','url'} o un string suelto
                     if isinstance(item, dict):
                         tel = (item.get('telefono') or '').strip()
+                        origen = item.get('url') or url
                     else:
                         tel = str(item).strip()
-                    if not tel or tel in vistos:
+                        origen = url
+                    if not tel:
                         continue
-                    vistos.add(tel)
-                    telefonos.append(tel)
+                    mapa.setdefault(tel, set())
+                    if origen:
+                        mapa[tel].add(origen)
 
+            telefonos = [
+                {"telefono": tel, "origenes": sorted(origenes)}
+                for tel, origenes in mapa.items()
+            ]
             print(f"[OsintEjecucion] Teléfonos (Sensitive Data): {len(telefonos)}")
 
         except Exception as e:
@@ -378,11 +386,20 @@ class OsintEjecucion:
     def registrar_carpeta(osint_ejecuciones_id, nombre_carpeta, estado_id=1):
         """Registra una carpeta de descarga (hash) para una ejecución OSINT.
 
-        Inserta en osint_ejecuciones_carpeta y devuelve el id insertado, o None.
+        Antes de insertar la nueva, desactiva (estado_id=0) las carpetas anteriores
+        de la misma ejecución, para que quede una sola carpeta activa = la última.
+        Devuelve el id insertado, o None.
         """
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
+            # Desactivar carpetas previas de esta ejecución
+            cursor.execute("""
+                UPDATE osint_ejecuciones_carpeta
+                SET estado_id=0
+                WHERE osint_ejecuciones_id=%s AND estado_id=1
+            """, (osint_ejecuciones_id,))
+            # Insertar la nueva como activa
             cursor.execute("""
                 INSERT INTO osint_ejecuciones_carpeta
                     (osint_ejecuciones_id, nombre_carpeta, estado_id, creacion)
@@ -394,6 +411,30 @@ class OsintEjecucion:
             return nuevo_id
         except Exception as e:
             print(f"[OsintEjecucion] Error registrando carpeta: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+
+    @staticmethod
+    def get_carpeta_activa(osint_ejecuciones_id):
+        """Devuelve la carpeta ACTIVA (estado_id=1) más reciente de una ejecución.
+
+        Retorna dict {id, nombre_carpeta, creacion} o None.
+        """
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT id, nombre_carpeta, creacion
+                FROM osint_ejecuciones_carpeta
+                WHERE osint_ejecuciones_id=%s AND estado_id=1
+                ORDER BY creacion DESC, id DESC
+                LIMIT 1
+            """, (osint_ejecuciones_id,))
+            return cursor.fetchone()
+        except Exception as e:
+            print(f"[OsintEjecucion] Error obteniendo carpeta activa: {e}")
             return None
         finally:
             cursor.close()

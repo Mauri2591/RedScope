@@ -3596,12 +3596,21 @@ def phone_intelligence(ejecucion_id, proyecto_id):
 
         resultados = []
         analizados = 0
-        for tel in telefonos:
+        for item in telefonos:
+            # item = {'telefono': E164, 'origenes': [url, ...]}
+            tel = item.get("telefono") if isinstance(item, dict) else str(item)
+            origenes = item.get("origenes", []) if isinstance(item, dict) else []
+            # Dominios de origen (para relacionar con el cliente/objetivo)
+            dominios_origen = sorted({_host_de_url(u) for u in origenes if _host_de_url(u)})
             if analizados >= _PHONE_MAX:
-                resultados.append({"telefono": tel, "analizado": False, "motivo": "tope alcanzado"})
+                resultados.append({"telefono": tel, "origenes": origenes,
+                                   "dominios_origen": dominios_origen,
+                                   "analizado": False, "motivo": "tope alcanzado"})
                 continue
             print(f"[phone_intelligence] [{analizados + 1}] {tel} ...")
             info = _enriquecer_telefono(tel)
+            info["origenes"] = origenes
+            info["dominios_origen"] = dominios_origen
             if phoneinfoga_ok:
                 info["phoneinfoga"] = _phoneinfoga_lookup(tel)
             resultados.append(info)
