@@ -22,7 +22,7 @@ class Grafico:
         sql_totales = """
         SELECT tipos_servicio.id, COUNT(proyectos.id) AS total 
         FROM proyectos 
-        INNER JOIN tipos_servicio ON tipos_servicio.id=proyectos.tipo_servicio_id 
+        INNER JOIN tipos_servicio ON tipos_servicio.id=proyectos.tipo_servicio_id WHERE proyectos.estado_id != 2
         GROUP BY tipos_servicio.id
         """
         cursor.execute(sql_totales)
