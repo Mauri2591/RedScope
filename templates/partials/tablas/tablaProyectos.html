@@ -1,6 +1,7 @@
 <table id="tabla_proyectos" class="table-center table-light table table-striped table-hover">
     <thead>
         <tr>
+            <th>Cliente</th>
             <th>Titulo</th>
             <th>Creador</th>
             <th>Servicio</th>
@@ -12,6 +13,7 @@
     <tbody>
         {% for proyecto in proyectos %}
         <tr>
+            <td>{{ proyecto.cliente }}</td>
             <td>{{ proyecto.titulo }}</td>
             <td>{{ proyecto.email }}</td>
             <td><img src="{{ url_for('static', filename='img/servicios/' + proyecto.tipo_proyecto|lower + '.png') }}" width="40" title="{{ proyecto.tipo_proyecto }}"></td>            

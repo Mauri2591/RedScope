@@ -55,31 +55,15 @@ class Proyecto:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         query = """
-            SELECT 
-            p.id,
-            p.titulo,
-            u.email,
-            IF(tp.nombre IS NULL, 'N/A', tp.nombre) AS tipo_proyecto,
-            IF(ts.nombre IS NULL, 'N/A', ts.nombre) AS tipo_servicio,
-
-            e.nombre AS estado
-
-            FROM proyectos p
-
-            INNER JOIN usuarios u
-                ON p.usuario_creador_id = u.id
-
-            LEFT JOIN tipos_servicio ts
-                ON p.tipo_servicio_id = ts.id
-
-            LEFT JOIN tipo_proyecto tp
-                ON p.tipo_proyecto_id = tp.id
-
-
-            INNER JOIN estados e
-                ON p.estado_id = e.id
-
-            WHERE p.sector_id = %s AND p.estado_id != 2;
+            SELECT c.nombre as cliente, p.id, p.titulo, u.email, 
+            IF(tp.nombre IS NULL, 'N/A', tp.nombre) AS tipo_proyecto, 
+            IF(ts.nombre IS NULL, 'N/A', ts.nombre) AS tipo_servicio, 
+            e.nombre AS estado FROM proyectos p 
+            INNER JOIN usuarios u ON p.usuario_creador_id = u.id 
+            LEFT JOIN tipos_servicio ts ON p.tipo_servicio_id = ts.id 
+            LEFT JOIN tipo_proyecto tp ON p.tipo_proyecto_id = tp.id 
+            INNER JOIN clientes c ON c.id=p.cliente_id INNER JOIN estados e ON p.estado_id = e.id 
+            WHERE p.sector_id = %s AND p.estado_id != 2
         """
         cursor.execute(query, (sector_id,))
         get_proyectos = cursor.fetchall()
