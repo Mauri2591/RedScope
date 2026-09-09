@@ -290,6 +290,21 @@
     });
 
 
+    async function verScope(id) {
+        try {
+            document.getElementById('osint_proyecto_id').value = id;
+
+            const response = await fetch(BASE_PATH + `/proyecto/${id}/osint-config`, {
+                credentials: 'include'
+            });
+            const valoresActuales = await response.json();
+
+            document.getElementById('mdlGestionarConfiguracionOsint').dataset.valores = JSON.stringify(valoresActuales);
+            $("#mdlGestionarConfiguracionOsint").modal("show");
+        } catch (error) {
+            console.error(error);
+        }
+    }
 
     function insertar_proyecto() {
         $('#formAltaProyecto').on('submit', function (e) {
@@ -1516,46 +1531,57 @@
     // OSINT CONFIGURATION
     // ===============================
     const mdlOsint = document.getElementById('mdlGestionarConfiguracionOsint');
-    if (mdlOsint) {
-        mdlOsint.addEventListener('show.bs.modal', async function () {
-            console.log("EVENTO DISPARADO: show.bs.modal");
-            const container = document.getElementById('osintConfigContainer');
+if (mdlOsint) {
+    mdlOsint.addEventListener('show.bs.modal', async function () {
+        console.log("EVENTO DISPARADO: show.bs.modal");
+        const container = document.getElementById('osintConfigContainer');
+        
+        // Inicializar con objeto vacío si no hay valores
+        let valoresActuales = {};
+        try {
+            if (this.dataset.valores) {
+                valoresActuales = JSON.parse(this.dataset.valores);
+            }
+        } catch (e) {
+            console.warn("Error parseando valores:", e);
+        }
 
-            try {
-                console.log("Fetching" +BASE_PATH+"/osint/config-tipos");
-                const response = await fetch(BASE_PATH + '/osint/config-tipos', {
-                    credentials: 'include'
-                });
+        try {
+            console.log("Fetching" + BASE_PATH + "/osint/config-tipos");
+            const response = await fetch(BASE_PATH + '/osint/config-tipos', {
+                credentials: 'include'
+            });
 
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
 
-                const tipos = await response.json();
+            const tipos = await response.json();
 
-                if (!Array.isArray(tipos) || tipos.length === 0) {
-                    container.innerHTML = '<div class="alert alert-warning">No hay tipos de configuración disponibles</div>';
-                    return;
-                }
+            if (!Array.isArray(tipos) || tipos.length === 0) {
+                container.innerHTML = '<div class="alert alert-warning">No hay tipos de configuración disponibles</div>';
+                return;
+            }
 
-                container.innerHTML = tipos.map(tipo => {
-                    return `<div class="mb-3">
+            container.innerHTML = tipos.map(tipo => {
+                const valor = valoresActuales[tipo.nombre] || '';
+                return `<div class="mb-3">
                     <label for="config_${tipo.id}" class="form-label">
                         <strong>${tipo.nombre}</strong><br>
                         <small class="text-muted">${tipo.descripcion}</small>
                     </label>
-                    <textarea class="form-control" id="config_${tipo.id}" name="${tipo.id}" rows="2" placeholder="${tipo.placeholder || ''}"></textarea>
+                    <textarea class="form-control" id="config_${tipo.id}" name="${tipo.id}" rows="2" placeholder="${tipo.placeholder || ''}">${valor}</textarea>
                 </div>`;
-                }).join('');
-            } catch (err) {
-                console.error("Error cargando config tipos:", err);
-                container.innerHTML = `<div class="alert alert-danger">
+            }).join('');
+        } catch (err) {
+            console.error("Error cargando config tipos:", err);
+            container.innerHTML = `<div class="alert alert-danger">
                 <strong>Error:</strong> ${err.message}<br>
                 <small>Endpoint: /osint/config-tipos</small>
             </div>`;
-            }
-        });
-    } 
+        }
+    });
+}
 
     const formOsintConfig = document.getElementById('formGestionarConfiguracionOSINT');
     if (formOsintConfig) {
@@ -1728,7 +1754,9 @@
                     'Content-Type': 'application/json',
                     'X-CSRFToken': getCSRFToken()
                 },
-                body: JSON.stringify({ proyecto_id: proyectoId })
+                body: JSON.stringify({
+                    proyecto_id: proyectoId
+                })
             })
             .then(r => r.json())
             .then(data => {
@@ -1780,7 +1808,7 @@
                     hayRunning = true;
                 } else if (exec.estado === 'QUEUED') {
                     badgeClass = 'bg-secondary';
-                    hayRunning = true;  // seguir el polling mientras haya encolados
+                    hayRunning = true; // seguir el polling mientras haya encolados
                 }
 
                 html += `

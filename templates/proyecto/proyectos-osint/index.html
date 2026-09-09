@@ -31,12 +31,11 @@
                             onclick="ejecutar_todos_osint()">Ejecutar todos</button>
                     </div>
                     {% for servicio_osint in servicios_osint %}
-                        <button value="{{ servicio_osint.id }}" type="button"
-                            title="{{ servicio_osint.descripcion }}"
-                            data-orden="{{ servicio_osint.orden if servicio_osint.orden is not none else '' }}"
-                            class="btn btn-sm px-3 m-1 btn-servicio-osint {{ servicio_osint.nombre|lower|replace(' ', '-') }}">
-                            {{ servicio_osint.nombre }}
-                        </button>
+                    <button value="{{ servicio_osint.id }}" type="button" title="{{ servicio_osint.descripcion }}"
+                        data-orden="{{ servicio_osint.orden if servicio_osint.orden is not none else '' }}"
+                        class="btn btn-sm px-3 m-1 btn-servicio-osint {{ servicio_osint.nombre|lower|replace(' ', '-') }}">
+                        {{ servicio_osint.nombre }}
+                    </button>
                     {% endfor %}
                 </div>
 
@@ -84,7 +83,9 @@
 
             <!-- PANEL DERECHO -->
             <div class="col-8">
-                <div class="d-flex justify-content-end">
+                <div class="d-flex justify-content-between align-items-center">
+                    <button class="btn btn-sm btn-secondary py-0" onclick="verScope('{{ proyecto.id }}')">Scope</button>
+                    
                     <div class="d-flex gap-1 rounded p-1 contenedor-iconos-formulario">
                         <span class="badge btn-export btn-docx" title="Descargar Informe Técnico"
                             onclick="descargarDocOsint('{{ proyecto.id }}', 'tecnico')">
@@ -94,10 +95,6 @@
                             onclick="descargarDocOsint('{{ proyecto.id }}', 'ejecutivo')">
                             <i class="bi bi-file-earmark-text"></i>
                         </span>
-                        <!--<span class="badge btn-export btn-xlsx" title="Descargar XLSX"
-                            onclick="descargarXlsx('{{ proyecto.id }}')">
-                            <i class="bi bi-file-earmark-excel"></i>
-                        </span>-->
                     </div>
                 </div>
 
@@ -114,11 +111,11 @@
         </div>
     </div>
 </div>
-
+{% include 'partials/modals/osint/mdlConfigProyecto.html'  %}
 {% endblock %}
 
 {% block extra_js %}
 <script>
-const proyectoId = {{ proyecto.id }};
+    const proyectoId = {{ proyecto.id }};
 </script>
 {% endblock %}
