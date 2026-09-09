@@ -1327,11 +1327,23 @@ def recon_cloud(ejecucion_id, proyecto_id):
         else:
             print(f"[recon_cloud] Sin DOMINIO configurado, buscando fallbacks...")
 
-        # 2. FALLBACK 1: Dominios válidos de mapeo_ips
+        # 2. FALLBACK 1: Dominios válidos de reverse DNS
         dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
             proyecto_id) if not dominios_config else []
         if dominios_from_ips:
-            print(f"[recon_cloud] Dominios de mapeo_ips: {dominios_from_ips}")
+            print(f"[recon_cloud] Dominios de reverse DNS: {dominios_from_ips}")
+
+        # 2b. Agregar dominios de mapeo_ips (IPs enriquecidas)
+        dominios_mapeo_ips = []
+        mapeo_ips_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        if mapeo_ips_results and 'ips_success' in mapeo_ips_results:
+            for ip_info in mapeo_ips_results.get('ips_success', []):
+                for dominio_info in ip_info.get('dominios_que_resuelven', []):
+                    dominio = dominio_info.get('dominio', '')
+                    if dominio and dominio not in dominios_from_ips and dominio not in dominios_mapeo_ips:
+                        dominios_mapeo_ips.append(dominio)
+        if dominios_mapeo_ips:
+            print(f"[recon_cloud] Dominios de mapeo_ips: {dominios_mapeo_ips}")
 
         # 3. FALLBACK 2: Subdominios descubiertos
         dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
@@ -1341,7 +1353,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
                 f"[recon_cloud] Subdominios descubiertos: {len(dominios_descubiertos)}")
 
         # 4. Crear lista de dominios PRINCIPALES
-        dominios_principales = list(set(dominios_config + dominios_from_ips))
+        dominios_principales = list(set(dominios_config + dominios_from_ips + dominios_mapeo_ips))
 
         if not dominios_principales and not dominios_descubiertos:
             raise Exception(
@@ -1524,22 +1536,39 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
             print(
                 f"[escaneo_repositorios] Sin DOMINIO configurado, buscando fallbacks...")
 
-        # 2. FALLBACK 1: Dominios válidos de mapeo_ips (si DOMINIO vacío)
+        # 2. FALLBACK 1: Dominios válidos de mapeo_ips (reverse DNS)
         dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
             proyecto_id) if not dominios_config else []
         if dominios_from_ips:
             print(
-                f"[escaneo_repositorios] Dominios de mapeo_ips: {dominios_from_ips}")
+                f"[escaneo_repositorios] Dominios de reverse DNS: {dominios_from_ips}")
 
-        # 3. Subdominios descubiertos (solo para información, NO para búsqueda en GitHub)
+        # 3. Agregar dominios de mapeo_ips (IPs enriquecidas)
+        dominios_mapeo_ips = []
+        mapeo_ips_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        if mapeo_ips_results and 'ips_success' in mapeo_ips_results:
+            for ip_info in mapeo_ips_results.get('ips_success', []):
+                for dominio_info in ip_info.get('dominios_que_resuelven', []):
+                    dominio_completo = dominio_info.get('dominio', '')
+                    # Extraer solo parte principal (sin TLD) para búsqueda en repositorios
+                    if dominio_completo:
+                        parts = dominio_completo.split('.')
+                        if len(parts) >= 2:
+                            subdomain_principal = parts[0]  # ej: "pepe-ejemplo" de "pepe-ejemplo.gob.ar"
+                            if subdomain_principal not in dominios_mapeo_ips:
+                                dominios_mapeo_ips.append(subdomain_principal)
+        if dominios_mapeo_ips:
+            print(f"[escaneo_repositorios] Dominios de mapeo_ips (pattern matching): {dominios_mapeo_ips}")
+
+        # 4. Subdominios descubiertos (solo para información, NO para búsqueda en GitHub)
         dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
             proyecto_id)
         if dominios_descubiertos:
             print(
                 f"[escaneo_repositorios] Subdominios descubiertos (solo info): {len(dominios_descubiertos)}")
 
-        # 4. Buscar SOLO dominios raíz (config + mapeo_ips)
-        dominios_para_buscar = list(set(dominios_config + dominios_from_ips))
+        # 5. Buscar SOLO dominios raíz + pattern matching (config + reverse DNS + mapeo_ips)
+        dominios_para_buscar = list(set(dominios_config + dominios_from_ips + dominios_mapeo_ips))
 
         if not dominios_para_buscar:
             raise Exception(
@@ -1971,9 +2000,20 @@ def urls_historicas(ejecucion_id, proyecto_id):
         if subdominios_descubiertos:
             print(f"[gau] Subdominios descubiertos: {len(subdominios_descubiertos)}")
 
-        # 4. Combinar todas las fuentes de dominios
+        # 4. Agregar dominios de mapeo_ips
+        dominios_mapeo_ips = []
+        mapeo_ips_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        if mapeo_ips_results and 'ips_success' in mapeo_ips_results:
+            for ip_info in mapeo_ips_results.get('ips_success', []):
+                for dominio_info in ip_info.get('dominios_que_resuelven', []):
+                    if dominio_info.get('dominio') not in dominios_mapeo_ips:
+                        dominios_mapeo_ips.append(dominio_info['dominio'])
+        if dominios_mapeo_ips:
+            print(f"[gau] Dominios de mapeo_ips: {len(dominios_mapeo_ips)}")
+
+        # 5. Combinar todas las fuentes de dominios
         todos_los_dominios = list(
-            set(dominios_scope + dominios_from_ips + subdominios_descubiertos))
+            set(dominios_scope + dominios_from_ips + subdominios_descubiertos + dominios_mapeo_ips))
 
         # 5. Validar que hay algo para escanear
         if not todos_los_dominios and not ips_scope:
@@ -3041,10 +3081,28 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             print(
                 f"[sensitive_data] Error al obtener subdominios descubiertos: {type(e).__name__}")
 
-        # Merge: Scope (FASE 1) + Discovery (FASE 2) sin duplicados
-        # Prioridad: scope (se agrega primero)
-        todas_las_urls = {**urls_scope, **urls_fase2}
-        fase_usada = 'FASE 1+2' if urls_fase2 else 'FASE 1'
+        # FASE 3: Agregar dominios de mapeo_ips
+        urls_fase3 = {}
+        mapeo_ips_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        if mapeo_ips_results and 'ips_success' in mapeo_ips_results:
+            for ip_info in mapeo_ips_results.get('ips_success', []):
+                for dominio_info in ip_info.get('dominios_que_resuelven', []):
+                    dominio = dominio_info.get('dominio', '')
+                    if dominio and dominio.lower() not in subdominios_scope:
+                        urls_fase3[f"http://{dominio}"] = dominio
+                        urls_fase3[f"https://{dominio}"] = dominio
+                        print(f"[sensitive_data] Dominio mapeo_ips agregado: {dominio}")
+
+        # Merge: Scope (FASE 1) + Discovery (FASE 2) + Mapeo IPs (FASE 3) sin duplicados
+        todas_las_urls = {**urls_scope, **urls_fase2, **urls_fase3}
+        if urls_fase3 and urls_fase2:
+            fase_usada = 'FASE 1+2+3'
+        elif urls_fase3:
+            fase_usada = 'FASE 1+3'
+        elif urls_fase2:
+            fase_usada = 'FASE 1+2'
+        else:
+            fase_usada = 'FASE 1'
 
         if not todas_las_urls:
             raise Exception("No hay URLs")
@@ -4009,7 +4067,16 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
             proyecto_id)
         todos_los_dominios.extend(subdominios_descubiertos)
 
-        # 3. Fallback: discovery_subdominios
+        # 3. Agregar dominios de mapeo_ips
+        mapeo_ips_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        if mapeo_ips_results and 'ips_success' in mapeo_ips_results:
+            for ip_info in mapeo_ips_results.get('ips_success', []):
+                for dominio_info in ip_info.get('dominios_que_resuelven', []):
+                    dominio = dominio_info.get('dominio', '')
+                    if dominio and dominio not in todos_los_dominios:
+                        todos_los_dominios.append(dominio)
+
+        # 4. Fallback: discovery_subdominios
         if not todos_los_dominios:
             resultado = discovery_subdominios(ejecucion_id, proyecto_id)
             todos_los_dominios = resultado.get('subdominio_nuevo', [])
