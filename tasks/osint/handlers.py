@@ -4023,8 +4023,11 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
         if not todos_los_dominios:
             raise Exception("No hay dominios para analizar")
 
-        # Deduplicar y ordenar
+        # Deduplicar, ordenar y limpiar
         todos_los_dominios = sorted(list(set(todos_los_dominios)))
+        # Limpiar dominios malformados (sin caracteres especiales)
+        todos_los_dominios = [d for d in todos_los_dominios if not any(c in d for c in ['[', ']', '(', ')', 'http'])]
+        
         print(f"[phishing_detection] Dominios a analizar: {todos_los_dominios}")
 
         phishing_results = {}
@@ -4033,13 +4036,17 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
 
         print(f"[phishing_detection] Analizando {len(todos_los_dominios)} dominios")
 
+        headers = {
+            'User-Agent': 'RedScope/1.0 (OSINT Scanner)'
+        }
+
         for dominio in todos_los_dominios:
-            # URLhaus API - Sin autenticación
             try:
                 print(f"[urlhaus] Consultando: {dominio}")
                 resp = requests.post(
                     'https://urlhaus-api.abuse.ch/v1/urls/query_latest/',
                     data={'query': 'domain', 'value': dominio},
+                    headers=headers,
                     timeout=5
                 )
                 print(f"[urlhaus] Status {dominio}: {resp.status_code}")
@@ -4058,7 +4065,6 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
                                 "date_added": result.get('date_added')
                             })
                         
-                        # Solo guardar si tiene resultados
                         if urls:
                             phishing_results[dominio] = {
                                 "urlhaus": urls,
@@ -4067,8 +4073,10 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
                             dominios_comprometidos += 1
                             urls_maliciosas_totales += len(urls)
                             print(f"[urlhaus] ✅ {dominio} COMPROMETIDO - {len(urls)} URLs")
+                else:
+                    print(f"[urlhaus] Error {dominio}: HTTP {resp.status_code}")
             except Exception as e:
-                print(f"[urlhaus] Error {dominio}: {e}")
+                print(f"[urlhaus] Exception {dominio}: {e}")
 
         return {
             "tipo": "phishing_domain_detection",
