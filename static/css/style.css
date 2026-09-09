@@ -18,6 +18,14 @@ body {
     --fuente-texto: monospace;
     --fuente-titulo: Arial, Helvetica, sans-serif;
 }
+#btnVerScope{
+    background-color: var(--color-principal);
+    color: var(--color-blanco-primario);
+    font-size: .75rem;
+}
+#btnVerScope:hover{
+    background-color: var(--color-borde);
+}
 
 h1 {
     font-size: 3.5rem;
