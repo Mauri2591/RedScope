@@ -4446,13 +4446,24 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                 if 'ip' in ip_info and ip_info['ip'] not in ips:
                     ips.append(ip_info['ip'])
 
+        # 3b. Agregar IPs y CNAMEs de analisis_dns
+        ips_dns, cnames_dns = _extract_ips_and_cnames_from_dns(proyecto_id)
+        if ips_dns:
+            for ip in ips_dns:
+                if ip not in ips:
+                    ips.append(ip)
+        if cnames_dns:
+            for cname in cnames_dns:
+                if cname not in subdominios:
+                    subdominios.append(cname)
+
         # Deduplicar
         dominios = sorted(list(set(dominios)))
         subdominios = sorted(list(set(subdominios)))
         ips = sorted(list(set(ips)))
 
         # Puertos a verificar
-        puertos = ["", "8080", "8443", "3000", "5000"]
+        puertos = ["", "8080", "8443", "3000", "3001", "5000", "8000"]
         protocolos = ["http", "https"]
 
         print(f"[Tech] Analizando: {len(dominios)} dominios, {len(subdominios)} subdominios, {len(ips)} IPs")
