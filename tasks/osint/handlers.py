@@ -190,18 +190,12 @@ PUBLIC_DNS_IPS = {'8.8.8.8', '8.8.4.4', '1.1.1.1',
 
 
 def _resolve_domain_multi_resolver(dominio, timeout=5):
-    """Resuelve dominio usando dns.resolver - con timeout correcto"""
+    """Resuelve dominio - ligero, sin múltiples resolvers"""
     try:
-        resolver = dns.resolver.Resolver()
-        resolver.timeout = timeout
-        resolver.lifetime = timeout
-
-        answers = resolver.resolve(dominio, 'A', raise_on_no_answer=False)
-        ips = set()
-        if answers:
-            ips = set(str(rdata) for rdata in answers)
-
-        return {'ips': ips, 'by_resolver': {'default': list(ips)}}
+        ips = socket.getaddrinfo(
+            dominio, None, socket.AF_INET, timeout=timeout)
+        ip_set = set(ip[4][0] for ip in ips)
+        return {'ips': ip_set, 'by_resolver': {'default': list(ip_set)}}
     except Exception as e:
         print(f"  [WARN] Resolver {dominio}: {type(e).__name__}")
         return {'ips': set(), 'by_resolver': {}}
@@ -487,12 +481,24 @@ def enumeracion_servicios(ejecucion_id, proyecto_id):
 # Handler MAPEO DE IPs - VERSIÓN ENRIQUECIDA (Local)
 # ════════════════════════════════════════════════════════════════════════════════
 
-def _get_asn_info(ip, timeout=5):
-    """Obtiene ASN desde ipinfo.io (con cache)"""
+def _get_ipinfo_completo(ip, timeout=5):
+    """
+    FUNCIÓN UNIFICADA: Obtiene TODOS los datos de enriquecimiento en UNA sola llamada.
+
+    SOLUCIÓN A FRAGMENTACIÓN DE CACHE:
+    - Antes: 3 funciones hacían 3 llamadas y cacheaban claves diferentes → KeyError
+    - Ahora: 1 función hace 1 llamada y cachea TODOS los datos juntos
+
+    Returns:
+        dict con: asn, isp, pais, ciudad, latitud, longitud, organizacion
+    """
+    # Intentar obtener del cache
     cached = _get_cached_ipinfo(ip)
-    if cached:
-        return {'asn': cached['asn'], 'isp': cached['isp']}
-    
+    if cached and all(k in cached for k in ['asn', 'isp', 'pais', 'ciudad', 'latitud', 'longitud', 'organizacion']):
+        print(f"  [cache_hit] {ip}")
+        return cached
+
+    print(f"  [api_call] {ip}")
     try:
         import requests
         response = requests.get(
@@ -502,88 +508,72 @@ def _get_asn_info(ip, timeout=5):
         )
         if response.status_code == 200:
             data = response.json()
-            isp = data.get('org', 'unknown')
-            asn = isp.split()[0] if isp and isp != 'unknown' else 'unknown'
-            
-            result = {'asn': asn, 'isp': isp}
+
+            # ASN/ISP
+            org = data.get('org', 'unknown')
+            asn = org.split()[0] if org and org != 'unknown' else 'unknown'
+            isp = org
+
+            # Geolocalización
+            pais = data.get('country', 'unknown')
+            ciudad = data.get('city', 'unknown')
+            loc = data.get('loc', '0,0').split(',')
+            latitud = loc[0] if len(loc) > 0 else 'unknown'
+            longitud = loc[1] if len(loc) > 1 else 'unknown'
+
+            # Compilar RESULTADO COMPLETO con TODAS las claves
+            result = {
+                'asn': asn,
+                'isp': isp,
+                'pais': pais,
+                'ciudad': ciudad,
+                'latitud': latitud,
+                'longitud': longitud,
+                'organizacion': asn  # Usar ASN como organizacion
+            }
+
+            # Guardar EN CACHE CON TODAS LAS CLAVES
             _save_ipinfo_cache(ip, result)
             return result
     except Exception as e:
-        print(f"[asn] Error: {type(e).__name__}")
-    
-    return {'asn': 'unknown', 'isp': 'unknown'}
+        print(f"[ipinfo_completo] Error {ip}: {type(e).__name__}")
+
+    # Si falla, devolver estructura con 'unknown' pero CON TODAS LAS CLAVES
+    return {
+        'asn': 'unknown',
+        'isp': 'unknown',
+        'pais': 'unknown',
+        'ciudad': 'unknown',
+        'latitud': 'unknown',
+        'longitud': 'unknown',
+        'organizacion': 'unknown'
+    }
+
+
+def _get_asn_info(ip, timeout=5):
+    """Wrapper: Obtiene ASN/ISP usando función unificada"""
+    data = _get_ipinfo_completo(ip, timeout)
+    return {'asn': data['asn'], 'isp': data['isp']}
 
 
 def _get_geoip_info(ip, timeout=5):
-    """Obtiene geolocalización desde ipinfo.io (con cache)"""
-    cached = _get_cached_ipinfo(ip)
-    if cached:
-        return {
-            'pais': cached['pais'], 
-            'ciudad': cached['ciudad'],
-            'latitud': cached.get('latitud', 'unknown'),
-            'longitud': cached.get('longitud', 'unknown')
-        }
-    
-    try:
-        import requests
-        response = requests.get(
-            f"https://ipinfo.io/{ip}/json",
-            timeout=timeout,
-            verify=False
-        )
-        if response.status_code == 200:
-            data = response.json()
-            
-            # Extraer coordenadas del campo "loc" (formato: "latitud,longitud")
-            loc = data.get('loc', '').split(',')
-            latitud = loc[0] if len(loc) > 0 else 'unknown'
-            longitud = loc[1] if len(loc) > 1 else 'unknown'
-            
-            result = {
-                'pais': data.get('country', 'unknown'),
-                'ciudad': data.get('city', 'unknown'),
-                'latitud': latitud,
-                'longitud': longitud
-            }
-            _save_ipinfo_cache(ip, result)
-            return result
-    except Exception as e:
-        print(f"[geoip] Error: {type(e).__name__}")
-    
-    return {'pais': 'unknown', 'ciudad': 'unknown', 'latitud': 'unknown', 'longitud': 'unknown'}
+    """Wrapper: Obtiene geolocalización usando función unificada"""
+    data = _get_ipinfo_completo(ip, timeout)
+    return {
+        'pais': data['pais'],
+        'ciudad': data['ciudad'],
+        'latitud': data['latitud'],
+        'longitud': data['longitud']
+    }
+
 
 def _get_whois_info(ip, timeout=5):
-    """Obtiene info WHOIS desde ipinfo.io (con cache)"""
-    cached = _get_cached_ipinfo(ip)
-    if cached:
-        return {
-            'organizacion': cached.get('organizacion', 'unknown'),
-            'pais': cached.get('pais', 'unknown')
-        }
-    
-    try:
-        import requests
-        response = requests.get(
-            f"https://ipinfo.io/{ip}/json",
-            timeout=timeout,
-            verify=False
-        )
-        if response.status_code == 200:
-            data = response.json()
-            isp = data.get('org', 'unknown')
-            asn = isp.split()[0] if isp and isp != 'unknown' else 'unknown'
-            
-            result = {
-                'organizacion': asn,
-                'pais': data.get('country', 'unknown')
-            }
-            _save_ipinfo_cache(ip, result)
-            return result
-    except Exception as e:
-        print(f"[whois] Error: {type(e).__name__}")
-    
-    return {'organizacion': 'unknown', 'pais': 'unknown'}
+    """Wrapper: Obtiene WHOIS usando función unificada"""
+    data = _get_ipinfo_completo(ip, timeout)
+    return {
+        'organizacion': data['organizacion'],
+        'pais': data['pais']
+    }
 
 def _get_cached_ipinfo(ip):
     """Obtiene datos del cache local"""
