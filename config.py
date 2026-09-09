@@ -66,7 +66,7 @@ OSINT_JOB_TIMEOUTS = {
     'discovery_subdominios': 1200,              # 20 min
     'enumeracion_servicios': 1200,              # 20 min
     'mapeo_ips': 1200,                          # 20 min
-    'recon_cloud': 3600,                        # 1 hora
+    'recon_cloud': 5400,                        # 1:30 hora
     'escaneo_repositorios': 1200,               # 20 min
     'analisis_dns': 900,                        # 15 min
     'busqueda_endpoints': 1800,                 # 30 min
