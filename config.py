@@ -66,18 +66,18 @@ OSINT_JOB_TIMEOUTS = {
     'discovery_subdominios': 1200,              # 20 min
     'enumeracion_servicios': 1200,              # 20 min
     'mapeo_ips': 1200,                          # 20 min
-    'recon_cloud': 5400,                        # 1:30 hora
-    'escaneo_repositorios': 1200,               # 20 min
+    'recon_cloud': 7200,                        # 2 horas
+    'escaneo_repositorios': 1800,               # 30 min
     'analisis_dns': 900,                        # 15 min
-    'busqueda_endpoints': 1800,                 # 30 min
+    'busqueda_endpoints': 7200,                 # 2 horas
     'google_dorking': 900,                      # 15 min
     'urls_historicas': 21600,                   # 6 horas
-    'sensitive_data_extraction': 7200,          # 2 horas
+    'sensitive_data_extraction': 10800,         # 3 horas
     'data_emails': 1200,                        # 20 min
     'phone_intelligence': 1200,                 # 20 min
     'document_metadata': 7200,                  # 2 horas
     'username_enumeration': 2700,               # 45 min
-    'phishing_domain_detection': 900,          # 15 min
+    'phishing_domain_detection': 1200,          # 20 min
     'web_technology_detection': 7200,          # 2 horas
     'default': 3600                             # Fallback 1 hora
 }
