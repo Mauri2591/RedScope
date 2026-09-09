@@ -4032,26 +4032,31 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
         # Descargar feeds de phishing
         phishing_urls = []
         
-        # OpenPhish
-        print("[openphish] Descargando feed...")
-        try:
-            resp = requests.get('https://openphish.com/feed.txt', timeout=10)
-            if resp.status_code == 200:
-                phishing_urls.extend(resp.text.split('\n'))
-                print(f"[openphish] ✅ {len(resp.text.split('\n'))} URLs descargadas")
-        except Exception as e:
-            print(f"[openphish] Error: {e}")
-
         # PhishTank
         print("[phishtank] Descargando feed...")
         try:
             resp = requests.get('https://data.phishtank.com/data/online-valid.json', timeout=10)
+            print(f"[phishtank] Status: {resp.status_code}")
+            
             if resp.status_code == 200:
-                phishtank_urls = [item.get('url', '') for item in resp.json()]
-                phishing_urls.extend(phishtank_urls)
-                print(f"[phishtank] ✅ {len(phishtank_urls)} URLs descargadas")
+                try:
+                    phishtank_data = resp.json()
+                    print(f"[phishtank] JSON parseado, tipo: {type(phishtank_data)}")
+                    
+                    if isinstance(phishtank_data, list):
+                        phishtank_urls = [item.get('url', '') for item in phishtank_data if isinstance(item, dict)]
+                    else:
+                        print(f"[phishtank] JSON no es lista, es: {type(phishtank_data)}")
+                        phishtank_urls = []
+                    
+                    phishing_urls.extend(phishtank_urls)
+                    print(f"[phishtank] ✅ {len(phishtank_urls)} URLs descargadas")
+                except ValueError as e:
+                    print(f"[phishtank] Error JSON: {e}")
+                except Exception as e:
+                    print(f"[phishtank] Error procesando: {e}")
         except Exception as e:
-            print(f"[phishtank] Error: {e}")
+            print(f"[phishtank] Error descarga: {e}")
 
         # Deduplicar URLs
         phishing_urls = list(set([u for u in phishing_urls if u]))
