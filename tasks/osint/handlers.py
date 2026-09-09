@@ -4229,6 +4229,66 @@ def web_technology_detection(ejecucion_id, proyecto_id):
     """
     print(f"[OSINT-Tech] Handler iniciado para ejecución {ejecucion_id}")
 
+    def _extract_version(tech_name, html_content, headers):
+        """Extrae versión de tecnología desde HTML y headers"""
+        import re
+
+        version_patterns = {
+            'jQuery': [
+                r'jquery[.-](\d+\.\d+\.\d+)',
+                r'jquery[.-](\d+\.\d+)',
+                r'jquery/(\d+\.\d+\.\d+)',
+            ],
+            'Bootstrap': [
+                r'bootstrap[.-](\d+\.\d+\.\d+)',
+                r'bootstrap[.-](\d+\.\d+)',
+                r'bootstrap/(\d+\.\d+\.\d+)',
+            ],
+            'React': [
+                r'react[.-](\d+\.\d+\.\d+)',
+                r'react[.-](\d+\.\d+)',
+                r'react@(\d+\.\d+\.\d+)',
+            ],
+            'Angular': [
+                r'angular[.-](\d+\.\d+\.\d+)',
+                r'angular[.-](\d+\.\d+)',
+                r'angular/(\d+\.\d+\.\d+)',
+            ],
+            'Vue.js': [
+                r'vue[.-](\d+\.\d+\.\d+)',
+                r'vue[.-](\d+\.\d+)',
+                r'vue@(\d+\.\d+\.\d+)',
+            ],
+            'WordPress': [
+                r'wp-content/themes/[^/]+/style\.css\?ver=(\d+\.\d+\.?\d*)',
+            ],
+            'Drupal': [
+                r'drupal.*?(\d+\.\d+\.\d+)',
+                r'drupal.*?(\d+\.\d+)',
+            ],
+        }
+
+        try:
+            if tech_name in version_patterns and html_content:
+                html_lower = html_content.lower()
+                for pattern in version_patterns[tech_name]:
+                    match = re.search(pattern, html_lower)
+                    if match:
+                        return match.group(1)
+
+            # Buscar en headers (ej: Server: Apache/2.4.1)
+            headers_lower = {k.lower(): v for k, v in headers.items()}
+            if 'server' in headers_lower:
+                server = headers_lower['server']
+                for pattern in version_patterns.get(tech_name, []):
+                    match = re.search(pattern, server.lower())
+                    if match:
+                        return match.group(1)
+        except Exception as e:
+            pass
+
+        return "unknown"
+
     def _detect_technologies_from_html(html_content, headers):
         """Detecta tecnologías a partir de headers y contenido HTML"""
         tecnologias = {}
@@ -4244,6 +4304,8 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                 tecnologias['Nginx'] = 'Server'
             elif 'iis' in server or 'microsoft' in server:
                 tecnologias['IIS'] = 'Server'
+            elif 'vercel' in server:
+                tecnologias['Vercel'] = 'Hosting'
 
         if 'x-powered-by' in headers_lower:
             powered = headers_lower['x-powered-by'].lower()
@@ -4254,6 +4316,10 @@ def web_technology_detection(ejecucion_id, proyecto_id):
 
         if 'x-aspnet-version' in headers_lower:
             tecnologias['ASP.NET'] = 'Language'
+
+        # Detectar Next.js por headers específicos
+        if 'x-nextjs-stale-time' in headers_lower or 'x-nextjs-prerender' in headers_lower or 'x-nextjs-cache' in headers_lower:
+            tecnologias['Next.js'] = 'Framework'
 
         # 2. Detectar desde HTML
         try:
@@ -4287,6 +4353,8 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                     tecnologias['jQuery'] = 'Library'
                 if 'bootstrap' in scripts_text_lower:
                     tecnologias['Bootstrap'] = 'Library'
+                if 'googletagmanager' in scripts_text_lower or 'gtag' in scripts_text_lower:
+                    tecnologias['Google Tag Manager'] = 'Analytics'
 
                 # Detectar PHP/Python/Node en URLs o comentarios
                 html_text = html_content.lower()
@@ -4311,7 +4379,13 @@ def web_technology_detection(ejecucion_id, proyecto_id):
         except Exception as e:
             print(f"[Tech-Parse] Error analizando HTML: {e}")
 
-        return tecnologias
+        # Extraer versiones para cada tecnología detectada
+        tecnologias_con_version = {}
+        for tech_name, tech_type in tecnologias.items():
+            version = _extract_version(tech_name, html_content, headers)
+            tecnologias_con_version[tech_name] = {'tipo': tech_type, 'version': version}
+
+        return tecnologias_con_version
 
     def _make_safe_request(url, timeout=5):
         """Realiza una request segura con manejo de errores"""
@@ -4407,14 +4481,15 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                             if host not in tecnologias_encontradas:
                                 tecnologias_encontradas[host] = {}
 
-                            for tech_name, tech_type in techs.items():
+                            for tech_name, tech_info in techs.items():
                                 if tech_name not in tecnologias_encontradas[host]:
                                     tecnologias_encontradas[host][tech_name] = []
 
                                 tecnologias_encontradas[host][tech_name].append({
                                     'puerto': puerto if puerto else '80',
                                     'protocolo': protocolo,
-                                    'tipo': tech_type
+                                    'tipo': tech_info['tipo'],
+                                    'version': tech_info['version']
                                 })
 
                             print(f"[Tech] ✅ {url} - Encontradas: {list(techs.keys())}")
@@ -4441,31 +4516,27 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                             if ip not in tecnologias_encontradas:
                                 tecnologias_encontradas[ip] = {}
 
-                            for tech_name, tech_type in techs.items():
+                            for tech_name, tech_info in techs.items():
                                 if tech_name not in tecnologias_encontradas[ip]:
                                     tecnologias_encontradas[ip][tech_name] = []
 
                                 tecnologias_encontradas[ip][tech_name].append({
                                     'puerto': puerto if puerto else '80',
                                     'protocolo': protocolo,
-                                    'tipo': tech_type
+                                    'tipo': tech_info['tipo'],
+                                    'version': tech_info['version']
                                 })
 
                             print(f"[Tech] ✅ {url} - Encontradas: {list(techs.keys())}")
 
         # Compilar resumen en formato array (escalable con versiones)
         resumen_array = []
-        tech_versions = {}  # {tech_name: {version: [targets]}}
+        tech_versions = {}  # {tech_name|version: {tipo, targets}}
 
         for target, techs in tecnologias_encontradas.items():
             for tech_name, ubicaciones in techs.items():
-                version = "unknown"
-
-                # Intenta detectar versión desde ubicaciones (headers/content)
-                if tech_name == "jQuery":
-                    version = "unknown"  # TODO: extraer de script src
-                elif tech_name == "Bootstrap":
-                    version = "unknown"
+                # Usar la versión detectada (todas las ubicaciones de la misma tech tienen la misma versión)
+                version = ubicaciones[0].get('version', 'unknown')
 
                 # Agrupar por tecnología + versión
                 key = f"{tech_name}|{version}"
