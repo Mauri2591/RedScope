@@ -249,6 +249,76 @@ def _reverse_dns_multi_resolver(ip, timeout=5):
 # HANDLERS OSINT
 # ══════════════════════════════════════════════════════════════════
 
+def _extract_ips_and_cnames_from_dns(proyecto_id):
+    """Extrae IPs y CNAMEs del resultado de analisis_dns para usar en otros handlers.
+    Filtra CNAMEs públicos (CDNs, proveedores cloud) para evitar ruido."""
+    ips = []
+    cnames = []
+
+    # Dominios públicos a descartar (CDNs, cloud providers)
+    CNAMES_PUBLICOS = [
+        'cloudfront.amazonaws.com',
+        'cloudflare.net',
+        'cloudflare.com',
+        'akamai.net',
+        'fastly.net',
+        'azureedge.net',
+        'azurewebsites.net',
+        'appspot.com',
+        'firebaseapp.com',
+        'github.io',
+        'github.com',
+        'herokuapp.com',
+        'netlify.app',
+        'vercel.app',
+        'google.com',
+        'amazonaws.com',
+        'azure.microsoft.com',
+        'gstatic.com',
+        'rackcdn.com',
+        'cdnjs.cloudflare.com',
+        'maxcdn.com',
+        'stackpath.com',
+    ]
+
+    try:
+        dns_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'analisis_dns')
+        if not dns_results or 'registros' not in dns_results:
+            return ips, cnames
+
+        registros = dns_results.get('registros', {})
+
+        for dominio, records in registros.items():
+            # Extraer IPs de registros A
+            if 'A' in records and records['A']:
+                for ip in records['A']:
+                    if ip not in ips and ip not in PUBLIC_DNS_IPS:
+                        ips.append(ip)
+
+            # Extraer CNAMEs (filtrar públicos)
+            if 'CNAME' in records and records['CNAME']:
+                for cname in records['CNAME']:
+                    # Limpiar CNAME (remover punto al final)
+                    cname_clean = cname.rstrip('.')
+
+                    # Filtrar: descartar si contiene dominio público
+                    es_publico = any(publico in cname_clean.lower() for publico in CNAMES_PUBLICOS)
+
+                    if not es_publico and cname_clean not in cnames:
+                        cnames.append(cname_clean)
+
+        if ips:
+            print(f"[DNS-Extract] IPs encontradas: {len(ips)}")
+        if cnames:
+            print(f"[DNS-Extract] CNAMEs encontrados (filtrados): {len(cnames)}")
+
+    except Exception as e:
+        print(f"[DNS-Extract] Error: {type(e).__name__}")
+
+    return ips, cnames
+
+# ══════════════════════════════════════════════════════════════════
+
 
 def discovery_subdominios(ejecucion_id, proyecto_id):
     """Descubrimiento de subdominios con subfinder + assetfinder (Certificate Transparency)
@@ -1345,6 +1415,16 @@ def recon_cloud(ejecucion_id, proyecto_id):
         if dominios_mapeo_ips:
             print(f"[recon_cloud] Dominios de mapeo_ips: {dominios_mapeo_ips}")
 
+        # 2c. Agregar dominios/IPs del analisis_dns
+        dominios_dns = []
+        ips_dns, cnames_dns = _extract_ips_and_cnames_from_dns(proyecto_id)
+        if cnames_dns:
+            for cname in cnames_dns:
+                if cname not in dominios_config and cname not in dominios_from_ips and cname not in dominios_mapeo_ips and cname not in dominios_dns:
+                    dominios_dns.append(cname)
+        if dominios_dns:
+            print(f"[recon_cloud] Dominios de analisis_dns: {dominios_dns}")
+
         # 3. FALLBACK 2: Subdominios descubiertos
         dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
             proyecto_id)
@@ -1353,7 +1433,7 @@ def recon_cloud(ejecucion_id, proyecto_id):
                 f"[recon_cloud] Subdominios descubiertos: {len(dominios_descubiertos)}")
 
         # 4. Crear lista de dominios PRINCIPALES
-        dominios_principales = list(set(dominios_config + dominios_from_ips + dominios_mapeo_ips))
+        dominios_principales = list(set(dominios_config + dominios_from_ips + dominios_mapeo_ips + dominios_dns))
 
         if not dominios_principales and not dominios_descubiertos:
             raise Exception(
@@ -1559,6 +1639,18 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
                                 dominios_mapeo_ips.append(subdomain_principal)
         if dominios_mapeo_ips:
             print(f"[escaneo_repositorios] Dominios de mapeo_ips (pattern matching): {dominios_mapeo_ips}")
+
+        # 3b. Agregar dominios de analisis_dns (solo parte principal)
+        ips_dns, cnames_dns = _extract_ips_and_cnames_from_dns(proyecto_id)
+        for cname in cnames_dns:
+            # Extraer solo parte principal (sin TLD) para búsqueda en repositorios
+            parts = cname.split('.')
+            if len(parts) >= 2:
+                cname_principal = parts[0]  # ej: "pepe-ejemplo" de "pepe-ejemplo.gob.ar"
+                if cname_principal not in dominios_mapeo_ips:
+                    dominios_mapeo_ips.append(cname_principal)
+        if ips_dns or cnames_dns:
+            print(f"[escaneo_repositorios] Agregados {len(cnames_dns)} CNAMEs de analisis_dns")
 
         # 4. Subdominios descubiertos (solo para información, NO para búsqueda en GitHub)
         dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
@@ -2010,6 +2102,11 @@ def urls_historicas(ejecucion_id, proyecto_id):
                         dominios_mapeo_ips.append(dominio_info['dominio'])
         if dominios_mapeo_ips:
             print(f"[gau] Dominios de mapeo_ips: {len(dominios_mapeo_ips)}")
+
+        # 4b. Agregar IPs y CNAMEs de analisis_dns
+        ips_dns, cnames_dns = _extract_ips_and_cnames_from_dns(proyecto_id)
+        ips_scope.extend([ip for ip in ips_dns if ip not in ips_scope])
+        dominios_mapeo_ips.extend([cname for cname in cnames_dns if cname not in dominios_mapeo_ips])
 
         # 5. Combinar todas las fuentes de dominios
         todos_los_dominios = list(
@@ -3093,9 +3190,32 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                         urls_fase3[f"https://{dominio}"] = dominio
                         print(f"[sensitive_data] Dominio mapeo_ips agregado: {dominio}")
 
-        # Merge: Scope (FASE 1) + Discovery (FASE 2) + Mapeo IPs (FASE 3) sin duplicados
-        todas_las_urls = {**urls_scope, **urls_fase2, **urls_fase3}
-        if urls_fase3 and urls_fase2:
+        # FASE 4: Agregar IPs y CNAMEs de analisis_dns
+        urls_fase4 = {}
+        ips_dns, cnames_dns = _extract_ips_and_cnames_from_dns(proyecto_id)
+
+        # Procesar IPs de DNS
+        ips_dns_urls = _procesar_ips_scope(','.join(ips_dns)) if ips_dns else {}
+        urls_fase4.update(ips_dns_urls)
+
+        # Procesar CNAMEs de DNS
+        for cname in cnames_dns:
+            if cname.lower() not in subdominios_scope:
+                urls_fase4[f"http://{cname}"] = cname
+                urls_fase4[f"https://{cname}"] = cname
+                print(f"[sensitive_data] CNAME de DNS agregado: {cname}")
+
+        # Merge: Scope (FASE 1) + Discovery (FASE 2) + Mapeo IPs (FASE 3) + DNS (FASE 4) sin duplicados
+        todas_las_urls = {**urls_scope, **urls_fase2, **urls_fase3, **urls_fase4}
+        if urls_fase4 and urls_fase3 and urls_fase2:
+            fase_usada = 'FASE 1+2+3+4'
+        elif urls_fase4 and urls_fase3:
+            fase_usada = 'FASE 1+3+4'
+        elif urls_fase4 and urls_fase2:
+            fase_usada = 'FASE 1+2+4'
+        elif urls_fase4:
+            fase_usada = 'FASE 1+4'
+        elif urls_fase3 and urls_fase2:
             fase_usada = 'FASE 1+2+3'
         elif urls_fase3:
             fase_usada = 'FASE 1+3'
@@ -3499,8 +3619,15 @@ def data_emails(ejecucion_id, proyecto_id):
             else:
                 print(f"[discovery_email] Sin subdominios en scope ni descubiertos")
 
+        # 2b. Agregar CNAMEs de analisis_dns
+        cnames_dns = []
+        ips_dns, cnames_dns_raw = _extract_ips_and_cnames_from_dns(proyecto_id)
+        if cnames_dns_raw:
+            cnames_dns = cnames_dns_raw
+            print(f"[discovery_email] CNAMEs de analisis_dns: {len(cnames_dns)}")
+
         # 3. Consolidar y SANITIZAR objetivos (descarta entradas mal formadas)
-        objetivos = list(set(dominios_config + subdominios_config + subdominios_fallback))
+        objetivos = list(set(dominios_config + subdominios_config + subdominios_fallback + cnames_dns))
         objetivos_validos = [o.strip().lower() for o in objetivos if _DOM_RE.match(o.strip().lower())]
         descartados = [o for o in objetivos if o.strip().lower() not in objetivos_validos]
         if descartados:
@@ -4075,6 +4202,12 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
                     dominio = dominio_info.get('dominio', '')
                     if dominio and dominio not in todos_los_dominios:
                         todos_los_dominios.append(dominio)
+
+        # 3b. Agregar dominios de analisis_dns
+        ips_dns, cnames_dns = _extract_ips_and_cnames_from_dns(proyecto_id)
+        for cname in cnames_dns:
+            if cname not in todos_los_dominios:
+                todos_los_dominios.append(cname)
 
         # 4. Fallback: discovery_subdominios
         if not todos_los_dominios:
