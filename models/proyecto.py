@@ -1446,7 +1446,7 @@ class Proyecto:
     def get_osint_config_tipos():
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM osint_config_tipos WHERE activo = 1")
+        cursor.execute("SELECT * FROM osint_config_tipos WHERE estado_id = 1")
         datos = cursor.fetchall()
         cursor.close()
         conn.close()
