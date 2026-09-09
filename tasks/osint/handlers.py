@@ -4329,20 +4329,43 @@ def web_technology_detection(ejecucion_id, proyecto_id):
 
                             print(f"[Tech] ✅ {url} - Encontradas: {list(techs.keys())}")
 
-        # Compilar resumen
-        tecnologias_totales = {}
+        # Compilar resumen en formato array (escalable con versiones)
+        resumen_array = []
+        tech_versions = {}  # {tech_name: {version: [targets]}}
+
         for target, techs in tecnologias_encontradas.items():
             for tech_name, ubicaciones in techs.items():
-                if tech_name not in tecnologias_totales:
-                    tecnologias_totales[tech_name] = {
+                version = "unknown"
+
+                # Intenta detectar versión desde ubicaciones (headers/content)
+                if tech_name == "jQuery":
+                    version = "unknown"  # TODO: extraer de script src
+                elif tech_name == "Bootstrap":
+                    version = "unknown"
+
+                # Agrupar por tecnología + versión
+                key = f"{tech_name}|{version}"
+                if key not in tech_versions:
+                    tech_versions[key] = {
                         'tipo': ubicaciones[0]['tipo'],
-                        'targets': []
+                        'targets': set()
                     }
 
-                tecnologias_totales[tech_name]['targets'].append({
-                    'target': target,
-                    'ubicaciones': ubicaciones
-                })
+                # Agregar targets de forma legible
+                for ubicacion in ubicaciones:
+                    target_str = f"{target} ({ubicacion['protocolo']}:{ubicacion['puerto']})"
+                    tech_versions[key]['targets'].add(target_str)
+
+        # Convertir a array ordenado
+        for key, data in sorted(tech_versions.items()):
+            tech_name, version = key.split('|')
+            resumen_array.append({
+                'nombre': tech_name,
+                'tipo': data['tipo'],
+                'version': version,
+                'detectado_en': sorted(list(data['targets'])),
+                'total_targets': len(data['targets'])
+            })
 
         return {
             "tipo": "web_technology_detection",
@@ -4352,8 +4375,8 @@ def web_technology_detection(ejecucion_id, proyecto_id):
             "subdominios_descubiertos": len(subdominios_descubiertos),
             "ips_analizadas": len(ips),
             "puertos_verificados": puertos,
-            "tecnologias_encontradas": len(tecnologias_totales),
-            "resumen": tecnologias_totales,
+            "tecnologias_encontradas": len(resumen_array),
+            "resumen": resumen_array,
             "detalles": tecnologias_encontradas
         }
 
