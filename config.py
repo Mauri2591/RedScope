@@ -78,5 +78,6 @@ OSINT_JOB_TIMEOUTS = {
     'document_metadata': 7200,                  # 2 horas
     'username-enumeration': 2700,               # 45 min
     'phishing-domain-detection': 900,          # 15 min
+    'phishing-domain-detection': 7200,          # 2 horas
     'default': 3600                             # Fallback 1 hora
 }
