@@ -4025,6 +4025,7 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
 
         # Deduplicar y ordenar
         todos_los_dominios = sorted(list(set(todos_los_dominios)))
+        print(f"[phishing_detection] Dominios a analizar: {todos_los_dominios}")
 
         phishing_results = {}
         dominios_comprometidos = 0
@@ -4035,13 +4036,18 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
         for dominio in todos_los_dominios:
             # URLhaus API - Sin autenticación
             try:
+                print(f"[urlhaus] Consultando: {dominio}")
                 resp = requests.post(
                     'https://urlhaus-api.abuse.ch/v1/urls/query_latest/',
                     data={'query': 'domain', 'value': dominio},
                     timeout=5
                 )
+                print(f"[urlhaus] Status {dominio}: {resp.status_code}")
+                
                 if resp.status_code == 200:
                     data = resp.json()
+                    print(f"[urlhaus] Respuesta {dominio}: {data.get('query_status')} - {len(data.get('results', []))} resultados")
+                    
                     if data.get('query_status') == 'ok' and data.get('results'):
                         urls = []
                         for result in data['results']:
@@ -4060,6 +4066,7 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
                             }
                             dominios_comprometidos += 1
                             urls_maliciosas_totales += len(urls)
+                            print(f"[urlhaus] ✅ {dominio} COMPROMETIDO - {len(urls)} URLs")
             except Exception as e:
                 print(f"[urlhaus] Error {dominio}: {e}")
 
