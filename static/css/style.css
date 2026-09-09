@@ -21,7 +21,7 @@ body {
 #btnVerScope{
     background-color: var(--color-principal);
     color: var(--color-blanco-primario);
-    font-size: .75rem;
+    font-size: .8rem;
 }
 #btnVerScope:hover{
     background-color: var(--color-borde);
