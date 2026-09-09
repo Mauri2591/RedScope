@@ -3996,3 +3996,80 @@ def username_enumeration(ejecucion_id, proyecto_id):
         }
 
     return _run_osint_job(ejecucion_id, job)
+
+
+# ══════════════════════════════════════════════════════════════════
+# HANDLER PHISHING DOMAIN DETECTION
+# ══════════════════════════════════════════════════════════════════
+def phishing_domain_detection(ejecucion_id, proyecto_id):
+    """Detección de dominios comprometidos en campañas de phishing"""
+    print(f"[OSINT-Phishing] Handler iniciado para ejecución {ejecucion_id}")
+
+    def job():
+        # 1. Obtener TODO el scope
+        scope = OsintEjecucion.get_scope_completo(proyecto_id)
+        todos_los_dominios = scope['dominio'] + scope['subdominio']
+
+        # 2. Agregar subdominios descubiertos
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
+            proyecto_id)
+        todos_los_dominios.extend(subdominios_descubiertos)
+
+        # 3. Fallback: discovery_subdominios
+        if not todos_los_dominios:
+            resultado = discovery_subdominios(ejecucion_id, proyecto_id)
+            todos_los_dominios = resultado.get('subdominio_nuevo', [])
+
+        if not todos_los_dominios:
+            raise Exception("No hay dominios para analizar")
+
+        # Deduplicar y ordenar
+        todos_los_dominios = sorted(list(set(todos_los_dominios)))
+
+        phishing_results = {}
+        dominios_comprometidos = 0
+        urls_maliciosas_totales = 0
+
+        print(f"[phishing_detection] Analizando {len(todos_los_dominios)} dominios")
+
+        for dominio in todos_los_dominios:
+            phishing_results[dominio] = {
+                "urlhaus": [],
+                "comprometido": False
+            }
+
+            # URLhaus API - Sin autenticación
+            try:
+                resp = requests.post(
+                    'https://urlhaus-api.abuse.ch/v1/urls/query_latest/',
+                    data={'query': 'domain', 'value': dominio},
+                    timeout=5
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get('query_status') == 'ok' and data.get('results'):
+                        for result in data['results']:
+                            phishing_results[dominio]["urlhaus"].append({
+                                "url": result.get('url'),
+                                "status": result.get('url_status'),
+                                "threat": result.get('threat'),
+                                "date_added": result.get('date_added')
+                            })
+                            phishing_results[dominio]["comprometido"] = True
+                            dominios_comprometidos += 1
+                            urls_maliciosas_totales += 1
+            except Exception as e:
+                print(f"[urlhaus] Error {dominio}: {e}")
+
+        return {
+            "tipo": "phishing_domain_detection",
+            "total_dominios_analizados": len(todos_los_dominios),
+            "dominios_scope": len(scope['dominio']) + len(scope['subdominio']),
+            "subdominios_descubiertos": len(subdominios_descubiertos),
+            "dominios_comprometidos": dominios_comprometidos,
+            "urls_maliciosas_totales": urls_maliciosas_totales,
+            "resultados": phishing_results,
+            "fuentes": ["URLhaus"]
+        }
+
+    return _run_osint_job(ejecucion_id, job)

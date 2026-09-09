@@ -831,7 +831,8 @@ class OsintEjecucion:
             'Data Emails' : 'data_emails',
             'Phone Intelligence' : 'phone_intelligence',
             'Document Metadata' : 'document_metadata',
-            'Username Enumeration' : 'username_enumeration'
+            'Username Enumeration' : 'username_enumeration',
+            'Phishing Domain Detection' : 'phishing-domain-detection'
         }
 
         servicios_map = OsintEjecucion.get_servicios_map()
