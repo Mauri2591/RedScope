@@ -610,61 +610,6 @@ def _save_ipinfo_cache(ip, ipinfo):
         pass
 
 
-def _get_geoip_info(ip, timeout=5):
-    """Obtiene geolocalización usando API HTTP (ipinfo.io)"""
-    try:
-        import requests
-        
-        response = requests.get(
-            f"https://ipinfo.io/{ip}/json",
-            timeout=timeout,
-            verify=False
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                'pais': data.get('country', 'unknown'),
-                'ciudad': data.get('city', 'unknown'),
-                'latitud': data.get('loc', 'unknown').split(',')[0] if data.get('loc') else 'unknown',
-                'longitud': data.get('loc', 'unknown').split(',')[1] if data.get('loc') else 'unknown'
-            }
-    except Exception as e:
-        print(f"[geoip-api] Error: {type(e).__name__}")
-    
-    return {
-        'pais': 'unknown',
-        'ciudad': 'unknown',
-        'latitud': 'unknown',
-        'longitud': 'unknown'
-    }
-
-
-def _get_whois_info(ip, timeout=5):
-    """Obtiene info usando API HTTP (ipinfo.io) - sin WHOIS directo"""
-    try:
-        import requests
-        
-        # ipinfo.io - GRATIS, requiere HTTP/HTTPS
-        response = requests.get(
-            f"https://ipinfo.io/{ip}/json",
-            timeout=timeout,
-            verify=False  # Por si hay cert issues
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                'organizacion': data.get('org', 'unknown').split()[0] if data.get('org') else 'unknown',
-                'pais': data.get('country', 'unknown')
-            }
-    except Exception as e:
-        print(f"[whois-api] Error: {type(e).__name__}")
-    
-    return {
-        'organizacion': 'unknown',
-        'pais': 'unknown'
-    }
 
 
 def _validar_reverse_lookup(ip, dominios_scope, subdominios_scope, subdominios_discovery):
@@ -777,39 +722,35 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                 print(f"  ✗ Error resolviendo {subdom}: {type(e).__name__}")
                 continue
 
-        # 4. FALLBACK - RESOLVER SUBDOMINIOS DESCUBIERTOS
-        fase_usada = 'FASE 1'
+        # 4. SIEMPRE RESOLVER SUBDOMINIOS DESCUBIERTOS (+ scope, no fallback)
         subdominios_discovery = []
-
-        if len(subdominios_scope) == 0:
-            print(
-                f"[mapeo_ips] Sin subdominios en SCOPE. Activando FASE 2 (Discovery)...")
-            try:
-                subdominios_desc = OsintEjecucion.get_discovered_subdomains(
-                    proyecto_id)
-                if subdominios_desc:
-                    subdominios_discovery = subdominios_desc[:50]
-                    print(
-                        f"[mapeo_ips] Resolviendo {len(subdominios_discovery)} subdominios DESCUBIERTOS...")
-                    for subdom in subdominios_discovery:
-                        try:
-                            ips_resueltas = _resolve_domain_multi_resolver(subdom, timeout=5)[
-                                'ips']
-                            for ip in ips_resueltas:
-                                if ip not in PUBLIC_DNS_IPS and ip not in ip_origen:
-                                    ips_a_analizar.add(ip)
-                                    ip_origen[ip] = {
-                                        'tipo': 'resuelto_subdominio_descubierto',
-                                        'fuente': subdom,
-                                        'fase': 'FASE 2 (Discovery)'
-                                    }
-                        except Exception:
-                            continue
-                    fase_usada = 'FASE 2 (Discovery)'
-                    print(f"[mapeo_ips] FASE 2 completada")
-            except Exception as e:
+        try:
+            subdominios_desc = OsintEjecucion.get_discovered_subdomains(
+                proyecto_id)
+            if subdominios_desc:
+                subdominios_discovery = subdominios_desc[:50]
                 print(
-                    f"[mapeo_ips] Error accediendo Discovery: {type(e).__name__}")
+                    f"[mapeo_ips] Resolviendo {len(subdominios_discovery)} subdominios DESCUBIERTOS...")
+                for subdom in subdominios_discovery:
+                    try:
+                        ips_resueltas = _resolve_domain_multi_resolver(subdom, timeout=5)[
+                            'ips']
+                        for ip in ips_resueltas:
+                            if ip not in PUBLIC_DNS_IPS and ip not in ip_origen:
+                                ips_a_analizar.add(ip)
+                                ip_origen[ip] = {
+                                    'tipo': 'resuelto_subdominio_descubierto',
+                                    'fuente': subdom,
+                                    'fase': 'FASE 1 + Discovery'
+                                }
+                    except Exception:
+                        continue
+                print(f"[mapeo_ips] Subdominios descubiertos procesados")
+        except Exception as e:
+            print(
+                f"[mapeo_ips] Error accediendo Discovery: {type(e).__name__}")
+
+        fase_usada = 'FASE 1 + Discovery' if subdominios_discovery else 'FASE 1'
 
         if not ips_a_analizar:
             raise Exception("No hay IPs para analizar")
