@@ -4032,6 +4032,16 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
         # Descargar feeds de phishing
         phishing_urls = []
         
+        # OpenPhish
+        print("[openphish] Descargando feed...")
+        try:
+            resp = requests.get('https://openphish.com/feed.txt', timeout=10)
+            if resp.status_code == 200:
+                phishing_urls.extend(resp.text.split('\n'))
+                print(f"[openphish] ✅ {len(resp.text.split(chr(10)))} URLs descargadas")
+        except Exception as e:
+            print(f"[openphish] Error: {e}")
+        
         # PhishTank
         print("[phishtank] Descargando feed...")
         try:
@@ -4087,6 +4097,8 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
                 dominios_comprometidos += 1
                 urls_maliciosas_totales += len(urls_encontradas)
                 print(f"[phishing] ✅ {dominio} - {len(urls_encontradas)} URLs encontradas")
+            else:
+                print(f"[phishing] ❌ {dominio} - Sin coincidencias")
 
         return {
             "tipo": "phishing_domain_detection",
