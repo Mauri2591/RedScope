@@ -326,7 +326,7 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
             try:
                 print(f"  [assetfinder] Consultando {dom}...")
                 result = subprocess.run(
-                    ['/usr/local/bin/subfinder', '--subs-only', dom],
+                    ['/usr/local/bin/assetfinder', '--subs-only', dom],
                     capture_output=True,
                     text=True,
                     timeout=60
