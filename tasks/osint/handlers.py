@@ -4224,18 +4224,25 @@ def web_technology_detection(ejecucion_id, proyecto_id):
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
 
         # Recolectar todos los targets
-        dominios = scope['dominio']
-        subdominios = scope['subdominio']
-        ips = scope['ip']
+        dominios = scope.get('dominio', [])
+        subdominios = scope.get('subdominio', [])
+        ips = scope.get('ip', [])
+
+        # 1b. Obtener IPs de la configuración si no están en scope
+        if not ips:
+            config = Proyecto.get_osint_config(proyecto_id)
+            ips_str = config.get('IPS', '').strip() if config else ''
+            if ips_str:
+                ips = _parse_multiline_config(ips_str)
 
         # 2. Agregar discovery_subdominios
         subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
         subdominios.extend(subdominios_descubiertos)
 
         # 3. Agregar resultados de mapeo_ips (IPs enriquecidas)
-        mapeo_ips_results = OsintEjecucion.get_execution_result(proyecto_id, 'mapeo_ips')
-        if mapeo_ips_results and 'ips_enriquecidas' in mapeo_ips_results:
-            for ip_info in mapeo_ips_results.get('ips_enriquecidas', []):
+        mapeo_ips_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        if mapeo_ips_results and 'ips_success' in mapeo_ips_results:
+            for ip_info in mapeo_ips_results.get('ips_success', []):
                 if 'ip' in ip_info and ip_info['ip'] not in ips:
                     ips.append(ip_info['ip'])
 

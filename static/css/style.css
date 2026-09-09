@@ -321,7 +321,7 @@ th {
 .document-metadata { font-size: .7rem; font-weight: bold; background-color: #00b3c0; color: var(--color-blanco-primario); padding: 0; }
 .username-enumeration { font-size: .7rem; font-weight: bold; background-color: #4f2fff; color: var(--color-blanco-primario); padding: 0; }
 .phishing-domain-detection { font-size: .7rem; font-weight: bold; background-color: #e7435e; color: var(--color-blanco-primario); padding: 0; }
-.web_technology_detection { font-size: .7rem; font-weight: bold; background-color: #b82b00; color: var(--color-blanco-primario); padding: 0; }
+.web-technology-detection { font-size: .7rem; font-weight: bold; background-color: #b82b00; color: var(--color-blanco-primario); padding: 0; }
 
 .icono-spin {
     display: inline-block;
