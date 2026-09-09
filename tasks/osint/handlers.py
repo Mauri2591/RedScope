@@ -1008,16 +1008,6 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "status_code": 200,
                         "poc": f"aws s3 ls s3://{bucket}/ --no-sign-request"
                     })
-                elif 'Access Denied' in result.stderr:
-                    # Bucket existe pero está protegido
-                    print(f"[recon_cloud] [S3] ✓ PRIVADO: {bucket}")
-                    hallazgos.append({
-                        "HALLAZGO": "bucket s3 privado",
-                        "recurso": bucket,
-                        "status": "existe pero protegido",
-                        "status_code": 403,
-                        "poc": f"aws s3 ls s3://{bucket}/ --no-sign-request"
-                    })
             except subprocess.TimeoutExpired:
                 pass
             except Exception as e:
@@ -1059,16 +1049,6 @@ def recon_cloud(ejecucion_id, proyecto_id):
                     })
                 elif 'not found' in result.stderr.lower() or 'resourcenotfound' in result.stderr.lower():
                     pass  # No existe
-                elif result.returncode != 0:
-                    # Storage account existe pero no accesible
-                    print(f"[recon_cloud] [AZURE] ✓ PRIVADO: {account_name}")
-                    hallazgos.append({
-                        "HALLAZGO": "azure blob storage privado",
-                        "recurso": account_name,
-                        "status": "existe pero requiere autenticación",
-                        "status_code": 403,
-                        "poc": f"az storage blob list --account-name {account_name} --account-key <KEY>"
-                    })
             except subprocess.TimeoutExpired:
                 pass
             except Exception as e:
@@ -1109,16 +1089,6 @@ def recon_cloud(ejecucion_id, proyecto_id):
                     })
                 elif 'does not exist' in result.stderr or 'not found' in result.stderr.lower():
                     pass  # No existe
-                elif 'AccessDenied' in result.stderr or 'Forbidden' in result.stderr:
-                    # Bucket existe pero no accesible
-                    print(f"[recon_cloud] [GCP] ✓ PRIVADO: {bucket_name}")
-                    hallazgos.append({
-                        "HALLAZGO": "gcp storage privado",
-                        "recurso": bucket_name,
-                        "status": "existe pero requiere autenticación",
-                        "status_code": 403,
-                        "poc": f"gsutil ls gs://{bucket_name}"
-                    })
             except subprocess.TimeoutExpired:
                 pass
             except FileNotFoundError:
@@ -1151,16 +1121,6 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "status": "listable sin credenciales",
                         "status_code": 200,
                         "poc": f"curl https://{space_name}.nyc3.digitaloceanspaces.com/"
-                    })
-                elif response.status_code == 403:
-                    # Space existe pero protegido
-                    print(f"[recon_cloud] [DO] ✓ PRIVADO: {space_name}")
-                    hallazgos.append({
-                        "HALLAZGO": "digitalocean spaces privado",
-                        "recurso": space_name,
-                        "status": "requiere credenciales",
-                        "status_code": 403,
-                        "poc": f"s3cmd ls s3://{space_name}/ (con credenciales DO)"
                     })
             except requests.exceptions.Timeout:
                 pass
@@ -1222,15 +1182,6 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "status_code": status,
                         "poc": f"curl https://{patron}/prod"
                     })
-                elif status == 403:
-                    print(f"[recon_cloud] [API-GW] ✓ PRIVADO: {patron}")
-                    hallazgos.append({
-                        "HALLAZGO": "aws api gateway privado",
-                        "recurso": patron,
-                        "status": "requiere autenticación",
-                        "status_code": 403,
-                        "poc": f"curl https://{patron}/prod"
-                    })
 
         return hallazgos
 
@@ -1254,15 +1205,6 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "recurso": patron,
                         "status": "accesible",
                         "status_code": status,
-                        "poc": f"curl -X POST https://{patron}"
-                    })
-                elif status == 403:
-                    print(f"[recon_cloud] [LAMBDA] ✓ PRIVADO: {patron}")
-                    hallazgos.append({
-                        "HALLAZGO": "aws lambda url privado",
-                        "recurso": patron,
-                        "status": "requiere autenticación",
-                        "status_code": 403,
                         "poc": f"curl -X POST https://{patron}"
                     })
 
@@ -1294,16 +1236,6 @@ def recon_cloud(ejecucion_id, proyecto_id):
                             "status_code": status,
                             "poc": f"curl https://{patron}"
                         })
-                    elif status == 403:
-                        print(f"[recon_cloud] [GCF] ✓ PRIVADO: {patron}")
-                        hallazgos.append({
-                            "HALLAZGO": "gcp cloud function privado",
-                            "recurso": patron,
-                            "region": region,
-                            "status": "requiere autenticación",
-                            "status_code": 403,
-                            "poc": f"curl https://{patron}"
-                        })
 
         return hallazgos
 
@@ -1330,16 +1262,6 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "status": "datos accesibles sin autenticación",
                         "status_code": 200,
                         "poc": f"curl https://{db_name}/.json | jq ."
-                    })
-                elif response.status_code == 403:
-                    # DB existe pero protegido
-                    print(f"[recon_cloud] [FIREBASE] ✓ PRIVADO: {db_name}")
-                    hallazgos.append({
-                        "HALLAZGO": "firebase realtime db privado",
-                        "recurso": db_name,
-                        "status": "requiere autenticación",
-                        "status_code": 403,
-                        "poc": f"curl https://{db_name}/.json"
                     })
             except requests.exceptions.Timeout:
                 pass
@@ -1371,15 +1293,6 @@ def recon_cloud(ejecucion_id, proyecto_id):
                         "recurso": patron,
                         "status": "accesible",
                         "status_code": status,
-                        "poc": f"curl https://{patron}"
-                    })
-                elif status == 403:
-                    print(f"[recon_cloud] [AZURE-FUNC] ✓ PRIVADO: {patron}")
-                    hallazgos.append({
-                        "HALLAZGO": "azure functions privado",
-                        "recurso": patron,
-                        "status": "requiere autenticación",
-                        "status_code": 403,
                         "poc": f"curl https://{patron}"
                     })
 
