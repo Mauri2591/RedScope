@@ -4027,17 +4027,35 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
         todos_los_dominios = sorted(list(set(todos_los_dominios)))
         todos_los_dominios = [d for d in todos_los_dominios if not any(c in d for c in ['[', ']', '(', ')', 'http'])]
         
-        print(f"[phishing_detection] Dominios a analizar: {todos_los_dominios}")
+        print(f"[phishing_detection] Dominios a analizar: {len(todos_los_dominios)}")
 
-        # Obtener feed de OpenPhish
+        # Descargar feeds de phishing
+        phishing_urls = []
+        
+        # OpenPhish
         print("[openphish] Descargando feed...")
         try:
             resp = requests.get('https://openphish.com/feed.txt', timeout=10)
-            phishing_urls = resp.text.split('\n') if resp.status_code == 200 else []
-            print(f"[openphish] Feed descargado: {len(phishing_urls)} URLs")
+            if resp.status_code == 200:
+                phishing_urls.extend(resp.text.split('\n'))
+                print(f"[openphish] ✅ {len(resp.text.split('\n'))} URLs descargadas")
         except Exception as e:
-            print(f"[openphish] Error descargando feed: {e}")
-            phishing_urls = []
+            print(f"[openphish] Error: {e}")
+
+        # PhishTank
+        print("[phishtank] Descargando feed...")
+        try:
+            resp = requests.get('https://data.phishtank.com/data/online-valid.json', timeout=10)
+            if resp.status_code == 200:
+                phishtank_urls = [item.get('url', '') for item in resp.json()]
+                phishing_urls.extend(phishtank_urls)
+                print(f"[phishtank] ✅ {len(phishtank_urls)} URLs descargadas")
+        except Exception as e:
+            print(f"[phishtank] Error: {e}")
+
+        # Deduplicar URLs
+        phishing_urls = list(set([u for u in phishing_urls if u]))
+        print(f"[phishing_detection] Total URLs en feeds: {len(phishing_urls)}")
 
         phishing_results = {}
         dominios_comprometidos = 0
@@ -4048,12 +4066,12 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
         for dominio in todos_los_dominios:
             urls_encontradas = []
             
-            # Buscar en el feed de OpenPhish
+            # Buscar en feeds de phishing
             for url in phishing_urls:
                 if dominio.lower() in url.lower():
                     urls_encontradas.append({
                         "url": url,
-                        "fuente": "openphish"
+                        "fuente": "openphish/phishtank"
                     })
             
             if urls_encontradas:
@@ -4073,7 +4091,8 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
             "dominios_comprometidos": dominios_comprometidos,
             "urls_maliciosas_totales": urls_maliciosas_totales,
             "resultados": phishing_results,
-            "fuentes": ["OpenPhish"]
+            "fuentes": ["OpenPhish", "PhishTank"],
+            "total_urls_consultadas": len(phishing_urls)
         }
 
     return _run_osint_job(ejecucion_id, job)
