@@ -833,7 +833,7 @@ class OsintEjecucion:
             'Document Metadata' : 'document_metadata',
             'Username Enumeration' : 'username_enumeration',
             'Phishing Domain Detection' : 'phishing_domain_detection',
-            'Web Tecnology Detection' : 'web_technology_detection'
+            'Web Technology Detection' : 'web_technology_detection'
         }
 
         servicios_map = OsintEjecucion.get_servicios_map()
