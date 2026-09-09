@@ -4025,10 +4025,19 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
 
         # Deduplicar, ordenar y limpiar
         todos_los_dominios = sorted(list(set(todos_los_dominios)))
-        # Limpiar dominios malformados (sin caracteres especiales)
         todos_los_dominios = [d for d in todos_los_dominios if not any(c in d for c in ['[', ']', '(', ')', 'http'])]
         
         print(f"[phishing_detection] Dominios a analizar: {todos_los_dominios}")
+
+        # Obtener feed de OpenPhish
+        print("[openphish] Descargando feed...")
+        try:
+            resp = requests.get('https://openphish.com/feed.txt', timeout=10)
+            phishing_urls = resp.text.split('\n') if resp.status_code == 200 else []
+            print(f"[openphish] Feed descargado: {len(phishing_urls)} URLs")
+        except Exception as e:
+            print(f"[openphish] Error descargando feed: {e}")
+            phishing_urls = []
 
         phishing_results = {}
         dominios_comprometidos = 0
@@ -4036,47 +4045,25 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
 
         print(f"[phishing_detection] Analizando {len(todos_los_dominios)} dominios")
 
-        headers = {
-            'User-Agent': 'RedScope/1.0 (OSINT Scanner)'
-        }
-
         for dominio in todos_los_dominios:
-            try:
-                print(f"[urlhaus] Consultando: {dominio}")
-                resp = requests.post(
-                    'https://urlhaus-api.abuse.ch/v1/urls/query_latest/',
-                    data={'query': 'domain', 'value': dominio},
-                    headers=headers,
-                    timeout=5
-                )
-                print(f"[urlhaus] Status {dominio}: {resp.status_code}")
-                
-                if resp.status_code == 200:
-                    data = resp.json()
-                    print(f"[urlhaus] Respuesta {dominio}: {data.get('query_status')} - {len(data.get('results', []))} resultados")
-                    
-                    if data.get('query_status') == 'ok' and data.get('results'):
-                        urls = []
-                        for result in data['results']:
-                            urls.append({
-                                "url": result.get('url'),
-                                "status": result.get('url_status'),
-                                "threat": result.get('threat'),
-                                "date_added": result.get('date_added')
-                            })
-                        
-                        if urls:
-                            phishing_results[dominio] = {
-                                "urlhaus": urls,
-                                "comprometido": True
-                            }
-                            dominios_comprometidos += 1
-                            urls_maliciosas_totales += len(urls)
-                            print(f"[urlhaus] ✅ {dominio} COMPROMETIDO - {len(urls)} URLs")
-                else:
-                    print(f"[urlhaus] Error {dominio}: HTTP {resp.status_code}")
-            except Exception as e:
-                print(f"[urlhaus] Exception {dominio}: {e}")
+            urls_encontradas = []
+            
+            # Buscar en el feed de OpenPhish
+            for url in phishing_urls:
+                if dominio.lower() in url.lower():
+                    urls_encontradas.append({
+                        "url": url,
+                        "fuente": "openphish"
+                    })
+            
+            if urls_encontradas:
+                phishing_results[dominio] = {
+                    "urls": urls_encontradas,
+                    "comprometido": True
+                }
+                dominios_comprometidos += 1
+                urls_maliciosas_totales += len(urls_encontradas)
+                print(f"[phishing] ✅ {dominio} - {len(urls_encontradas)} URLs encontradas")
 
         return {
             "tipo": "phishing_domain_detection",
@@ -4086,7 +4073,7 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
             "dominios_comprometidos": dominios_comprometidos,
             "urls_maliciosas_totales": urls_maliciosas_totales,
             "resultados": phishing_results,
-            "fuentes": ["URLhaus"]
+            "fuentes": ["OpenPhish"]
         }
 
     return _run_osint_job(ejecucion_id, job)
