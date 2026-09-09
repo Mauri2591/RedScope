@@ -190,15 +190,17 @@ PUBLIC_DNS_IPS = {'8.8.8.8', '8.8.4.4', '1.1.1.1',
 
 
 def _resolve_domain_multi_resolver(dominio, timeout=5):
-    """Resuelve dominio - ligero, sin múltiples resolvers"""
-    try:
-        ips = socket.getaddrinfo(
-            dominio, None, socket.AF_INET, timeout=timeout)
-        ip_set = set(ip[4][0] for ip in ips)
-        return {'ips': ip_set, 'by_resolver': {'default': list(ip_set)}}
-    except Exception as e:
-        print(f"  [WARN] Resolver {dominio}: {type(e).__name__}")
-        return {'ips': set(), 'by_resolver': {}}
+    """Resuelve dominio usando dns.resolver (socket.getaddrinfo NO tiene timeout)"""
+    resolver = dns.resolver.Resolver()
+    resolver.timeout = timeout
+    resolver.lifetime = timeout
+    
+    answers = resolver.resolve(dominio, 'A', raise_on_no_answer=False)
+    ips = set()
+    if answers:
+        ips = set(str(rdata) for rdata in answers)
+    
+    return {'ips': ips, 'by_resolver': {'default': list(ips)}}
 
 
 def _validate_hostname_belongs_to_domain(hostname, dominio_objetivo, ip):
