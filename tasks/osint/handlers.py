@@ -191,16 +191,20 @@ PUBLIC_DNS_IPS = {'8.8.8.8', '8.8.4.4', '1.1.1.1',
 
 def _resolve_domain_multi_resolver(dominio, timeout=5):
     """Resuelve dominio usando dns.resolver (socket.getaddrinfo NO tiene timeout)"""
-    resolver = dns.resolver.Resolver()
-    resolver.timeout = timeout
-    resolver.lifetime = timeout
-    
-    answers = resolver.resolve(dominio, 'A', raise_on_no_answer=False)
-    ips = set()
-    if answers:
-        ips = set(str(rdata) for rdata in answers)
-    
-    return {'ips': ips, 'by_resolver': {'default': list(ips)}}
+    try:
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = timeout
+        resolver.lifetime = timeout
+
+        answers = resolver.resolve(dominio, 'A', raise_on_no_answer=False)
+        ips = set()
+        if answers:
+            ips = set(str(rdata) for rdata in answers)
+
+        return {'ips': ips, 'by_resolver': {'default': list(ips)}}
+    except Exception as e:
+        print(f"  [WARN] Resolver {dominio}: {type(e).__name__}")
+        return {'ips': set(), 'by_resolver': {}}
 
 
 def _validate_hostname_belongs_to_domain(hostname, dominio_objetivo, ip):
@@ -4100,6 +4104,250 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
             "resultados": phishing_results,
             "fuentes": ["OpenPhish", "PhishTank"],
             "total_urls_consultadas": len(phishing_urls)
+        }
+
+    return _run_osint_job(ejecucion_id, job)
+
+
+def web_technology_detection(ejecucion_id, proyecto_id):
+    """
+    Detecta tecnologías web (CMS, servidores, lenguajes, frameworks, librerías)
+    en dominios, subdominios e IPs del scope y resultados de discovery/mapeo.
+    """
+    print(f"[OSINT-Tech] Handler iniciado para ejecución {ejecucion_id}")
+
+    def _detect_technologies_from_html(html_content, headers):
+        """Detecta tecnologías a partir de headers y contenido HTML"""
+        tecnologias = {}
+
+        # 1. Detectar desde Headers HTTP
+        headers_lower = {k.lower(): v for k, v in headers.items()}
+
+        if 'server' in headers_lower:
+            server = headers_lower['server'].lower()
+            if 'apache' in server:
+                tecnologias['Apache'] = 'Server'
+            elif 'nginx' in server:
+                tecnologias['Nginx'] = 'Server'
+            elif 'iis' in server or 'microsoft' in server:
+                tecnologias['IIS'] = 'Server'
+
+        if 'x-powered-by' in headers_lower:
+            powered = headers_lower['x-powered-by'].lower()
+            if 'php' in powered:
+                tecnologias['PHP'] = 'Language'
+            elif 'aspnet' in powered or 'asp.net' in powered:
+                tecnologias['ASP.NET'] = 'Language'
+
+        if 'x-aspnet-version' in headers_lower:
+            tecnologias['ASP.NET'] = 'Language'
+
+        # 2. Detectar desde HTML
+        try:
+            if html_content:
+                soup = BeautifulSoup(html_content, 'html.parser')
+
+                # Meta tags y generators
+                for meta in soup.find_all('meta'):
+                    name = meta.get('name', '').lower()
+                    content = meta.get('content', '').lower()
+
+                    if name == 'generator':
+                        if 'wordpress' in content:
+                            tecnologias['WordPress'] = 'CMS'
+                        elif 'drupal' in content:
+                            tecnologias['Drupal'] = 'CMS'
+                        elif 'joomla' in content:
+                            tecnologias['Joomla'] = 'CMS'
+
+                # Scripts y frameworks
+                scripts_text = ' '.join([str(s) for s in soup.find_all('script')])
+                scripts_text_lower = scripts_text.lower()
+
+                if 'react' in scripts_text_lower or '/static/js/react' in scripts_text:
+                    tecnologias['React'] = 'Framework'
+                if 'angular' in scripts_text_lower:
+                    tecnologias['Angular'] = 'Framework'
+                if 'vue' in scripts_text_lower or 'vuejs' in scripts_text_lower:
+                    tecnologias['Vue.js'] = 'Framework'
+                if 'jquery' in scripts_text_lower:
+                    tecnologias['jQuery'] = 'Library'
+                if 'bootstrap' in scripts_text_lower:
+                    tecnologias['Bootstrap'] = 'Library'
+
+                # Detectar PHP/Python/Node en URLs o comentarios
+                html_text = html_content.lower()
+                if '.php' in html_text:
+                    tecnologias['PHP'] = 'Language'
+                if 'wsgi' in html_text or 'flask' in html_text:
+                    tecnologias['Python'] = 'Language'
+                if 'node' in html_text or 'express' in html_text:
+                    tecnologias['Node.js'] = 'Language'
+
+                # WordPress indicators
+                if 'wp-content' in html_text or 'wp-includes' in html_text:
+                    tecnologias['WordPress'] = 'CMS'
+
+                # Drupal indicators
+                if '/sites/' in html_text or 'drupal' in html_text:
+                    tecnologias['Drupal'] = 'CMS'
+
+                # Joomla indicators
+                if 'joomla' in html_text or '/components/' in html_text:
+                    tecnologias['Joomla'] = 'CMS'
+        except Exception as e:
+            print(f"[Tech-Parse] Error analizando HTML: {e}")
+
+        return tecnologias
+
+    def _make_safe_request(url, timeout=5):
+        """Realiza una request segura con manejo de errores"""
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            response = requests.get(url, timeout=timeout, headers=headers, verify=False)
+            return {
+                'status': response.status_code,
+                'headers': response.headers,
+                'content': response.text if response.status_code == 200 else ''
+            }
+        except requests.exceptions.Timeout:
+            return {'status': 'timeout', 'headers': {}, 'content': ''}
+        except requests.exceptions.ConnectionError:
+            return {'status': 'connection_error', 'headers': {}, 'content': ''}
+        except Exception as e:
+            return {'status': 'error', 'headers': {}, 'content': '', 'error': str(e)}
+
+    def job():
+        # 1. Obtener scope completo
+        scope = OsintEjecucion.get_scope_completo(proyecto_id)
+
+        # Recolectar todos los targets
+        dominios = scope['dominio']
+        subdominios = scope['subdominio']
+        ips = scope['ip']
+
+        # 2. Agregar discovery_subdominios
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        subdominios.extend(subdominios_descubiertos)
+
+        # 3. Agregar resultados de mapeo_ips (IPs enriquecidas)
+        mapeo_ips_results = OsintEjecucion.get_execution_result(proyecto_id, 'mapeo_ips')
+        if mapeo_ips_results and 'ips_enriquecidas' in mapeo_ips_results:
+            for ip_info in mapeo_ips_results.get('ips_enriquecidas', []):
+                if 'ip' in ip_info and ip_info['ip'] not in ips:
+                    ips.append(ip_info['ip'])
+
+        # Deduplicar
+        dominios = sorted(list(set(dominios)))
+        subdominios = sorted(list(set(subdominios)))
+        ips = sorted(list(set(ips)))
+
+        # Puertos a verificar
+        puertos = ["", "8080", "8443", "3000", "5000"]
+        protocolos = ["http", "https"]
+
+        print(f"[Tech] Analizando: {len(dominios)} dominios, {len(subdominios)} subdominios, {len(ips)} IPs")
+
+        tecnologias_encontradas = {}
+
+        # Procesar dominios y subdominios
+        todos_hosts = dominios + subdominios
+
+        for host in todos_hosts:
+            for puerto in puertos:
+                for protocolo in protocolos:
+                    # Construir URL
+                    if puerto:
+                        url = f"{protocolo}://{host}:{puerto}"
+                    else:
+                        url = f"{protocolo}://{host}"
+
+                    print(f"[Tech-Request] {url}")
+
+                    # Realizar request
+                    resp = _make_safe_request(url)
+
+                    if resp['status'] == 200:
+                        techs = _detect_technologies_from_html(resp['content'], resp['headers'])
+
+                        if techs:
+                            if host not in tecnologias_encontradas:
+                                tecnologias_encontradas[host] = {}
+
+                            for tech_name, tech_type in techs.items():
+                                if tech_name not in tecnologias_encontradas[host]:
+                                    tecnologias_encontradas[host][tech_name] = []
+
+                                tecnologias_encontradas[host][tech_name].append({
+                                    'puerto': puerto if puerto else '80',
+                                    'protocolo': protocolo,
+                                    'tipo': tech_type
+                                })
+
+                            print(f"[Tech] ✅ {url} - Encontradas: {list(techs.keys())}")
+
+        # Procesar IPs
+        for ip in ips:
+            for puerto in puertos:
+                for protocolo in protocolos:
+                    # Construir URL
+                    if puerto:
+                        url = f"{protocolo}://{ip}:{puerto}"
+                    else:
+                        url = f"{protocolo}://{ip}"
+
+                    print(f"[Tech-Request-IP] {url}")
+
+                    # Realizar request
+                    resp = _make_safe_request(url)
+
+                    if resp['status'] == 200:
+                        techs = _detect_technologies_from_html(resp['content'], resp['headers'])
+
+                        if techs:
+                            if ip not in tecnologias_encontradas:
+                                tecnologias_encontradas[ip] = {}
+
+                            for tech_name, tech_type in techs.items():
+                                if tech_name not in tecnologias_encontradas[ip]:
+                                    tecnologias_encontradas[ip][tech_name] = []
+
+                                tecnologias_encontradas[ip][tech_name].append({
+                                    'puerto': puerto if puerto else '80',
+                                    'protocolo': protocolo,
+                                    'tipo': tech_type
+                                })
+
+                            print(f"[Tech] ✅ {url} - Encontradas: {list(techs.keys())}")
+
+        # Compilar resumen
+        tecnologias_totales = {}
+        for target, techs in tecnologias_encontradas.items():
+            for tech_name, ubicaciones in techs.items():
+                if tech_name not in tecnologias_totales:
+                    tecnologias_totales[tech_name] = {
+                        'tipo': ubicaciones[0]['tipo'],
+                        'targets': []
+                    }
+
+                tecnologias_totales[tech_name]['targets'].append({
+                    'target': target,
+                    'ubicaciones': ubicaciones
+                })
+
+        return {
+            "tipo": "web_technology_detection",
+            "total_hosts_analizados": len(todos_hosts) + len(ips),
+            "dominios_scope": len(dominios),
+            "subdominios_scope": len(subdominios),
+            "subdominios_descubiertos": len(subdominios_descubiertos),
+            "ips_analizadas": len(ips),
+            "puertos_verificados": puertos,
+            "tecnologias_encontradas": len(tecnologias_totales),
+            "resumen": tecnologias_totales,
+            "detalles": tecnologias_encontradas
         }
 
     return _run_osint_job(ejecucion_id, job)
