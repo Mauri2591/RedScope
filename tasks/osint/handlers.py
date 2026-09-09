@@ -245,51 +245,60 @@ def _reverse_dns_multi_resolver(ip, timeout=5):
 
 
 def discovery_subdominios(ejecucion_id, proyecto_id):
-    """Descubrimiento de subdominios con subfinder
-
+    """Descubrimiento de subdominios con subfinder + assetfinder (Certificate Transparency)
+    
     Busca subdominios de:
     1. DOMINIO + SUBDOMINIO + SERVICIOS del scope
     2. Dominios de mapeo_ips (fallback)
-
-    Retorna SOLO subdominios descubiertos.
+    
+    Fuentes:
+    - Subfinder: multi-fuente pasivo (APIs, Shodan, Censys, etc)
+    - Assetfinder: Certificate Transparency + búsquedas pasivas
+    
+    Retorna SOLO subdominios descubiertos (sin duplicados).
     """
     print(f"[OSINT-DISCOVERY] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
-        # 1. Obtener scope: DOMINIO + SUBDOMINIO + SERVICIOS (sanitizado)
+        # 1. Obtener scope
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
-        # Limpiar entradas mal formadas del scope (Markdown, protocolos) en el origen
         dominios_scope = _sanitizar_lista_dominios(
             scope['dominio'] + scope['subdominio'] + scope['servicios'])
         todos_los_dominios = list(dominios_scope)
 
         # 2. Fallback: Obtener dominios de mapeo_ips
-        dominios_from_ips = []
         if not todos_los_dominios:
             dominios_from_ips = _sanitizar_lista_dominios(
                 OsintEjecucion.get_discovered_domains_from_ips(proyecto_id))
             todos_los_dominios = dominios_from_ips
 
         if not todos_los_dominios:
-            raise Exception(
-                "No hay dominios configurados (scope vacío y mapeo_ips sin resultados)")
+            raise Exception("No hay dominios configurados")
 
-        subdominios = set()
-        print(
-            f"[discovery_subdominios] Escaneando {len(todos_los_dominios)} dominios con subfinder")
+        subdominios = set()  # Set para deduplicar automáticamente
+        fuentes_usadas = set()
+        
+        print(f"[discovery_subdominios] Escaneando {len(todos_los_dominios)} dominios")
 
         for dom in sorted(todos_los_dominios):
-            try:
-                print(f"[subfinder] Escaneando {dom}...")
-                OsintEjecucion.update_resultado(ejecucion_id, {
-                    "tipo": "discovery_subdominios",
-                    "dominios_scope": dominios_scope,
-                    "total_dominios_escaneados": len(todos_los_dominios),
-                    "total_subdominios": len(subdominios),
-                    "subdominios": sorted(list(filter(None, subdominios))),
-                    "estado": f"Escaneando {dom}..."
-                })
+            print(f"[discovery_subdominios] Procesando {dom}...")
+            
+            # UPDATE estado
+            OsintEjecucion.update_resultado(ejecucion_id, {
+                "tipo": "discovery_subdominios",
+                "dominios_scope": list(dominios_scope),
+                "total_dominios_escaneados": len(todos_los_dominios),
+                "total_subdominios": len(subdominios),
+                "subdominios": sorted(list(filter(None, subdominios))),
+                "estado": f"Escaneando {dom}...",
+                "fuentes": list(fuentes_usadas)
+            })
 
+            # ════════════════════════════════════════════════════════════
+            # SUBFINDER (multi-source pasivo)
+            # ════════════════════════════════════════════════════════════
+            try:
+                print(f"  [subfinder] Consultando {dom}...")
                 result = subprocess.run(
                     ['subfinder', '-d', dom, '-silent'],
                     capture_output=True,
@@ -297,23 +306,65 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
                     timeout=60
                 )
                 if result.stdout:
-                    # Sanitizar la salida de subfinder por las dudas
                     nuevos = _sanitizar_lista_dominios(result.stdout.strip().split('\n'))
+                    antes = len(subdominios)
                     subdominios.update(nuevos)
-                    print(f"[subfinder] {dom} → {len(nuevos)} subdominios")
+                    agregados = len(subdominios) - antes
+                    print(f"  [subfinder] ✅ {agregados} nuevos (total: {len(nuevos)})")
+                    if agregados > 0:
+                        fuentes_usadas.add('subfinder')
             except subprocess.TimeoutExpired:
-                print(f"[subfinder] Timeout para {dom}")
+                print(f"  [subfinder] ⏱️ Timeout")
+            except FileNotFoundError:
+                print(f"  [subfinder] ❌ No instalado")
             except Exception as e:
-                print(f"[subfinder] Error en {dom}: {e}")
+                print(f"  [subfinder] ❌ Error: {e}")
 
-        subdominios = sorted(list(filter(None, subdominios)))
+            # ════════════════════════════════════════════════════════════
+            # ASSETFINDER (Certificate Transparency)
+            # ════════════════════════════════════════════════════════════
+            try:
+                print(f"  [assetfinder] Consultando {dom}...")
+                result = subprocess.run(
+                    ['assetfinder', '--subs-only', dom],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                if result.stdout:
+                    # Sanitizar: quitar markdown, URLs, duplicados
+                    nuevos = result.stdout.strip().split('\n')
+                    nuevos = [
+                        d.replace('[', '').replace('](', '.').replace(')', '').strip()
+                        for d in nuevos
+                    ]
+                    nuevos = _sanitizar_lista_dominios([d for d in nuevos if d and '.' in d])
+                    antes = len(subdominios)
+                    subdominios.update(nuevos)
+                    agregados = len(subdominios) - antes
+                    print(f"  [assetfinder] ✅ {agregados} nuevos (total: {len(nuevos)})")
+                    if agregados > 0:
+                        fuentes_usadas.add('assetfinder')
+            except subprocess.TimeoutExpired:
+                print(f"  [assetfinder] ⏱️ Timeout")
+            except FileNotFoundError:
+                print(f"  [assetfinder] ℹ️ No instalado (opcional)")
+            except Exception as e:
+                print(f"  [assetfinder] ❌ Error: {e}")
+
+        # ════════════════════════════════════════════════════════════
+        # RESULTADO FINAL
+        # ════════════════════════════════════════════════════════════
+        subdominios_final = sorted(list(filter(None, subdominios)))
 
         return {
             "tipo": "discovery_subdominios",
-            "dominios_scope": dominios_scope,
+            "dominios_scope": list(dominios_scope),
             "total_dominios_escaneados": len(todos_los_dominios),
-            "total_subdominios": len(subdominios),
-            "subdominios": subdominios
+            "total_subdominios": len(subdominios_final),
+            "subdominios": subdominios_final,
+            "fuentes": sorted(list(fuentes_usadas)),
+            "fuentes_disponibles": len(fuentes_usadas)
         }
 
     return _run_osint_job(ejecucion_id, job)
