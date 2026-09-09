@@ -832,7 +832,7 @@ class OsintEjecucion:
             'Phone Intelligence' : 'phone_intelligence',
             'Document Metadata' : 'document_metadata',
             'Username Enumeration' : 'username_enumeration',
-            'Phishing Domain Detection' : 'phishing-domain-detection'
+            'Phishing Domain Detection' : 'phishing_domain_detection'
         }
 
         servicios_map = OsintEjecucion.get_servicios_map()
