@@ -3762,19 +3762,31 @@ def phone_intelligence(ejecucion_id, proyecto_id):
         if not telefonos:
             print(f"[phone_intelligence] get_discovered_phones devolvió vacío, intentando fallback...")
             try:
-                sde_result = OsintEjecucion.get_latest_resultado(proyecto_id, 'sensitive_data_extraction')
-                if sde_result:
-                    # Intentar obtener teléfonos del formato nuevo (restructurado)
-                    telefonos = sde_result.get("telefonos_para_intelligence", [])
+                # Intentar múltiples nombres de servicio posibles
+                for nombre_servicio in ['sensitive_data_extraction', 'sensitive_data', 'extraccion_datos', 'datos_sensibles']:
+                    print(f"[phone_intelligence] Buscando '{nombre_servicio}'...")
+                    sde_result = OsintEjecucion.get_latest_resultado(proyecto_id, nombre_servicio)
+                    if sde_result:
+                        print(f"[phone_intelligence] ✅ Encontrado resultado de '{nombre_servicio}'")
 
-                    # Si aún no hay, intentar restructurar desde el formato antiguo
-                    if not telefonos:
-                        hallazgos_telefonos = sde_result.get("telefonos_encontrados", {})
-                        telefonos = _restructure_phones_for_intelligence(hallazgos_telefonos)
+                        # Intentar obtener teléfonos del formato nuevo (restructurado)
+                        telefonos = sde_result.get("telefonos_para_intelligence", [])
 
-                    print(f"[phone_intelligence] Teléfonos extraídos del fallback: {len(telefonos)}")
+                        # Si aún no hay, intentar restructurar desde el formato antiguo
+                        if not telefonos:
+                            hallazgos_telefonos = sde_result.get("telefonos_encontrados", {})
+                            print(f"[phone_intelligence] Reestructurando desde formato antiguo: {len(hallazgos_telefonos)} URLs")
+                            telefonos = _restructure_phones_for_intelligence(hallazgos_telefonos)
+
+                        print(f"[phone_intelligence] Teléfonos extraídos del fallback: {len(telefonos)}")
+                        break
+
+                if not telefonos:
+                    print(f"[phone_intelligence] No se encontraron resultados de SDE en BD")
             except Exception as e:
                 print(f"[phone_intelligence] Error en fallback: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
 
         if not telefonos:
             raise Exception("No hay teléfonos para analizar (ejecutá primero Sensitive Data Extraction)")
