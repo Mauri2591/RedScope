@@ -2959,9 +2959,10 @@ def _extraer_telefonos_de_contenido(contenido, url_origen, region=_TEL_REGION_DE
     """Extrae números de teléfono VÁLIDOS del contenido (HTML o JS) con phonenumbers.
 
     Usa PhoneNumberMatcher + is_valid_number para evitar los falsos positivos de
-    un regex crudo (IDs, fechas, ViewState). Devuelve el número TAL COMO APARECE
-    en el contenido original (sin normalizar a E.164).
-    Devuelve: [{'telefono': str (original), 'tipo': str, 'url': str}, ...]
+    un regex crudo (IDs, fechas, ViewState). Retorna ambos formatos:
+    - telefono_original: TAL COMO APARECE en el HTML (ej: 08003331331)
+    - telefono_e164: Formato E.164 para análisis (ej: +548003331331)
+    Devuelve: [{'telefono_original': str, 'telefono_e164': str, 'tipo': str, 'url': str}, ...]
     """
     encontrados = []
     if not contenido:
@@ -2977,13 +2978,16 @@ def _extraer_telefonos_de_contenido(contenido, url_origen, region=_TEL_REGION_DE
             tipo_num = phonenumbers.number_type(num)
             if tipo_num == PhoneNumberType.UNKNOWN:
                 continue
-            # Usar el número TAL COMO APARECE en el contenido original (raw_string)
+            # Obtener ambos formatos
             telefono_original = match.raw_string
+            telefono_e164 = phonenumbers.format_number(num, phonenumbers.PhoneNumberFormat.E164)
+
             if telefono_original in vistos:
                 continue
             vistos.add(telefono_original)
             encontrados.append({
-                "telefono": telefono_original,
+                "telefono_original": telefono_original,
+                "telefono_e164": telefono_e164,
                 "tipo": _TIPO_TEL.get(tipo_num, "desconocido"),
                 "url": url_origen,
             })
