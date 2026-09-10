@@ -4201,35 +4201,35 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
             print(f"[openphish] Error: {e}")
 
         # PhishTank
-        print("[phishtank] Descargando feed...")
-        phishtank_count = 0
-        try:
-            resp = requests.get('https://data.phishtank.com/data/online-valid.json', timeout=10)
-            print(f"[phishtank] Status: {resp.status_code}")
+        # print("[phishtank] Descargando feed...")
+        # phishtank_count = 0
+        # try:
+        #     resp = requests.get('https://data.phishtank.com/data/online-valid.json', timeout=10)
+        #     print(f"[phishtank] Status: {resp.status_code}")
 
-            if resp.status_code == 200:
-                try:
-                    phishtank_data = resp.json()
-                    print(f"[phishtank] JSON parseado, tipo: {type(phishtank_data)}")
+        #     if resp.status_code == 200:
+        #         try:
+        #             phishtank_data = resp.json()
+        #             print(f"[phishtank] JSON parseado, tipo: {type(phishtank_data)}")
 
-                    if isinstance(phishtank_data, list):
-                        phishtank_urls = [item.get('url', '') for item in phishtank_data if isinstance(item, dict)]
-                    else:
-                        print(f"[phishtank] JSON no es lista, es: {type(phishtank_data)}")
-                        phishtank_urls = []
+        #             if isinstance(phishtank_data, list):
+        #                 phishtank_urls = [item.get('url', '') for item in phishtank_data if isinstance(item, dict)]
+        #             else:
+        #                 print(f"[phishtank] JSON no es lista, es: {type(phishtank_data)}")
+        #                 phishtank_urls = []
 
-                    phishing_urls.extend(phishtank_urls)
-                    phishtank_count = len(phishtank_urls)
-                    print(f"[phishtank] ✅ {phishtank_count} URLs descargadas")
-                except ValueError as e:
-                    print(f"[phishtank] Error JSON: {e}")
-                except Exception as e:
-                    print(f"[phishtank] Error procesando: {e}")
-        except Exception as e:
-            print(f"[phishtank] Error descarga: {e}")
+        #             phishing_urls.extend(phishtank_urls)
+        #             phishtank_count = len(phishtank_urls)
+        #             print(f"[phishtank] ✅ {phishtank_count} URLs descargadas")
+        #         except ValueError as e:
+        #             print(f"[phishtank] Error JSON: {e}")
+        #         except Exception as e:
+        #             print(f"[phishtank] Error procesando: {e}")
+        # except Exception as e:
+        #     print(f"[phishtank] Error descarga: {e}")
 
         # Resumen — ACÁ, después de tener los dos conteos
-        print(f"[resumen] OpenPhish: {openphish_count} | PhishTank: {phishtank_count}")
+        print(f"[resumen] OpenPhish: {openphish_count} ")
         phishing_results = {}
         dominios_comprometidos = 0
         urls_maliciosas_totales = 0
@@ -4244,7 +4244,7 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
                 if dominio.lower() in url.lower():
                     urls_encontradas.append({
                         "url": url,
-                        "fuente": "openphish/phishtank"
+                        "fuente": "openphish"
                     })
             
             if urls_encontradas:
@@ -4266,7 +4266,7 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
             "dominios_comprometidos": dominios_comprometidos,
             "urls_maliciosas_totales": urls_maliciosas_totales,
             "resultados": phishing_results,
-            "fuentes": ["OpenPhish", "PhishTank"],
+            "fuentes": ["OpenPhish"],
             "total_urls_consultadas": len(phishing_urls)
         }
 
