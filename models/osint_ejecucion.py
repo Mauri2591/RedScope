@@ -359,9 +359,10 @@ class OsintEjecucion:
             mapa = {}  # tel -> set(urls de origen)
             for url, lista in telefonos_encontrados.items():
                 for item in (lista or []):
-                    # item puede ser dict {'telefono','tipo','url'} o un string suelto
+                    # item puede ser dict {'telefono_e164','telefono_original','tipo','url'} o un string suelto
                     if isinstance(item, dict):
-                        tel = (item.get('telefono') or '').strip()
+                        # Buscar primero telefono_e164 (nuevo formato), luego alternativas
+                        tel = (item.get('telefono_e164') or item.get('telefono_original') or item.get('telefono') or '').strip()
                         origen = item.get('url') or url
                     else:
                         tel = str(item).strip()
