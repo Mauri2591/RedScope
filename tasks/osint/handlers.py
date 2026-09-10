@@ -4176,17 +4176,7 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
 
         # Descargar feeds de phishing
         phishing_urls = []
-        
-        # OpenPhish
-        print("[openphish] Descargando feed...")
-        try:
-            resp = requests.get('https://openphish.com/feed.txt', timeout=10)
-            if resp.status_code == 200:
-                phishing_urls.extend(resp.text.split('\n'))
-                print(f"[openphish] ✅ {len(resp.text.split(chr(10)))} URLs descargadas")
-        except Exception as e:
-            print(f"[openphish] Error: {e}")
-        
+              
         # OpenPhish
         print("[openphish] Descargando feed...")
         openphish_count = 0
