@@ -2996,6 +2996,53 @@ def _extraer_telefonos_de_contenido(contenido, url_origen, region=_TEL_REGION_DE
     return encontrados
 
 
+def _restructure_phones_for_intelligence(hallazgos_telefonos):
+    """Restructura teléfonos del formato de extracción al formato esperado por phone_intelligence.
+
+    Entrada: {url: [{'telefono_original': str, 'telefono_e164': str, 'tipo': str, 'url': str}, ...]}
+    Salida: [{'telefono': E164, 'origenes': [urls]}] - agrupados por número E164
+
+    Esta función convierte cada teléfono individual encontrado en una URL a un registro
+    consolidado donde el mismo número puede tener múltiples URLs de origen.
+    """
+    if not hallazgos_telefonos:
+        return []
+
+    # Agrupar por telefono_e164 (formato normalizado)
+    telefonos_por_numero = {}
+    for url, telefonos_lista in hallazgos_telefonos.items():
+        if not isinstance(telefonos_lista, list):
+            continue
+        for item in telefonos_lista:
+            if not isinstance(item, dict):
+                continue
+            tel_e164 = item.get("telefono_e164")
+            if not tel_e164:
+                continue
+
+            if tel_e164 not in telefonos_por_numero:
+                telefonos_por_numero[tel_e164] = {
+                    "telefono": tel_e164,
+                    "origenes": set(),  # Usar set para evitar duplicados
+                    "tipo": item.get("tipo", "desconocido"),
+                }
+
+            # Agregar URL de origen
+            if item.get("url"):
+                telefonos_por_numero[tel_e164]["origenes"].add(item.get("url"))
+
+    # Convertir sets a listas para serialización JSON
+    resultado = []
+    for tel_e164, datos in telefonos_por_numero.items():
+        resultado.append({
+            "telefono": datos["telefono"],
+            "origenes": sorted(list(datos["origenes"])),
+            "tipo": datos["tipo"],
+        })
+
+    return resultado
+
+
 def _host_de_url(url):
     """Devuelve el host (minúscula) de una URL, o '' si no se puede parsear."""
     try:
@@ -3356,6 +3403,7 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
             "elementos_html_sensibles": hallazgos_html_sensibles,  # ✨ NUEVO
             "emails_encontrados": hallazgos_emails,  # ✨ NUEVO
             "telefonos_encontrados": hallazgos_telefonos,  # ✨ NUEVO
+            "telefonos_para_intelligence": _restructure_phones_for_intelligence(hallazgos_telefonos),  # ✨ NUEVO: Formato esperado por phone_intelligence
             "resumen": {
                 "vulnerabilidades_por_severidad": vulnerabilidades_por_severidad,
                 "tipos_html_sensibles": {  # ✨ NUEVO
@@ -3708,6 +3756,26 @@ def phone_intelligence(ejecucion_id, proyecto_id):
     def job():
         # 1. Números descubiertos por Sensitive Data Extraction
         telefonos = OsintEjecucion.get_discovered_phones(proyecto_id)
+
+        # ✨ FALLBACK: Si get_discovered_phones() no devuelve nada, intentar extraer
+        # directamente del resultado de sensitive_data_extraction
+        if not telefonos:
+            print(f"[phone_intelligence] get_discovered_phones devolvió vacío, intentando fallback...")
+            try:
+                sde_result = OsintEjecucion.get_latest_resultado(proyecto_id, 'sensitive_data_extraction')
+                if sde_result:
+                    # Intentar obtener teléfonos del formato nuevo (restructurado)
+                    telefonos = sde_result.get("telefonos_para_intelligence", [])
+
+                    # Si aún no hay, intentar restructurar desde el formato antiguo
+                    if not telefonos:
+                        hallazgos_telefonos = sde_result.get("telefonos_encontrados", {})
+                        telefonos = _restructure_phones_for_intelligence(hallazgos_telefonos)
+
+                    print(f"[phone_intelligence] Teléfonos extraídos del fallback: {len(telefonos)}")
+            except Exception as e:
+                print(f"[phone_intelligence] Error en fallback: {type(e).__name__}: {e}")
+
         if not telefonos:
             raise Exception("No hay teléfonos para analizar (ejecutá primero Sensitive Data Extraction)")
 
