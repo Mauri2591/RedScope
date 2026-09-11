@@ -1859,16 +1859,53 @@ def analisis_dns(ejecucion_id, proyecto_id):
     print(f"[OSINT-DNS] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
-        # Obtener severidades
-        severidades = Proyecto.get_severidades()
-        mapa_severidades = {sev['nombre']: sev['id'] for sev in severidades}
-
         # 1. Obtener TODO el scope
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
         todos_los_dominios = scope['dominio'] + \
             scope['subdominio'] + scope['servicios']
 
-        # ... resto del código de recolección DNS igual ...
+        # 2. Agregar subdominios descubiertos
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
+            proyecto_id)
+        todos_los_dominios.extend(subdominios_descubiertos)
+
+        # 3. Fallback: dominios de mapeo_ips
+        if not todos_los_dominios:
+            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
+                proyecto_id)
+            todos_los_dominios.extend(dominios_from_ips)
+
+        if not todos_los_dominios:
+            raise Exception("No hay dominios para analizar")
+
+        # Deduplicar y ordenar
+        todos_los_dominios = sorted(list(set(todos_los_dominios)))
+
+        registros = {}
+        tipos = ['A', 'AAAA', 'MX', 'NS', 'TXT', 'SOA', 'CNAME']
+
+        print(f"[analisis_dns] Analizando {len(todos_los_dominios)} dominios")
+
+        for dom in todos_los_dominios:
+            registros[dom] = {}
+
+            for tipo in tipos:
+                try:
+                    resolver = dns.resolver.Resolver()
+                    resolver.timeout = 5
+                    resolver.lifetime = 5
+
+                    answers = resolver.resolve(
+                        dom, tipo, raise_on_no_answer=False)
+
+                    if answers:
+                        registros[dom][tipo] = [
+                            str(rdata) for rdata in answers]
+
+                except DNSException as e:
+                    print(f"[dns] {tipo} {dom}: {type(e).__name__}")
+                except Exception as e:
+                    print(f"[dns] Error {tipo} {dom}: {e}")
 
         # ============ VALIDACIONES DE EMAIL SECURITY ============
         validaciones = {}
@@ -1896,7 +1933,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
                     hallazgos.append({
                         "dominio": dom,
                         "tipo": "spf_falta",
-                        "severidad_id": mapa_severidades['HIGH'],
+                        "severidad": "ALTO",
                         "descripcion": "Registro SPF no configurado",
                         "recomendacion": "Configurar registro SPF en DNS para prevenir spoofing de email"
                     })
@@ -1905,7 +1942,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
                 hallazgos.append({
                     "dominio": dom,
                     "tipo": "spf_falta",
-                    "severidad_id": mapa_severidades['HIGH'],
+                    "severidad": "ALTO",
                     "descripcion": "Registro SPF no configurado",
                     "recomendacion": "Configurar registro SPF en DNS para prevenir spoofing de email"
                 })
@@ -1938,7 +1975,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
                         hallazgos.append({
                             "dominio": dom,
                             "tipo": "dmarc_modo_none",
-                            "severidad_id": mapa_severidades['MEDIUM'],
+                            "severidad": "MEDIO",
                             "descripcion": "DMARC en modo monitoreo (p=none)",
                             "recomendacion": "Cambiar a p=quarantine o p=reject después de validar reportes"
                         })
@@ -1947,7 +1984,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
                     hallazgos.append({
                         "dominio": dom,
                         "tipo": "dmarc_falta",
-                        "severidad_id": mapa_severidades['HIGH'],
+                        "severidad": "ALTO",
                         "descripcion": "Registro DMARC no configurado",
                         "recomendacion": "Configurar DMARC en _dmarc.{} para protección contra spoofing".format(dom)
                     })
@@ -1956,7 +1993,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
                 hallazgos.append({
                     "dominio": dom,
                     "tipo": "dmarc_falta",
-                    "severidad_id": mapa_severidades['HIGH'],
+                    "severidad": "ALTO",
                     "descripcion": "Registro DMARC no configurado",
                     "recomendacion": "Configurar DMARC en _dmarc.{} para protección contra spoofing".format(dom)
                 })
@@ -1979,7 +2016,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
                     hallazgos.append({
                         "dominio": dom,
                         "tipo": "dnssec_no_activado",
-                        "severidad_id": mapa_severidades['MEDIUM'],
+                        "severidad": "MEDIO",
                         "descripcion": "DNSSEC no activado",
                         "recomendacion": "Activar DNSSEC para firmar criptográficamente registros DNS"
                     })
@@ -1988,7 +2025,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
                 hallazgos.append({
                     "dominio": dom,
                     "tipo": "dnssec_no_activado",
-                    "severidad_id": mapa_severidades['MEDIUM'],
+                    "severidad": "MEDIO",
                     "descripcion": "DNSSEC no activado",
                     "recomendacion": "Activar DNSSEC para firmar criptográficamente registros DNS"
                 })
@@ -2003,13 +2040,34 @@ def analisis_dns(ejecucion_id, proyecto_id):
             "validaciones": validaciones,
             "hallazgos": hallazgos,
             "resumen_hallazgos": {
-                sev['nombre']: len(
-                    [h for h in hallazgos if h["severidad_id"] == sev['id']])
-                for sev in severidades
+                "ALTO": len([h for h in hallazgos if h["severidad"] == "ALTO"]),
+                "MEDIO": len([h for h in hallazgos if h["severidad"] == "MEDIO"]),
+                "BAJO": len([h for h in hallazgos if h["severidad"] == "BAJO"])
             }
         }
 
     return _run_osint_job(ejecucion_id, job)
+
+
+def _validar_spf(registro_spf):
+    """Validación básica de sintaxis SPF"""
+    try:
+        if not registro_spf.startswith('v=spf1'):
+            return False
+
+        mecanismos = ['ip4:', 'ip6:', 'a', 'mx', 'ptr', 'exists:', 'include:']
+        tiene_mecanismo = any(m in registro_spf for m in mecanismos)
+
+        if not tiene_mecanismo:
+            return False
+
+        termino_final = registro_spf.split()[-1]
+        if termino_final not in ['-all', '~all', '+all']:
+            return False
+
+        return True
+    except:
+        return False
 
 
 def busqueda_endpoints(ejecucion_id, proyecto_id):
