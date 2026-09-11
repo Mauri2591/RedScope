@@ -1834,11 +1834,10 @@ def _deduplicate_github_results(hallazgos_raw, dominio=''):
 
 
 def analisis_dns(ejecucion_id, proyecto_id):
-    """Análisis de registros DNS - Optimizado"""
+    """Análisis de registros DNS - Con validaciones de email security"""
     print(f"[OSINT-DNS] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
-
         # 1. Obtener TODO el scope
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
         todos_los_dominios = scope['dominio'] + \
@@ -1869,7 +1868,6 @@ def analisis_dns(ejecucion_id, proyecto_id):
         for dom in todos_los_dominios:
             registros[dom] = {}
             
-            # UNA sola consulta por dominio en lugar de 7
             for tipo in tipos:
                 try:
                     resolver = dns.resolver.Resolver()
@@ -1886,16 +1884,164 @@ def analisis_dns(ejecucion_id, proyecto_id):
                 except Exception as e:
                     print(f"[dns] Error {tipo} {dom}: {e}")
 
+        # ============ VALIDACIONES DE EMAIL SECURITY ============
+        validaciones = {}
+        hallazgos = []
+        
+        for dom in todos_los_dominios:
+            validaciones[dom] = {
+                "spf": None,
+                "dmarc": None,
+                "dnssec": None
+            }
+            
+            # === SPF ===
+            if 'TXT' in registros[dom]:
+                spf_records = [r for r in registros[dom]['TXT'] if r.startswith('v=spf1')]
+                if spf_records:
+                    validaciones[dom]["spf"] = {
+                        "configurado": True,
+                        "registro": spf_records[0],
+                        "valido": _validar_spf(spf_records[0])
+                    }
+                else:
+                    validaciones[dom]["spf"] = {"configurado": False}
+                    hallazgos.append({
+                        "dominio": dom,
+                        "tipo": "spf_falta",
+                        "severidad": "ALTO",
+                        "descripcion": "Registro SPF no configurado",
+                        "recomendacion": "Configurar registro SPF en DNS para prevenir spoofing de email"
+                    })
+            else:
+                validaciones[dom]["spf"] = {"configurado": False}
+                hallazgos.append({
+                    "dominio": dom,
+                    "tipo": "spf_falta",
+                    "severidad": "ALTO",
+                    "descripcion": "Registro SPF no configurado",
+                    "recomendacion": "Configurar registro SPF en DNS para prevenir spoofing de email"
+                })
+            
+            # === DMARC ===
+            try:
+                resolver = dns.resolver.Resolver()
+                resolver.timeout = 5
+                resolver.lifetime = 5
+                dmarc_answers = resolver.resolve(f"_dmarc.{dom}", 'TXT', raise_on_no_answer=False)
+                
+                if dmarc_answers:
+                    dmarc_rec = str(dmarc_answers[0]).strip('"')
+                    modo = None
+                    if "p=none" in dmarc_rec:
+                        modo = "none"
+                    elif "p=quarantine" in dmarc_rec:
+                        modo = "quarantine"
+                    elif "p=reject" in dmarc_rec:
+                        modo = "reject"
+                    
+                    validaciones[dom]["dmarc"] = {
+                        "configurado": True,
+                        "registro": dmarc_rec,
+                        "modo": modo
+                    }
+                    
+                    if modo == "none":
+                        hallazgos.append({
+                            "dominio": dom,
+                            "tipo": "dmarc_modo_none",
+                            "severidad": "MEDIO",
+                            "descripcion": "DMARC en modo monitoreo (p=none)",
+                            "recomendacion": "Cambiar a p=quarantine o p=reject después de validar reportes"
+                        })
+                else:
+                    validaciones[dom]["dmarc"] = {"configurado": False}
+                    hallazgos.append({
+                        "dominio": dom,
+                        "tipo": "dmarc_falta",
+                        "severidad": "ALTO",
+                        "descripcion": "Registro DMARC no configurado",
+                        "recomendacion": "Configurar DMARC en _dmarc.{} para protección contra spoofing".format(dom)
+                    })
+            except:
+                validaciones[dom]["dmarc"] = {"configurado": False}
+                hallazgos.append({
+                    "dominio": dom,
+                    "tipo": "dmarc_falta",
+                    "severidad": "ALTO",
+                    "descripcion": "Registro DMARC no configurado",
+                    "recomendacion": "Configurar DMARC en _dmarc.{} para protección contra spoofing".format(dom)
+                })
+            
+            # === DNSSEC ===
+            try:
+                resolver = dns.resolver.Resolver()
+                resolver.timeout = 5
+                resolver.lifetime = 5
+                dnskey_answers = resolver.resolve(dom, 'DNSKEY', raise_on_no_answer=False)
+                
+                if dnskey_answers:
+                    validaciones[dom]["dnssec"] = {
+                        "configurado": True,
+                        "registros": len(list(dnskey_answers))
+                    }
+                else:
+                    validaciones[dom]["dnssec"] = {"configurado": False}
+                    hallazgos.append({
+                        "dominio": dom,
+                        "tipo": "dnssec_no_activado",
+                        "severidad": "MEDIO",
+                        "descripcion": "DNSSEC no activado",
+                        "recomendacion": "Activar DNSSEC para firmar criptográficamente registros DNS"
+                    })
+            except:
+                validaciones[dom]["dnssec"] = {"configurado": False}
+                hallazgos.append({
+                    "dominio": dom,
+                    "tipo": "dnssec_no_activado",
+                    "severidad": "MEDIO",
+                    "descripcion": "DNSSEC no activado",
+                    "recomendacion": "Activar DNSSEC para firmar criptográficamente registros DNS"
+                })
+
         return {
             "tipo": "analisis_dns",
             "total_dominios_analizados": len(todos_los_dominios),
             "dominios_scope": len(scope['dominio']) + len(scope['subdominio']) + len(scope['servicios']),
             "subdominios_descubiertos": len(subdominios_descubiertos),
             "tipos_registros": tipos,
-            "registros": registros
+            "registros": registros,
+            "validaciones": validaciones,
+            "hallazgos": hallazgos,
+            "resumen_hallazgos": {
+                "ALTO": len([h for h in hallazgos if h["severidad"] == "ALTO"]),
+                "MEDIO": len([h for h in hallazgos if h["severidad"] == "MEDIO"]),
+                "BAJO": len([h for h in hallazgos if h["severidad"] == "BAJO"])
+            }
         }
 
     return _run_osint_job(ejecucion_id, job)
+
+
+def _validar_spf(registro_spf):
+    """Validación básica de sintaxis SPF"""
+    try:
+        if not registro_spf.startswith('v=spf1'):
+            return False
+        
+        mecanismos = ['ip4:', 'ip6:', 'a', 'mx', 'ptr', 'exists:', 'include:']
+        tiene_mecanismo = any(m in registro_spf for m in mecanismos)
+        
+        if not tiene_mecanismo:
+            return False
+        
+        termino_final = registro_spf.split()[-1]
+        if termino_final not in ['-all', '~all', '+all']:
+            return False
+        
+        return True
+    except:
+        return False
 
 
 def busqueda_endpoints(ejecucion_id, proyecto_id):
