@@ -4552,7 +4552,7 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                 hallazgos.append({
                     'header': header_name,
                     'tipo': f'security_header_missing',
-                    'severidad_nombre': header_info['severidad'],
+                    'severidad': header_info['severidad'],
                     'descripcion': header_info['descripcion'],
                     'recomendacion': f'Configurar header {header_name} en respuestas HTTP'
                 })
@@ -4564,7 +4564,7 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                 hallazgos.append({
                     'header': 'content-security-policy',
                     'tipo': 'security_header_weak',
-                    'severidad_nombre': 'MEDIUM',
+                    'severidad': 'MEDIUM',
                     'descripcion': 'CSP muy permisiva (contiene unsafe-inline, unsafe-eval o wildcards)',
                     'recomendacion': 'Restringir CSP removiendo unsafe-inline y unsafe-eval',
                     'valor_actual': csp
@@ -4576,7 +4576,7 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                 hallazgos.append({
                     'header': 'strict-transport-security',
                     'tipo': 'security_header_weak',
-                    'severidad_nombre': 'MEDIUM',
+                    'severidad': 'MEDIUM',
                     'descripcion': 'HSTS desactivado (max-age=0)',
                     'recomendacion': 'Configurar HSTS con max-age >= 31536000',
                     'valor_actual': hsts
@@ -4588,7 +4588,7 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                 hallazgos.append({
                     'header': 'x-frame-options',
                     'tipo': 'security_header_weak',
-                    'severidad_nombre': 'HIGH',
+                    'severidad': 'HIGH',
                     'descripcion': 'X-Frame-Options permite embedding (vulnerable a clickjacking)',
                     'recomendacion': 'Usar DENY o SAMEORIGIN',
                     'valor_actual': xfo
