@@ -4549,12 +4549,10 @@ def web_technology_detection(ejecucion_id, proyecto_id):
 
         for header_name, header_info in security_headers.items():
             if header_name not in headers_configurados:
-                severidad_id = mapa_severidades[header_info['severidad']]
                 hallazgos.append({
                     'header': header_name,
                     'tipo': f'security_header_missing',
                     'severidad_nombre': header_info['severidad'],
-                    'severidad_id': severidad_id,
                     'descripcion': header_info['descripcion'],
                     'recomendacion': f'Configurar header {header_name} en respuestas HTTP'
                 })
@@ -4567,7 +4565,6 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                     'header': 'content-security-policy',
                     'tipo': 'security_header_weak',
                     'severidad_nombre': 'MEDIUM',
-                    'severidad_id': mapa_severidades['MEDIUM'],
                     'descripcion': 'CSP muy permisiva (contiene unsafe-inline, unsafe-eval o wildcards)',
                     'recomendacion': 'Restringir CSP removiendo unsafe-inline y unsafe-eval',
                     'valor_actual': csp
@@ -4580,7 +4577,6 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                     'header': 'strict-transport-security',
                     'tipo': 'security_header_weak',
                     'severidad_nombre': 'MEDIUM',
-                    'severidad_id': mapa_severidades['MEDIUM'],
                     'descripcion': 'HSTS desactivado (max-age=0)',
                     'recomendacion': 'Configurar HSTS con max-age >= 31536000',
                     'valor_actual': hsts
@@ -4593,13 +4589,11 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                     'header': 'x-frame-options',
                     'tipo': 'security_header_weak',
                     'severidad_nombre': 'HIGH',
-                    'severidad_id': mapa_severidades['HIGH'],
                     'descripcion': 'X-Frame-Options permite embedding (vulnerable a clickjacking)',
                     'recomendacion': 'Usar DENY o SAMEORIGIN',
                     'valor_actual': xfo
                 })
         return hallazgos
-    
 
     def _extract_version(tech_name, html_content, headers):
         """Extrae versión de tecnología desde HTML y headers"""
