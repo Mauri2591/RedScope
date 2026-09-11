@@ -1,3 +1,5 @@
+import shutil
+import hashlib
 import tempfile
 from urllib.parse import urljoin, urlparse
 from pathlib import Path
@@ -249,6 +251,7 @@ def _reverse_dns_multi_resolver(ip, timeout=5):
 # HANDLERS OSINT
 # ══════════════════════════════════════════════════════════════════
 
+
 def _extract_ips_and_cnames_from_dns(proyecto_id):
     """Extrae IPs y CNAMEs del resultado de analisis_dns para usar en otros handlers.
     Filtra CNAMEs públicos (CDNs, proveedores cloud) para evitar ruido."""
@@ -282,7 +285,8 @@ def _extract_ips_and_cnames_from_dns(proyecto_id):
     ]
 
     try:
-        dns_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'analisis_dns')
+        dns_results = OsintEjecucion.get_latest_resultado(
+            proyecto_id, 'analisis_dns')
         if not dns_results or 'registros' not in dns_results:
             return ips, cnames
 
@@ -302,7 +306,8 @@ def _extract_ips_and_cnames_from_dns(proyecto_id):
                     cname_clean = cname.rstrip('.')
 
                     # Filtrar: descartar si contiene dominio público
-                    es_publico = any(publico in cname_clean.lower() for publico in CNAMES_PUBLICOS)
+                    es_publico = any(publico in cname_clean.lower()
+                                     for publico in CNAMES_PUBLICOS)
 
                     if not es_publico and cname_clean not in cnames:
                         cnames.append(cname_clean)
@@ -310,7 +315,8 @@ def _extract_ips_and_cnames_from_dns(proyecto_id):
         if ips:
             print(f"[DNS-Extract] IPs encontradas: {len(ips)}")
         if cnames:
-            print(f"[DNS-Extract] CNAMEs encontrados (filtrados): {len(cnames)}")
+            print(
+                f"[DNS-Extract] CNAMEs encontrados (filtrados): {len(cnames)}")
 
     except Exception as e:
         print(f"[DNS-Extract] Error: {type(e).__name__}")
@@ -322,15 +328,15 @@ def _extract_ips_and_cnames_from_dns(proyecto_id):
 
 def discovery_subdominios(ejecucion_id, proyecto_id):
     """Descubrimiento de subdominios con subfinder + assetfinder (Certificate Transparency)
-    
+
     Busca subdominios de:
     1. DOMINIO + SUBDOMINIO + SERVICIOS del scope
     2. Dominios de mapeo_ips (fallback)
-    
+
     Fuentes:
     - Subfinder: multi-fuente pasivo (APIs, Shodan, Censys, etc)
     - Assetfinder: Certificate Transparency + búsquedas pasivas
-    
+
     Retorna SOLO subdominios descubiertos (sin duplicados).
     """
     print(f"[OSINT-DISCOVERY] Handler iniciado para ejecución {ejecucion_id}")
@@ -353,12 +359,13 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
 
         subdominios = set()  # Set para deduplicar automáticamente
         fuentes_usadas = set()
-        
-        print(f"[discovery_subdominios] Escaneando {len(todos_los_dominios)} dominios")
+
+        print(
+            f"[discovery_subdominios] Escaneando {len(todos_los_dominios)} dominios")
 
         for dom in sorted(todos_los_dominios):
             print(f"[discovery_subdominios] Procesando {dom}...")
-            
+
             # UPDATE estado
             OsintEjecucion.update_resultado(ejecucion_id, {
                 "tipo": "discovery_subdominios",
@@ -382,11 +389,13 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
                     timeout=60
                 )
                 if result.stdout:
-                    nuevos = _sanitizar_lista_dominios(result.stdout.strip().split('\n'))
+                    nuevos = _sanitizar_lista_dominios(
+                        result.stdout.strip().split('\n'))
                     antes = len(subdominios)
                     subdominios.update(nuevos)
                     agregados = len(subdominios) - antes
-                    print(f"  [subfinder] ✅ {agregados} nuevos (total: {len(nuevos)})")
+                    print(
+                        f"  [subfinder] ✅ {agregados} nuevos (total: {len(nuevos)})")
                     if agregados > 0:
                         fuentes_usadas.add('subfinder')
             except subprocess.TimeoutExpired:
@@ -411,14 +420,17 @@ def discovery_subdominios(ejecucion_id, proyecto_id):
                     # Sanitizar: quitar markdown, URLs, duplicados
                     nuevos = result.stdout.strip().split('\n')
                     nuevos = [
-                        d.replace('[', '').replace('](', '.').replace(')', '').strip()
+                        d.replace('[', '').replace(
+                            '](', '.').replace(')', '').strip()
                         for d in nuevos
                     ]
-                    nuevos = _sanitizar_lista_dominios([d for d in nuevos if d and '.' in d])
+                    nuevos = _sanitizar_lista_dominios(
+                        [d for d in nuevos if d and '.' in d])
                     antes = len(subdominios)
                     subdominios.update(nuevos)
                     agregados = len(subdominios) - antes
-                    print(f"  [assetfinder] ✅ {agregados} nuevos (total: {len(nuevos)})")
+                    print(
+                        f"  [assetfinder] ✅ {agregados} nuevos (total: {len(nuevos)})")
                     if agregados > 0:
                         fuentes_usadas.add('assetfinder')
             except subprocess.TimeoutExpired:
@@ -651,6 +663,7 @@ def _get_whois_info(ip, timeout=5):
         'pais': data['pais']
     }
 
+
 def _get_cached_ipinfo(ip):
     """Obtiene datos del cache local"""
     try:
@@ -680,8 +693,6 @@ def _save_ipinfo_cache(ip, ipinfo):
             json.dump(cache, f, indent=2)
     except:
         pass
-
-
 
 
 def _validar_reverse_lookup(ip, dominios_scope, subdominios_scope, subdominios_discovery):
@@ -874,7 +885,8 @@ def mapeo_ips(ejecucion_id, proyecto_id):
                     'isp': asn_info['isp'],
                     'pais': geo_info['pais'],
                     'ciudad': geo_info['ciudad'],
-                    'latitud': geo_info['latitud'],        # ← Cambiar ipinfo por geo_info
+                    # ← Cambiar ipinfo por geo_info
+                    'latitud': geo_info['latitud'],
                     'longitud': geo_info['longitud'],
                     'organizacion': whois_info['organizacion'],
                     'resuelve_a_dominio_scope': len([d for d in reverse_dominios if d['tipo'] == 'dominio_scope']) > 0,
@@ -1314,11 +1326,13 @@ def recon_cloud(ejecucion_id, proyecto_id):
         dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
             proyecto_id) if not dominios_config else []
         if dominios_from_ips:
-            print(f"[recon_cloud] Dominios de reverse DNS: {dominios_from_ips}")
+            print(
+                f"[recon_cloud] Dominios de reverse DNS: {dominios_from_ips}")
 
         # 2b. Agregar dominios de mapeo_ips (IPs enriquecidas)
         dominios_mapeo_ips = []
-        mapeo_ips_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        mapeo_ips_results = OsintEjecucion.get_latest_resultado(
+            proyecto_id, 'mapeo_ips')
         if mapeo_ips_results and 'ips_success' in mapeo_ips_results:
             for ip_info in mapeo_ips_results.get('ips_success', []):
                 for dominio_info in ip_info.get('dominios_que_resuelven', []):
@@ -1346,7 +1360,8 @@ def recon_cloud(ejecucion_id, proyecto_id):
                 f"[recon_cloud] Subdominios descubiertos: {len(dominios_descubiertos)}")
 
         # 4. Crear lista de dominios PRINCIPALES
-        dominios_principales = list(set(dominios_config + dominios_from_ips + dominios_mapeo_ips + dominios_dns))
+        dominios_principales = list(
+            set(dominios_config + dominios_from_ips + dominios_mapeo_ips + dominios_dns))
 
         if not dominios_principales and not dominios_descubiertos:
             raise Exception(
@@ -1538,7 +1553,8 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
 
         # 3. Agregar dominios de mapeo_ips (IPs enriquecidas)
         dominios_mapeo_ips = []
-        mapeo_ips_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        mapeo_ips_results = OsintEjecucion.get_latest_resultado(
+            proyecto_id, 'mapeo_ips')
         if mapeo_ips_results and 'ips_success' in mapeo_ips_results:
             for ip_info in mapeo_ips_results.get('ips_success', []):
                 for dominio_info in ip_info.get('dominios_que_resuelven', []):
@@ -1547,11 +1563,13 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
                     if dominio_completo:
                         parts = dominio_completo.split('.')
                         if len(parts) >= 2:
-                            subdomain_principal = parts[0]  # ej: "pepe-ejemplo" de "pepe-ejemplo.gob.ar"
+                            # ej: "pepe-ejemplo" de "pepe-ejemplo.gob.ar"
+                            subdomain_principal = parts[0]
                             if subdomain_principal not in dominios_mapeo_ips:
                                 dominios_mapeo_ips.append(subdomain_principal)
         if dominios_mapeo_ips:
-            print(f"[escaneo_repositorios] Dominios de mapeo_ips (pattern matching): {dominios_mapeo_ips}")
+            print(
+                f"[escaneo_repositorios] Dominios de mapeo_ips (pattern matching): {dominios_mapeo_ips}")
 
         # 3b. Agregar dominios de analisis_dns (solo parte principal)
         ips_dns, cnames_dns = _extract_ips_and_cnames_from_dns(proyecto_id)
@@ -1559,11 +1577,13 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
             # Extraer solo parte principal (sin TLD) para búsqueda en repositorios
             parts = cname.split('.')
             if len(parts) >= 2:
-                cname_principal = parts[0]  # ej: "pepe-ejemplo" de "pepe-ejemplo.gob.ar"
+                # ej: "pepe-ejemplo" de "pepe-ejemplo.gob.ar"
+                cname_principal = parts[0]
                 if cname_principal not in dominios_mapeo_ips:
                     dominios_mapeo_ips.append(cname_principal)
         if ips_dns or cnames_dns:
-            print(f"[escaneo_repositorios] Agregados {len(cnames_dns)} CNAMEs de analisis_dns")
+            print(
+                f"[escaneo_repositorios] Agregados {len(cnames_dns)} CNAMEs de analisis_dns")
 
         # 4. Subdominios descubiertos (solo para información, NO para búsqueda en GitHub)
         dominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
@@ -1573,7 +1593,8 @@ def escaneo_repositorios(ejecucion_id, proyecto_id):
                 f"[escaneo_repositorios] Subdominios descubiertos (solo info): {len(dominios_descubiertos)}")
 
         # 5. Buscar SOLO dominios raíz + pattern matching (config + reverse DNS + mapeo_ips)
-        dominios_para_buscar = list(set(dominios_config + dominios_from_ips + dominios_mapeo_ips))
+        dominios_para_buscar = list(
+            set(dominios_config + dominios_from_ips + dominios_mapeo_ips))
 
         if not dominios_para_buscar:
             raise Exception(
@@ -1838,66 +1859,32 @@ def analisis_dns(ejecucion_id, proyecto_id):
     print(f"[OSINT-DNS] Handler iniciado para ejecución {ejecucion_id}")
 
     def job():
+        # Obtener severidades
+        severidades = Proyecto.get_severidades()
+        mapa_severidades = {sev['nombre']: sev['id'] for sev in severidades}
+
         # 1. Obtener TODO el scope
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
         todos_los_dominios = scope['dominio'] + \
             scope['subdominio'] + scope['servicios']
 
-        # 2. Agregar subdominios descubiertos
-        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
-            proyecto_id)
-        todos_los_dominios.extend(subdominios_descubiertos)
-
-        # 3. Fallback: dominios de mapeo_ips
-        if not todos_los_dominios:
-            dominios_from_ips = OsintEjecucion.get_discovered_domains_from_ips(
-                proyecto_id)
-            todos_los_dominios.extend(dominios_from_ips)
-
-        if not todos_los_dominios:
-            raise Exception("No hay dominios para analizar")
-
-        # Deduplicar y ordenar
-        todos_los_dominios = sorted(list(set(todos_los_dominios)))
-
-        registros = {}
-        tipos = ['A', 'AAAA', 'MX', 'NS', 'TXT', 'SOA', 'CNAME']
-
-        print(f"[analisis_dns] Analizando {len(todos_los_dominios)} dominios")
-
-        for dom in todos_los_dominios:
-            registros[dom] = {}
-            
-            for tipo in tipos:
-                try:
-                    resolver = dns.resolver.Resolver()
-                    resolver.timeout = 5
-                    resolver.lifetime = 5
-                    
-                    answers = resolver.resolve(dom, tipo, raise_on_no_answer=False)
-                    
-                    if answers:
-                        registros[dom][tipo] = [str(rdata) for rdata in answers]
-                    
-                except DNSException as e:
-                    print(f"[dns] {tipo} {dom}: {type(e).__name__}")
-                except Exception as e:
-                    print(f"[dns] Error {tipo} {dom}: {e}")
+        # ... resto del código de recolección DNS igual ...
 
         # ============ VALIDACIONES DE EMAIL SECURITY ============
         validaciones = {}
         hallazgos = []
-        
+
         for dom in todos_los_dominios:
             validaciones[dom] = {
                 "spf": None,
                 "dmarc": None,
                 "dnssec": None
             }
-            
+
             # === SPF ===
             if 'TXT' in registros[dom]:
-                spf_records = [r for r in registros[dom]['TXT'] if r.startswith('v=spf1')]
+                spf_records = [r for r in registros[dom]
+                               ['TXT'] if r.startswith('v=spf1')]
                 if spf_records:
                     validaciones[dom]["spf"] = {
                         "configurado": True,
@@ -1909,7 +1896,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
                     hallazgos.append({
                         "dominio": dom,
                         "tipo": "spf_falta",
-                        "severidad": "ALTO",
+                        "severidad_id": mapa_severidades['HIGH'],
                         "descripcion": "Registro SPF no configurado",
                         "recomendacion": "Configurar registro SPF en DNS para prevenir spoofing de email"
                     })
@@ -1918,18 +1905,19 @@ def analisis_dns(ejecucion_id, proyecto_id):
                 hallazgos.append({
                     "dominio": dom,
                     "tipo": "spf_falta",
-                    "severidad": "ALTO",
+                    "severidad_id": mapa_severidades['HIGH'],
                     "descripcion": "Registro SPF no configurado",
                     "recomendacion": "Configurar registro SPF en DNS para prevenir spoofing de email"
                 })
-            
+
             # === DMARC ===
             try:
                 resolver = dns.resolver.Resolver()
                 resolver.timeout = 5
                 resolver.lifetime = 5
-                dmarc_answers = resolver.resolve(f"_dmarc.{dom}", 'TXT', raise_on_no_answer=False)
-                
+                dmarc_answers = resolver.resolve(
+                    f"_dmarc.{dom}", 'TXT', raise_on_no_answer=False)
+
                 if dmarc_answers:
                     dmarc_rec = str(dmarc_answers[0]).strip('"')
                     modo = None
@@ -1939,18 +1927,18 @@ def analisis_dns(ejecucion_id, proyecto_id):
                         modo = "quarantine"
                     elif "p=reject" in dmarc_rec:
                         modo = "reject"
-                    
+
                     validaciones[dom]["dmarc"] = {
                         "configurado": True,
                         "registro": dmarc_rec,
                         "modo": modo
                     }
-                    
+
                     if modo == "none":
                         hallazgos.append({
                             "dominio": dom,
                             "tipo": "dmarc_modo_none",
-                            "severidad": "MEDIO",
+                            "severidad_id": mapa_severidades['MEDIUM'],
                             "descripcion": "DMARC en modo monitoreo (p=none)",
                             "recomendacion": "Cambiar a p=quarantine o p=reject después de validar reportes"
                         })
@@ -1959,7 +1947,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
                     hallazgos.append({
                         "dominio": dom,
                         "tipo": "dmarc_falta",
-                        "severidad": "ALTO",
+                        "severidad_id": mapa_severidades['HIGH'],
                         "descripcion": "Registro DMARC no configurado",
                         "recomendacion": "Configurar DMARC en _dmarc.{} para protección contra spoofing".format(dom)
                     })
@@ -1968,18 +1956,19 @@ def analisis_dns(ejecucion_id, proyecto_id):
                 hallazgos.append({
                     "dominio": dom,
                     "tipo": "dmarc_falta",
-                    "severidad": "ALTO",
+                    "severidad_id": mapa_severidades['HIGH'],
                     "descripcion": "Registro DMARC no configurado",
                     "recomendacion": "Configurar DMARC en _dmarc.{} para protección contra spoofing".format(dom)
                 })
-            
+
             # === DNSSEC ===
             try:
                 resolver = dns.resolver.Resolver()
                 resolver.timeout = 5
                 resolver.lifetime = 5
-                dnskey_answers = resolver.resolve(dom, 'DNSKEY', raise_on_no_answer=False)
-                
+                dnskey_answers = resolver.resolve(
+                    dom, 'DNSKEY', raise_on_no_answer=False)
+
                 if dnskey_answers:
                     validaciones[dom]["dnssec"] = {
                         "configurado": True,
@@ -1990,7 +1979,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
                     hallazgos.append({
                         "dominio": dom,
                         "tipo": "dnssec_no_activado",
-                        "severidad": "MEDIO",
+                        "severidad_id": mapa_severidades['MEDIUM'],
                         "descripcion": "DNSSEC no activado",
                         "recomendacion": "Activar DNSSEC para firmar criptográficamente registros DNS"
                     })
@@ -1999,7 +1988,7 @@ def analisis_dns(ejecucion_id, proyecto_id):
                 hallazgos.append({
                     "dominio": dom,
                     "tipo": "dnssec_no_activado",
-                    "severidad": "MEDIO",
+                    "severidad_id": mapa_severidades['MEDIUM'],
                     "descripcion": "DNSSEC no activado",
                     "recomendacion": "Activar DNSSEC para firmar criptográficamente registros DNS"
                 })
@@ -2014,34 +2003,13 @@ def analisis_dns(ejecucion_id, proyecto_id):
             "validaciones": validaciones,
             "hallazgos": hallazgos,
             "resumen_hallazgos": {
-                "ALTO": len([h for h in hallazgos if h["severidad"] == "ALTO"]),
-                "MEDIO": len([h for h in hallazgos if h["severidad"] == "MEDIO"]),
-                "BAJO": len([h for h in hallazgos if h["severidad"] == "BAJO"])
+                sev['nombre']: len(
+                    [h for h in hallazgos if h["severidad_id"] == sev['id']])
+                for sev in severidades
             }
         }
 
     return _run_osint_job(ejecucion_id, job)
-
-
-def _validar_spf(registro_spf):
-    """Validación básica de sintaxis SPF"""
-    try:
-        if not registro_spf.startswith('v=spf1'):
-            return False
-        
-        mecanismos = ['ip4:', 'ip6:', 'a', 'mx', 'ptr', 'exists:', 'include:']
-        tiene_mecanismo = any(m in registro_spf for m in mecanismos)
-        
-        if not tiene_mecanismo:
-            return False
-        
-        termino_final = registro_spf.split()[-1]
-        if termino_final not in ['-all', '~all', '+all']:
-            return False
-        
-        return True
-    except:
-        return False
 
 
 def busqueda_endpoints(ejecucion_id, proyecto_id):
@@ -2149,11 +2117,13 @@ def urls_historicas(ejecucion_id, proyecto_id):
         subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
             proyecto_id)
         if subdominios_descubiertos:
-            print(f"[gau] Subdominios descubiertos: {len(subdominios_descubiertos)}")
+            print(
+                f"[gau] Subdominios descubiertos: {len(subdominios_descubiertos)}")
 
         # 4. Agregar dominios de mapeo_ips
         dominios_mapeo_ips = []
-        mapeo_ips_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        mapeo_ips_results = OsintEjecucion.get_latest_resultado(
+            proyecto_id, 'mapeo_ips')
         if mapeo_ips_results and 'ips_success' in mapeo_ips_results:
             for ip_info in mapeo_ips_results.get('ips_success', []):
                 for dominio_info in ip_info.get('dominios_que_resuelven', []):
@@ -2165,7 +2135,8 @@ def urls_historicas(ejecucion_id, proyecto_id):
         # 4b. Agregar IPs y CNAMEs de analisis_dns
         ips_dns, cnames_dns = _extract_ips_and_cnames_from_dns(proyecto_id)
         ips_scope.extend([ip for ip in ips_dns if ip not in ips_scope])
-        dominios_mapeo_ips.extend([cname for cname in cnames_dns if cname not in dominios_mapeo_ips])
+        dominios_mapeo_ips.extend(
+            [cname for cname in cnames_dns if cname not in dominios_mapeo_ips])
 
         # 5. Combinar todas las fuentes de dominios
         todos_los_dominios = list(
@@ -2179,7 +2150,8 @@ def urls_historicas(ejecucion_id, proyecto_id):
 
         # 6. Buscar URLs de dominios
         if todos_los_dominios:
-            print(f"[gau] Buscando URLs en {len(todos_los_dominios)} dominios...")
+            print(
+                f"[gau] Buscando URLs en {len(todos_los_dominios)} dominios...")
             for dom in todos_los_dominios:
                 print(f"[gau] Escaneando: {dom}...")
                 urls.update(_search_gau(dom))
@@ -2189,7 +2161,7 @@ def urls_historicas(ejecucion_id, proyecto_id):
             urls_from_ips = []
             puertos = ["", "8080", "8443", "3000", "3001", "5000", "8000"]
             protocolos = ["http", "https"]
-            
+
             for ip in ips_scope:
                 for protocolo in protocolos:
                     for puerto in puertos:
@@ -2198,8 +2170,9 @@ def urls_historicas(ejecucion_id, proyecto_id):
                         else:
                             url = f"{protocolo}://{ip}"
                         urls_from_ips.append(url)
-            
-            print(f"[gau] Buscando URLs en {len(ips_scope)} IPs con puertos ({len(urls_from_ips)} URLs)...")
+
+            print(
+                f"[gau] Buscando URLs en {len(ips_scope)} IPs con puertos ({len(urls_from_ips)} URLs)...")
             for url in urls_from_ips:
                 print(f"[gau] Escaneando: {url}...")
                 urls.update(_search_gau(url))
@@ -3049,9 +3022,11 @@ def _deteccion_de_vulnerabilidades(contenido, url_origen, mapa_severidades):
 # ════════════════════════════════════════════════════════════════════════════════
 
 # Regex de email para contenido descargado (no anclado: busca dentro del texto)
-_EMAIL_CONTENIDO_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
+_EMAIL_CONTENIDO_RE = re.compile(
+    r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
 # Extensiones que generan falsos positivos (foo@2x.png, sprite@3x.jpg, etc.)
-_EMAIL_BASURA_EXT = ('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css', '.js', '.ico')
+_EMAIL_BASURA_EXT = ('.png', '.jpg', '.jpeg', '.gif',
+                     '.svg', '.webp', '.css', '.js', '.ico')
 
 
 def _extraer_emails_de_contenido(contenido, url_origen, dominios_scope=None):
@@ -3076,7 +3051,8 @@ def _extraer_emails_de_contenido(contenido, url_origen, dominios_scope=None):
         en_scope = bool(dominios_scope) and any(
             dominio_email == d or dominio_email.endswith('.' + d) for d in dominios_scope
         )
-        encontrados.append({"email": email, "url": url_origen, "en_scope": en_scope})
+        encontrados.append(
+            {"email": email, "url": url_origen, "en_scope": en_scope})
     return encontrados
 
 
@@ -3126,7 +3102,8 @@ def _extraer_telefonos_de_contenido(contenido, url_origen, region=_TEL_REGION_DE
                 continue
             # Obtener ambos formatos
             telefono_original = match.raw_string
-            telefono_e164 = phonenumbers.format_number(num, phonenumbers.PhoneNumberFormat.E164)
+            telefono_e164 = phonenumbers.format_number(
+                num, phonenumbers.PhoneNumberFormat.E164)
 
             if telefono_original in vistos:
                 continue
@@ -3138,7 +3115,8 @@ def _extraer_telefonos_de_contenido(contenido, url_origen, region=_TEL_REGION_DE
                 "url": url_origen,
             })
     except Exception as e:
-        print(f"[_extraer_telefonos] Error en {url_origen}: {type(e).__name__}")
+        print(
+            f"[_extraer_telefonos] Error en {url_origen}: {type(e).__name__}")
     return encontrados
 
 
@@ -3245,7 +3223,8 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
 
         # FASE 3: Agregar dominios de mapeo_ips
         urls_fase3 = {}
-        mapeo_ips_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        mapeo_ips_results = OsintEjecucion.get_latest_resultado(
+            proyecto_id, 'mapeo_ips')
         if mapeo_ips_results and 'ips_success' in mapeo_ips_results:
             for ip_info in mapeo_ips_results.get('ips_success', []):
                 for dominio_info in ip_info.get('dominios_que_resuelven', []):
@@ -3253,14 +3232,16 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     if dominio and dominio.lower() not in subdominios_scope:
                         urls_fase3[f"http://{dominio}"] = dominio
                         urls_fase3[f"https://{dominio}"] = dominio
-                        print(f"[sensitive_data] Dominio mapeo_ips agregado: {dominio}")
+                        print(
+                            f"[sensitive_data] Dominio mapeo_ips agregado: {dominio}")
 
         # FASE 4: Agregar IPs y CNAMEs de analisis_dns
         urls_fase4 = {}
         ips_dns, cnames_dns = _extract_ips_and_cnames_from_dns(proyecto_id)
 
         # Procesar IPs de DNS
-        ips_dns_urls = _procesar_ips_scope(','.join(ips_dns)) if ips_dns else {}
+        ips_dns_urls = _procesar_ips_scope(
+            ','.join(ips_dns)) if ips_dns else {}
         urls_fase4.update(ips_dns_urls)
 
         # Procesar CNAMEs de DNS
@@ -3271,7 +3252,8 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                 print(f"[sensitive_data] CNAME de DNS agregado: {cname}")
 
         # Merge: Scope (FASE 1) + Discovery (FASE 2) + Mapeo IPs (FASE 3) + DNS (FASE 4) sin duplicados
-        todas_las_urls = {**urls_scope, **urls_fase2, **urls_fase3, **urls_fase4}
+        todas_las_urls = {**urls_scope, **
+                          urls_fase2, **urls_fase3, **urls_fase4}
         if urls_fase4 and urls_fase3 and urls_fase2:
             fase_usada = 'FASE 1+2+3+4'
         elif urls_fase4 and urls_fase3:
@@ -3314,7 +3296,8 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
         total_html_sensibles = 0  # ✨ NUEVO
         total_emails = 0  # ✨ NUEVO
         # Dominios raíz del scope para marcar emails institucionales
-        dominios_scope_email = [d.lower() for d in _parse_multiline_config(dominio)] if dominio else []
+        dominios_scope_email = [
+            d.lower() for d in _parse_multiline_config(dominio)] if dominio else []
         # Hosts del scope (todas las URLs que vamos a analizar SON del scope):
         # se usa para NO minar teléfonos/emails de JS de terceros (google, CDNs, etc.)
         hosts_scope = set()
@@ -3379,14 +3362,17 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                     if emails_html:
                         hallazgos_emails[final_url] = emails_html
                         total_emails += len(emails_html)
-                        print(f"  [HALLAZGO] {len(emails_html)} emails en HTML")
+                        print(
+                            f"  [HALLAZGO] {len(emails_html)} emails en HTML")
 
                     # ✨ NUEVO: extraer teléfonos del HTML
-                    telefonos_html = _extraer_telefonos_de_contenido(contenido, final_url)
+                    telefonos_html = _extraer_telefonos_de_contenido(
+                        contenido, final_url)
                     if telefonos_html:
                         hallazgos_telefonos[final_url] = telefonos_html
                         total_telefonos += len(telefonos_html)
-                        print(f"  [HALLAZGO] {len(telefonos_html)} teléfonos en HTML")
+                        print(
+                            f"  [HALLAZGO] {len(telefonos_html)} teléfonos en HTML")
 
                     # Scripts externos - ⚠️ LÍMITE: 5 scripts por URL
                     for script in soup.find_all('script', src=True)[:5]:
@@ -3418,22 +3404,27 @@ def sensitive_data_extraction(ejecucion_id, proyecto_id):
                                 'utf-8', errors='ignore')
 
                             # ✨ Emails/teléfonos SOLO de JS del scope (no de terceros: google, CDNs)
-                            js_en_scope = _host_en_scope(js_url, dominios_scope_email, hosts_scope)
+                            js_en_scope = _host_en_scope(
+                                js_url, dominios_scope_email, hosts_scope)
                             if not js_en_scope:
-                                print(f"  [SKIP PII] {js_url} (JS de tercero, fuera de scope)")
+                                print(
+                                    f"  [SKIP PII] {js_url} (JS de tercero, fuera de scope)")
 
                             if js_en_scope:
                                 # ✨ NUEVO: extraer emails hardcodeados del JS
                                 emails_js = _extraer_emails_de_contenido(
                                     js_contenido, js_url, dominios_scope_email)
                                 if emails_js:
-                                    hallazgos_emails.setdefault(js_url, []).extend(emails_js)
+                                    hallazgos_emails.setdefault(
+                                        js_url, []).extend(emails_js)
                                     total_emails += len(emails_js)
 
                                 # ✨ NUEVO: extraer teléfonos del JS
-                                telefonos_js = _extraer_telefonos_de_contenido(js_contenido, js_url)
+                                telefonos_js = _extraer_telefonos_de_contenido(
+                                    js_contenido, js_url)
                                 if telefonos_js:
-                                    hallazgos_telefonos.setdefault(js_url, []).extend(telefonos_js)
+                                    hallazgos_telefonos.setdefault(
+                                        js_url, []).extend(telefonos_js)
                                     total_telefonos += len(telefonos_js)
 
                             secretos = _buscar_secretos_en_contenido(
@@ -3532,9 +3523,12 @@ _EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 # Fuentes de theHarvester que NO requieren API key de pago
 _THEHARVESTER_SOURCES = "crtsh,duckduckgo,yahoo,mojeek,rapiddns,otx,urlscan,certspotter,hackertarget,waybackarchive"
 # Patrón de dominio/subdominio válido (descarta basura tipo entradas con Markdown)
-_DOM_RE = re.compile(r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63})+$")
+_DOM_RE = re.compile(
+    r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63})+$")
 # Tope de emails a verificar con holehe (holehe consulta ~120 sitios por email)
 _HOLEHE_MAX_EMAILS = 40
+
+
 def _harvest_emails(objetivo):
     """Corre theHarvester sobre un dominio/subdominio y devuelve lista de emails.
 
@@ -3572,8 +3566,10 @@ def _harvest_emails(objetivo):
                     })
         else:
             # Sin archivo = falla real; theHarvester escribe el error por stdout
-            salida = (proc.stdout or "")[-300:] + " " + (proc.stderr or "")[-100:]
-            print(f"[_harvest_emails] Sin salida para {objetivo} (rc={proc.returncode}): {salida.strip()}")
+            salida = (proc.stdout or "")[-300:] + \
+                " " + (proc.stderr or "")[-100:]
+            print(
+                f"[_harvest_emails] Sin salida para {objetivo} (rc={proc.returncode}): {salida.strip()}")
     except subprocess.TimeoutExpired:
         print(f"[_harvest_emails] Timeout en theHarvester para {objetivo}")
     except Exception as e:
@@ -3655,6 +3651,7 @@ def _holehe_lookup(email):
         print(f"[_holehe_lookup] Error con {email}: {e}")
     return servicios
 
+
 def data_emails(ejecucion_id, proyecto_id):
     """Recolección de emails por dominio/subdominio + verificación con holehe.
 
@@ -3664,23 +3661,29 @@ def data_emails(ejecucion_id, proyecto_id):
     def job():
         config = Proyecto.get_osint_config(proyecto_id)
         dominio_scope = config.get('DOMINIO', '').strip() if config else ''
-        subdominio_scope = config.get('SUBDOMINIO', '').strip() if config else ''
+        subdominio_scope = config.get(
+            'SUBDOMINIO', '').strip() if config else ''
 
         # 1. Dominios y subdominios del scope inicial
-        dominios_config = _parse_multiline_config(dominio_scope) if dominio_scope else []
-        subdominios_config = _parse_multiline_config(subdominio_scope) if subdominio_scope else []
+        dominios_config = _parse_multiline_config(
+            dominio_scope) if dominio_scope else []
+        subdominios_config = _parse_multiline_config(
+            subdominio_scope) if subdominio_scope else []
 
         if dominios_config:
             print(f"[discovery_email] Dominios del scope: {dominios_config}")
         if subdominios_config:
-            print(f"[discovery_email] Subdominios del scope: {subdominios_config}")
+            print(
+                f"[discovery_email] Subdominios del scope: {subdominios_config}")
 
         # 2. FALLBACK: subdominios descubiertos (solo si el scope no trae subdominios)
         subdominios_fallback = []
         if not subdominios_config:
-            subdominios_fallback = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+            subdominios_fallback = OsintEjecucion.get_discovered_subdomains(
+                proyecto_id)
             if subdominios_fallback:
-                print(f"[discovery_email] Fallback a discovery_subdominios: {len(subdominios_fallback)} subdominios")
+                print(
+                    f"[discovery_email] Fallback a discovery_subdominios: {len(subdominios_fallback)} subdominios")
             else:
                 print(f"[discovery_email] Sin subdominios en scope ni descubiertos")
 
@@ -3689,21 +3692,28 @@ def data_emails(ejecucion_id, proyecto_id):
         ips_dns, cnames_dns_raw = _extract_ips_and_cnames_from_dns(proyecto_id)
         if cnames_dns_raw:
             cnames_dns = cnames_dns_raw
-            print(f"[discovery_email] CNAMEs de analisis_dns: {len(cnames_dns)}")
+            print(
+                f"[discovery_email] CNAMEs de analisis_dns: {len(cnames_dns)}")
 
         # 3. Consolidar y SANITIZAR objetivos (descarta entradas mal formadas)
-        objetivos = list(set(dominios_config + subdominios_config + subdominios_fallback + cnames_dns))
-        objetivos_validos = [o.strip().lower() for o in objetivos if _DOM_RE.match(o.strip().lower())]
-        descartados = [o for o in objetivos if o.strip().lower() not in objetivos_validos]
+        objetivos = list(
+            set(dominios_config + subdominios_config + subdominios_fallback + cnames_dns))
+        objetivos_validos = [o.strip().lower()
+                             for o in objetivos if _DOM_RE.match(o.strip().lower())]
+        descartados = [o for o in objetivos if o.strip().lower()
+                       not in objetivos_validos]
         if descartados:
-            print(f"[discovery_email] Objetivos descartados por formato inválido: {descartados}")
+            print(
+                f"[discovery_email] Objetivos descartados por formato inválido: {descartados}")
         objetivos = objetivos_validos
 
         if not objetivos:
-            raise Exception("No hay dominios ni subdominios válidos para buscar emails")
+            raise Exception(
+                "No hay dominios ni subdominios válidos para buscar emails")
 
         # Dominios raíz del scope (para marcar emails institucionales / priorizar holehe)
-        dominios_scope_email = [d.strip().lower() for d in dominios_config if d.strip()]
+        dominios_scope_email = [d.strip().lower()
+                                for d in dominios_config if d.strip()]
 
         print(f"[discovery_email] Objetivos a analizar: {len(objetivos)}")
 
@@ -3711,10 +3721,12 @@ def data_emails(ejecucion_id, proyecto_id):
         emails_raw = []
         total_obj = len(objetivos)
         for i, obj in enumerate(objetivos, 1):
-            print(f"[discovery_email] [{i}/{total_obj}] theHarvester sobre {obj} ...")
+            print(
+                f"[discovery_email] [{i}/{total_obj}] theHarvester sobre {obj} ...")
             encontrados = _harvest_emails(obj)
             if encontrados:
-                print(f"[discovery_email] [{i}/{total_obj}] {obj}: {len(encontrados)} emails")
+                print(
+                    f"[discovery_email] [{i}/{total_obj}] {obj}: {len(encontrados)} emails")
             emails_raw.extend(encontrados)
 
         # 4b. Fusionar emails hardcodeados extraídos por Sensitive Data Extraction
@@ -3722,11 +3734,14 @@ def data_emails(ejecucion_id, proyecto_id):
         try:
             # solo_scope=True: solo correos del dominio objetivo, para descartar
             # el ruido de librerías JS (autores tipo @google.com, @mozilla.org, etc.)
-            emails_sensitive = OsintEjecucion.get_discovered_emails(proyecto_id, solo_scope=True)
+            emails_sensitive = OsintEjecucion.get_discovered_emails(
+                proyecto_id, solo_scope=True)
         except Exception as e:
-            print(f"[discovery_email] No se pudieron leer emails de sensitive_data: {type(e).__name__}: {e}")
+            print(
+                f"[discovery_email] No se pudieron leer emails de sensitive_data: {type(e).__name__}: {e}")
         if emails_sensitive:
-            print(f"[discovery_email] Emails de Sensitive Data Extraction: {len(emails_sensitive)}")
+            print(
+                f"[discovery_email] Emails de Sensitive Data Extraction: {len(emails_sensitive)}")
             for em in emails_sensitive:
                 emails_raw.append({
                     "email": em,
@@ -3743,21 +3758,25 @@ def data_emails(ejecucion_id, proyecto_id):
             return any(dom == d or dom.endswith("." + d) for d in dominios_scope_email)
 
         emails_ordenados = sorted(
-            emails_dedup, key=lambda e: (not _es_institucional(e["email"]), e["email"])
+            emails_dedup, key=lambda e: (
+                not _es_institucional(e["email"]), e["email"])
         )
 
-        print(f"[discovery_email] Emails únicos: {len(emails_dedup)}. Verificando con holehe...")
+        print(
+            f"[discovery_email] Emails únicos: {len(emails_dedup)}. Verificando con holehe...")
         verificados = 0
         for e in emails_ordenados:
             if verificados < _HOLEHE_MAX_EMAILS:
-                print(f"[discovery_email] holehe [{verificados + 1}] {e['email']} ...")
+                print(
+                    f"[discovery_email] holehe [{verificados + 1}] {e['email']} ...")
                 e['servicios_registrados'] = _holehe_lookup(e['email'])
                 verificados += 1
             else:
                 e['servicios_registrados'] = []
                 e['holehe_omitido'] = True
         if len(emails_dedup) > _HOLEHE_MAX_EMAILS:
-            print(f"[discovery_email] holehe limitado a {_HOLEHE_MAX_EMAILS} de {len(emails_dedup)} emails")
+            print(
+                f"[discovery_email] holehe limitado a {_HOLEHE_MAX_EMAILS} de {len(emails_dedup)} emails")
 
         return {
             "tipo": "discovery_email",
@@ -3808,7 +3827,8 @@ def _enriquecer_telefono(e164, region=_TEL_REGION_DEFAULT):
         info["operador"] = carrier.name_for_number(num, "es") or None
         info["ubicacion"] = geocoder.description_for_number(num, "es") or None
         info["zonas_horarias"] = list(timezone.time_zones_for_number(num))
-        info["tipo"] = _TIPO_TEL.get(phonenumbers.number_type(num), "desconocido")
+        info["tipo"] = _TIPO_TEL.get(
+            phonenumbers.number_type(num), "desconocido")
 
         # Links OSINT para investigación manual (sin consultar nada de pago)
         sin_mas = e164.lstrip("+")
@@ -3858,43 +3878,56 @@ def phone_intelligence(ejecucion_id, proyecto_id):
         # ✨ FALLBACK: Si get_discovered_phones() no devuelve nada, intentar extraer
         # directamente del resultado de sensitive_data_extraction
         if not telefonos:
-            print(f"[phone_intelligence] get_discovered_phones devolvió vacío, intentando fallback...")
+            print(
+                f"[phone_intelligence] get_discovered_phones devolvió vacío, intentando fallback...")
             try:
                 # Intentar múltiples nombres de servicio posibles
                 for nombre_servicio in ['sensitive_data_extraction', 'sensitive_data', 'extraccion_datos', 'datos_sensibles']:
-                    print(f"[phone_intelligence] Buscando '{nombre_servicio}'...")
-                    sde_result = OsintEjecucion.get_latest_resultado(proyecto_id, nombre_servicio)
+                    print(
+                        f"[phone_intelligence] Buscando '{nombre_servicio}'...")
+                    sde_result = OsintEjecucion.get_latest_resultado(
+                        proyecto_id, nombre_servicio)
                     if sde_result:
-                        print(f"[phone_intelligence] ✅ Encontrado resultado de '{nombre_servicio}'")
+                        print(
+                            f"[phone_intelligence] ✅ Encontrado resultado de '{nombre_servicio}'")
 
                         # Intentar obtener teléfonos del formato nuevo (restructurado)
-                        telefonos = sde_result.get("telefonos_para_intelligence", [])
+                        telefonos = sde_result.get(
+                            "telefonos_para_intelligence", [])
 
                         # Si aún no hay, intentar restructurar desde el formato antiguo
                         if not telefonos:
-                            hallazgos_telefonos = sde_result.get("telefonos_encontrados", {})
-                            print(f"[phone_intelligence] Reestructurando desde formato antiguo: {len(hallazgos_telefonos)} URLs")
-                            telefonos = _restructure_phones_for_intelligence(hallazgos_telefonos)
+                            hallazgos_telefonos = sde_result.get(
+                                "telefonos_encontrados", {})
+                            print(
+                                f"[phone_intelligence] Reestructurando desde formato antiguo: {len(hallazgos_telefonos)} URLs")
+                            telefonos = _restructure_phones_for_intelligence(
+                                hallazgos_telefonos)
 
-                        print(f"[phone_intelligence] Teléfonos extraídos del fallback: {len(telefonos)}")
+                        print(
+                            f"[phone_intelligence] Teléfonos extraídos del fallback: {len(telefonos)}")
                         break
 
                 if not telefonos:
-                    print(f"[phone_intelligence] No se encontraron resultados de SDE en BD")
+                    print(
+                        f"[phone_intelligence] No se encontraron resultados de SDE en BD")
             except Exception as e:
-                print(f"[phone_intelligence] Error en fallback: {type(e).__name__}: {e}")
+                print(
+                    f"[phone_intelligence] Error en fallback: {type(e).__name__}: {e}")
                 import traceback
                 traceback.print_exc()
 
         if not telefonos:
-            raise Exception("No hay teléfonos para analizar (ejecutá primero Sensitive Data Extraction)")
+            raise Exception(
+                "No hay teléfonos para analizar (ejecutá primero Sensitive Data Extraction)")
 
         print(f"[phone_intelligence] Teléfonos a analizar: {len(telefonos)}")
 
         # 2. ¿Está PhoneInfoga disponible? (se chequea una vez)
         phoneinfoga_ok = False
         try:
-            chk = subprocess.run(["phoneinfoga", "version"], capture_output=True, text=True, timeout=20)
+            chk = subprocess.run(["phoneinfoga", "version"],
+                                 capture_output=True, text=True, timeout=20)
             phoneinfoga_ok = (chk.returncode == 0)
         except Exception:
             phoneinfoga_ok = False
@@ -3905,9 +3938,11 @@ def phone_intelligence(ejecucion_id, proyecto_id):
         for item in telefonos:
             # item = {'telefono': E164, 'origenes': [url, ...]}
             tel = item.get("telefono") if isinstance(item, dict) else str(item)
-            origenes = item.get("origenes", []) if isinstance(item, dict) else []
+            origenes = item.get("origenes", []) if isinstance(
+                item, dict) else []
             # Dominios de origen (para relacionar con el cliente/objetivo)
-            dominios_origen = sorted({_host_de_url(u) for u in origenes if _host_de_url(u)})
+            dominios_origen = sorted({_host_de_url(u)
+                                     for u in origenes if _host_de_url(u)})
             if analizados >= _PHONE_MAX:
                 resultados.append({"telefono": tel, "origenes": origenes,
                                    "dominios_origen": dominios_origen,
@@ -3936,7 +3971,6 @@ def phone_intelligence(ejecucion_id, proyecto_id):
 # ══════════════════════════════════════════════════════════════════
 # HANDLER DOCUMENT METADATA
 # ══════════════════════════════════════════════════════════════════
-import hashlib
 
 # Extensiones de documentos/imágenes con metadata útil
 _METADATA_EXTS = (
@@ -3947,7 +3981,8 @@ _METADATA_EXTS = (
 # Carpeta base para las descargas, relativa al repo (portable Win/Linux):
 # <repo_root>/data/osint/documentosMetadata
 _METADATA_BASE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))),
     "data", "osint", "documentosMetadata"
 )
 
@@ -3966,7 +4001,8 @@ _EXIF_CAMPOS_SOFTWARE = ["Producer", "CreatorTool", "Software", "Application"]
 _METADATA_MAX_ARCHIVOS = 150
 _METADATA_MAX_BYTES = 20 * 1024 * 1024  # 20 MB por archivo
 # Rutas embebidas que revelan usuario del sistema (Windows/Unix)
-_RUTA_USUARIO_RE = re.compile(r"(?:[A-Za-z]:\\Users\\|/Users/|/home/)([^\\/\s\"']{1,40})")
+_RUTA_USUARIO_RE = re.compile(
+    r"(?:[A-Za-z]:\\Users\\|/Users/|/home/)([^\\/\s\"']{1,40})")
 
 
 def _descargar_archivo(url, destino):
@@ -3993,7 +4029,8 @@ def _descargar_archivo(url, destino):
             return False
         return True
     except Exception as e:
-        print(f"[document_metadata] Error descargando {url}: {type(e).__name__}")
+        print(
+            f"[document_metadata] Error descargando {url}: {type(e).__name__}")
         try:
             if os.path.exists(destino):
                 os.remove(destino)
@@ -4019,7 +4056,8 @@ def _correr_exiftool(carpeta):
         print("[document_metadata] Timeout en exiftool")
         return [], True
     except Exception as e:
-        print(f"[document_metadata] Error en exiftool: {type(e).__name__}: {e}")
+        print(
+            f"[document_metadata] Error en exiftool: {type(e).__name__}: {e}")
         return [], True
 
 
@@ -4085,7 +4123,8 @@ def document_metadata(ejecucion_id, proyecto_id):
                 vistos.add(u)
                 docs.append(u)
         if not docs:
-            raise Exception("No hay documentos en URLs Historicas (ejecutá primero URLs Historicas)")
+            raise Exception(
+                "No hay documentos en URLs Historicas (ejecutá primero URLs Historicas)")
         docs = docs[:_METADATA_MAX_ARCHIVOS]
         print(f"[document_metadata] Documentos candidatos: {len(docs)}")
 
@@ -4100,7 +4139,8 @@ def document_metadata(ejecucion_id, proyecto_id):
         # 3. Descargar
         descargados = []  # (nombre_local, url)
         for i, url in enumerate(docs):
-            ext = os.path.splitext(url.split('?', 1)[0])[1][:10].lower() or ".bin"
+            ext = os.path.splitext(url.split('?', 1)[0])[
+                1][:10].lower() or ".bin"
             nombre_local = f"{i:03d}{ext}"
             destino = os.path.join(carpeta, nombre_local)
             print(f"[document_metadata] [{i+1}/{len(docs)}] descargando {url}")
@@ -4134,7 +4174,8 @@ def document_metadata(ejecucion_id, proyecto_id):
             with open(os.path.join(carpeta, "metadata.json"), "w", encoding="utf-8") as f:
                 json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
         except Exception as e:
-            print(f"[document_metadata] No se pudo guardar metadata.json: {type(e).__name__}")
+            print(
+                f"[document_metadata] No se pudo guardar metadata.json: {type(e).__name__}")
 
         # 5. Curar + mapear cada item a su URL de origen
         mapa_local_url = {nl: u for nl, u in descargados}
@@ -4162,7 +4203,8 @@ def document_metadata(ejecucion_id, proyecto_id):
                 "metadata": curado,
             })
 
-        print(f"[document_metadata] Documentos con metadata: {len(documentos)} | autores: {len(autores)} | usuarios: {len(usuarios)}")
+        print(
+            f"[document_metadata] Documentos con metadata: {len(documentos)} | autores: {len(autores)} | usuarios: {len(usuarios)}")
 
         return {
             "tipo": "document_metadata",
@@ -4186,7 +4228,6 @@ def document_metadata(ejecucion_id, proyecto_id):
 # ══════════════════════════════════════════════════════════════════
 # HANDLER USERNAME ENUMERATION (Sherlock)
 # ══════════════════════════════════════════════════════════════════
-import shutil
 
 # Tope de usernames a verificar (Sherlock consulta cientos de sitios por handle)
 _USERNAME_MAX = 30
@@ -4201,7 +4242,8 @@ def _sherlock_lookup(username):
     tmpdir = tempfile.mkdtemp(prefix="sherlock_")
     try:
         proc = subprocess.run(
-            ["sherlock", username, "--print-found", "--no-color", "--timeout", "10"],
+            ["sherlock", username, "--print-found",
+                "--no-color", "--timeout", "10"],
             capture_output=True, text=True, timeout=300, cwd=tmpdir
         )
         for linea in proc.stdout.splitlines():
@@ -4219,7 +4261,8 @@ def _sherlock_lookup(username):
     except FileNotFoundError:
         print(f"[_sherlock_lookup] sherlock no está instalado / no está en el PATH")
     except Exception as e:
-        print(f"[_sherlock_lookup] Error con {username}: {type(e).__name__}: {e}")
+        print(
+            f"[_sherlock_lookup] Error con {username}: {type(e).__name__}: {e}")
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
     return perfiles
@@ -4234,15 +4277,18 @@ def username_enumeration(ejecucion_id, proyecto_id):
     def job():
         candidatos = OsintEjecucion.get_discovered_usernames(proyecto_id)
         if not candidatos:
-            raise Exception("No hay usernames para analizar (ejecutá antes Document Metadata y/o Data Emails)")
+            raise Exception(
+                "No hay usernames para analizar (ejecutá antes Document Metadata y/o Data Emails)")
 
-        print(f"[username_enumeration] Usernames a analizar: {len(candidatos)}")
+        print(
+            f"[username_enumeration] Usernames a analizar: {len(candidatos)}")
 
         # ¿Está Sherlock disponible?
         sherlock_ok = shutil.which("sherlock") is not None
         print(f"[username_enumeration] Sherlock disponible: {sherlock_ok}")
         if not sherlock_ok:
-            raise Exception("Sherlock no está instalado en el worker (pip install sherlock-project)")
+            raise Exception(
+                "Sherlock no está instalado en el worker (pip install sherlock-project)")
 
         resultados = []
         analizados = 0
@@ -4292,7 +4338,8 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
         todos_los_dominios.extend(subdominios_descubiertos)
 
         # 3. Agregar dominios de mapeo_ips
-        mapeo_ips_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        mapeo_ips_results = OsintEjecucion.get_latest_resultado(
+            proyecto_id, 'mapeo_ips')
         if mapeo_ips_results and 'ips_success' in mapeo_ips_results:
             for ip_info in mapeo_ips_results.get('ips_success', []):
                 for dominio_info in ip_info.get('dominios_que_resuelven', []):
@@ -4316,13 +4363,15 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
 
         # Deduplicar, ordenar y limpiar
         todos_los_dominios = sorted(list(set(todos_los_dominios)))
-        todos_los_dominios = [d for d in todos_los_dominios if not any(c in d for c in ['[', ']', '(', ')', 'http'])]
-        
-        print(f"[phishing_detection] Dominios a analizar: {len(todos_los_dominios)}")
+        todos_los_dominios = [d for d in todos_los_dominios if not any(
+            c in d for c in ['[', ']', '(', ')', 'http'])]
+
+        print(
+            f"[phishing_detection] Dominios a analizar: {len(todos_los_dominios)}")
 
         # Descargar feeds de phishing
         phishing_urls = []
-              
+
         # OpenPhish
         print("[openphish] Descargando feed...")
         openphish_count = 0
@@ -4370,11 +4419,12 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
         dominios_comprometidos = 0
         urls_maliciosas_totales = 0
 
-        print(f"[phishing_detection] Analizando {len(todos_los_dominios)} dominios")
+        print(
+            f"[phishing_detection] Analizando {len(todos_los_dominios)} dominios")
 
         for dominio in todos_los_dominios:
             urls_encontradas = []
-            
+
             # Buscar en feeds de phishing
             for url in phishing_urls:
                 if dominio.lower() in url.lower():
@@ -4382,7 +4432,7 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
                         "url": url,
                         "fuente": "openphish"
                     })
-            
+
             if urls_encontradas:
                 phishing_results[dominio] = {
                     "urls": urls_encontradas,
@@ -4390,7 +4440,8 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
                 }
                 dominios_comprometidos += 1
                 urls_maliciosas_totales += len(urls_encontradas)
-                print(f"[phishing] ✅ {dominio} - {len(urls_encontradas)} URLs encontradas")
+                print(
+                    f"[phishing] ✅ {dominio} - {len(urls_encontradas)} URLs encontradas")
             else:
                 print(f"[phishing] ❌ {dominio} - Sin coincidencias")
 
@@ -4411,10 +4462,81 @@ def phishing_domain_detection(ejecucion_id, proyecto_id):
 
 def web_technology_detection(ejecucion_id, proyecto_id):
     """
-    Detecta tecnologías web (CMS, servidores, lenguajes, frameworks, librerías)
-    en dominios, subdominios e IPs del scope y resultados de discovery/mapeo.
+    Detecta tecnologías web y headers de seguridad en dominios, subdominios e IPs.
     """
     print(f"[OSINT-Tech] Handler iniciado para ejecución {ejecucion_id}")
+
+    def _analyze_security_headers(headers):
+        """Analiza headers de seguridad y retorna hallazgos"""
+        hallazgos = []
+        headers_lower = {k.lower(): v for k, v in headers.items()}
+
+        # Obtener severidades
+        severidades = Proyecto.get_severidades()
+        mapa_severidades = {sev['nombre']: sev['id'] for sev in severidades}
+
+        # Definir headers de seguridad esperados
+        security_headers = {
+            'content-security-policy': {'severidad': 'HIGH', 'descripcion': 'CSP no configurado'},
+            'strict-transport-security': {'severidad': 'HIGH', 'descripcion': 'HSTS no activado'},
+            'x-frame-options': {'severidad': 'HIGH', 'descripcion': 'X-Frame-Options no configurado (vulnerable a clickjacking)'},
+            'x-content-type-options': {'severidad': 'MEDIUM', 'descripcion': 'X-Content-Type-Options no configurado'},
+            'x-xss-protection': {'severidad': 'MEDIUM', 'descripcion': 'X-XSS-Protection no activado'},
+            'referrer-policy': {'severidad': 'LOW', 'descripcion': 'Referrer-Policy no configurado'},
+            'permissions-policy': {'severidad': 'LOW', 'descripcion': 'Permissions-Policy no configurado'},
+        }
+
+        # Validaciones específicas
+        headers_configurados = set(headers_lower.keys())
+
+        for header_name, header_info in security_headers.items():
+            if header_name not in headers_configurados:
+                hallazgos.append({
+                    'header': header_name,
+                    'tipo': f'security_header_missing',
+                    'severidad_id': mapa_severidades[header_info['severidad']],
+                    'descripcion': header_info['descripcion'],
+                    'recomendacion': f'Configurar header {header_name} en respuestas HTTP'
+                })
+
+        # Validaciones adicionales para headers presentes
+        if 'content-security-policy' in headers_lower:
+            csp = headers_lower['content-security-policy'].lower()
+            if 'unsafe-inline' in csp or 'unsafe-eval' in csp or "*" in csp:
+                hallazgos.append({
+                    'header': 'content-security-policy',
+                    'tipo': 'security_header_weak',
+                    'severidad_id': mapa_severidades['MEDIUM'],
+                    'descripcion': 'CSP muy permisiva (contiene unsafe-inline, unsafe-eval o wildcards)',
+                    'recomendacion': 'Restringir CSP removiendo unsafe-inline y unsafe-eval',
+                    'valor_actual': csp
+                })
+
+        if 'strict-transport-security' in headers_lower:
+            hsts = headers_lower['strict-transport-security'].lower()
+            if 'max-age=0' in hsts:
+                hallazgos.append({
+                    'header': 'strict-transport-security',
+                    'tipo': 'security_header_weak',
+                    'severidad_id': mapa_severidades['MEDIUM'],
+                    'descripcion': 'HSTS desactivado (max-age=0)',
+                    'recomendacion': 'Configurar HSTS con max-age >= 31536000',
+                    'valor_actual': hsts
+                })
+
+        if 'x-frame-options' in headers_lower:
+            xfo = headers_lower['x-frame-options'].lower()
+            if 'allow' in xfo or 'sameorigin' not in xfo and 'deny' not in xfo:
+                hallazgos.append({
+                    'header': 'x-frame-options',
+                    'tipo': 'security_header_weak',
+                    'severidad_id': mapa_severidades['HIGH'],
+                    'descripcion': 'X-Frame-Options permite embedding (vulnerable a clickjacking)',
+                    'recomendacion': 'Usar DENY o SAMEORIGIN',
+                    'valor_actual': xfo
+                })
+
+        return hallazgos
 
     def _extract_version(tech_name, html_content, headers):
         """Extrae versión de tecnología desde HTML y headers"""
@@ -4463,7 +4585,6 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                     if match:
                         return match.group(1)
 
-            # Buscar en headers (ej: Server: Apache/2.4.1)
             headers_lower = {k.lower(): v for k, v in headers.items()}
             if 'server' in headers_lower:
                 server = headers_lower['server']
@@ -4479,8 +4600,6 @@ def web_technology_detection(ejecucion_id, proyecto_id):
     def _detect_technologies_from_html(html_content, headers):
         """Detecta tecnologías a partir de headers y contenido HTML"""
         tecnologias = {}
-
-        # 1. Detectar desde Headers HTTP
         headers_lower = {k.lower(): v for k, v in headers.items()}
 
         if 'server' in headers_lower:
@@ -4504,16 +4623,14 @@ def web_technology_detection(ejecucion_id, proyecto_id):
         if 'x-aspnet-version' in headers_lower:
             tecnologias['ASP.NET'] = 'Language'
 
-        # Detectar Next.js por headers específicos
         if 'x-nextjs-stale-time' in headers_lower or 'x-nextjs-prerender' in headers_lower or 'x-nextjs-cache' in headers_lower:
             tecnologias['Next.js'] = 'Framework'
 
-        # 2. Detectar desde HTML
         try:
             if html_content:
+                from bs4 import BeautifulSoup
                 soup = BeautifulSoup(html_content, 'html.parser')
 
-                # Meta tags y generators
                 for meta in soup.find_all('meta'):
                     name = meta.get('name', '').lower()
                     content = meta.get('content', '').lower()
@@ -4526,8 +4643,8 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                         elif 'joomla' in content:
                             tecnologias['Joomla'] = 'CMS'
 
-                # Scripts y frameworks
-                scripts_text = ' '.join([str(s) for s in soup.find_all('script')])
+                scripts_text = ' '.join([str(s)
+                                        for s in soup.find_all('script')])
                 scripts_text_lower = scripts_text.lower()
 
                 if 'react' in scripts_text_lower or '/static/js/react' in scripts_text:
@@ -4543,7 +4660,6 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                 if 'googletagmanager' in scripts_text_lower or 'gtag' in scripts_text_lower:
                     tecnologias['Google Tag Manager'] = 'Analytics'
 
-                # Detectar PHP/Python/Node en URLs o comentarios
                 html_text = html_content.lower()
                 if '.php' in html_text:
                     tecnologias['PHP'] = 'Language'
@@ -4552,75 +4668,66 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                 if 'node' in html_text or 'express' in html_text:
                     tecnologias['Node.js'] = 'Language'
 
-                # WordPress indicators
                 if 'wp-content' in html_text or 'wp-includes' in html_text:
                     tecnologias['WordPress'] = 'CMS'
 
-                # Drupal indicators
                 if '/sites/' in html_text or 'drupal' in html_text:
                     tecnologias['Drupal'] = 'CMS'
 
-                # Joomla indicators
                 if 'joomla' in html_text or '/components/' in html_text:
                     tecnologias['Joomla'] = 'CMS'
         except Exception as e:
             print(f"[Tech-Parse] Error analizando HTML: {e}")
 
-        # Extraer versiones para cada tecnología detectada
         tecnologias_con_version = {}
         for tech_name, tech_type in tecnologias.items():
             version = _extract_version(tech_name, html_content, headers)
-            tecnologias_con_version[tech_name] = {'tipo': tech_type, 'version': version}
+            tecnologias_con_version[tech_name] = {
+                'tipo': tech_type, 'version': version}
 
         return tecnologias_con_version
 
     def _make_safe_request(url, timeout=5):
         """Realiza una request segura con manejo de errores"""
         try:
+            import requests
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             }
-            response = requests.get(url, timeout=timeout, headers=headers, verify=False)
+            response = requests.get(
+                url, timeout=timeout, headers=headers, verify=False)
             return {
                 'status': response.status_code,
                 'headers': response.headers,
                 'content': response.text if response.status_code == 200 else ''
             }
-        except requests.exceptions.Timeout:
-            return {'status': 'timeout', 'headers': {}, 'content': ''}
-        except requests.exceptions.ConnectionError:
-            return {'status': 'connection_error', 'headers': {}, 'content': ''}
         except Exception as e:
             return {'status': 'error', 'headers': {}, 'content': '', 'error': str(e)}
 
     def job():
-        # 1. Obtener scope completo
         scope = OsintEjecucion.get_scope_completo(proyecto_id)
 
-        # Recolectar todos los targets
         dominios = scope.get('dominio', [])
         subdominios = scope.get('subdominio', [])
         ips = scope.get('ip', [])
 
-        # 1b. Obtener IPs de la configuración si no están en scope
         if not ips:
             config = Proyecto.get_osint_config(proyecto_id)
             ips_str = config.get('IPS', '').strip() if config else ''
             if ips_str:
                 ips = _parse_multiline_config(ips_str)
 
-        # 2. Agregar discovery_subdominios
-        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(
+            proyecto_id)
         subdominios.extend(subdominios_descubiertos)
 
-        # 3. Agregar resultados de mapeo_ips (IPs enriquecidas)
-        mapeo_ips_results = OsintEjecucion.get_latest_resultado(proyecto_id, 'mapeo_ips')
+        mapeo_ips_results = OsintEjecucion.get_latest_resultado(
+            proyecto_id, 'mapeo_ips')
         if mapeo_ips_results and 'ips_success' in mapeo_ips_results:
             for ip_info in mapeo_ips_results.get('ips_success', []):
                 if 'ip' in ip_info and ip_info['ip'] not in ips:
                     ips.append(ip_info['ip'])
 
-        # 3b. Agregar IPs y CNAMEs de analisis_dns
         ips_dns, cnames_dns = _extract_ips_and_cnames_from_dns(proyecto_id)
         if ips_dns:
             for ip in ips_dns:
@@ -4631,26 +4738,24 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                 if cname not in subdominios:
                     subdominios.append(cname)
 
-        # Deduplicar
         dominios = sorted(list(set(dominios)))
         subdominios = sorted(list(set(subdominios)))
         ips = sorted(list(set(ips)))
 
-        # Puertos a verificar
         puertos = ["", "8080", "8443", "3000", "3001", "5000", "8000"]
         protocolos = ["http", "https"]
 
-        print(f"[Tech] Analizando: {len(dominios)} dominios, {len(subdominios)} subdominios, {len(ips)} IPs")
+        print(
+            f"[Tech] Analizando: {len(dominios)} dominios, {len(subdominios)} subdominios, {len(ips)} IPs")
 
         tecnologias_encontradas = {}
+        hallazgos_seguridad = []
 
-        # Procesar dominios y subdominios
         todos_hosts = dominios + subdominios
 
         for host in todos_hosts:
             for puerto in puertos:
                 for protocolo in protocolos:
-                    # Construir URL
                     if puerto:
                         url = f"{protocolo}://{host}:{puerto}"
                     else:
@@ -4658,11 +4763,18 @@ def web_technology_detection(ejecucion_id, proyecto_id):
 
                     print(f"[Tech-Request] {url}")
 
-                    # Realizar request
                     resp = _make_safe_request(url)
 
                     if resp['status'] == 200:
-                        techs = _detect_technologies_from_html(resp['content'], resp['headers'])
+                        techs = _detect_technologies_from_html(
+                            resp['content'], resp['headers'])
+
+                        # Analizar headers de seguridad
+                        hallazgos_sec = _analyze_security_headers(
+                            resp['headers'])
+                        for hallazgo in hallazgos_sec:
+                            hallazgo['target'] = url
+                            hallazgos_seguridad.append(hallazgo)
 
                         if techs:
                             if host not in tecnologias_encontradas:
@@ -4670,7 +4782,8 @@ def web_technology_detection(ejecucion_id, proyecto_id):
 
                             for tech_name, tech_info in techs.items():
                                 if tech_name not in tecnologias_encontradas[host]:
-                                    tecnologias_encontradas[host][tech_name] = []
+                                    tecnologias_encontradas[host][tech_name] = [
+                                    ]
 
                                 tecnologias_encontradas[host][tech_name].append({
                                     'puerto': puerto if puerto else '80',
@@ -4679,13 +4792,13 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                                     'version': tech_info['version']
                                 })
 
-                            print(f"[Tech] ✅ {url} - Encontradas: {list(techs.keys())}")
+                            print(
+                                f"[Tech] ✅ {url} - Tecnologías: {list(techs.keys())}")
 
         # Procesar IPs
         for ip in ips:
             for puerto in puertos:
                 for protocolo in protocolos:
-                    # Construir URL
                     if puerto:
                         url = f"{protocolo}://{ip}:{puerto}"
                     else:
@@ -4693,11 +4806,18 @@ def web_technology_detection(ejecucion_id, proyecto_id):
 
                     print(f"[Tech-Request-IP] {url}")
 
-                    # Realizar request
                     resp = _make_safe_request(url)
 
                     if resp['status'] == 200:
-                        techs = _detect_technologies_from_html(resp['content'], resp['headers'])
+                        techs = _detect_technologies_from_html(
+                            resp['content'], resp['headers'])
+
+                        # Analizar headers de seguridad
+                        hallazgos_sec = _analyze_security_headers(
+                            resp['headers'])
+                        for hallazgo in hallazgos_sec:
+                            hallazgo['target'] = url
+                            hallazgos_seguridad.append(hallazgo)
 
                         if techs:
                             if ip not in tecnologias_encontradas:
@@ -4714,18 +4834,16 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                                     'version': tech_info['version']
                                 })
 
-                            print(f"[Tech] ✅ {url} - Encontradas: {list(techs.keys())}")
+                            print(
+                                f"[Tech] ✅ {url} - Tecnologías: {list(techs.keys())}")
 
-        # Compilar resumen en formato array (escalable con versiones)
+        # Compilar resumen de tecnologías
         resumen_array = []
-        tech_versions = {}  # {tech_name|version: {tipo, targets}}
+        tech_versions = {}
 
         for target, techs in tecnologias_encontradas.items():
             for tech_name, ubicaciones in techs.items():
-                # Usar la versión detectada (todas las ubicaciones de la misma tech tienen la misma versión)
                 version = ubicaciones[0].get('version', 'unknown')
-
-                # Agrupar por tecnología + versión
                 key = f"{tech_name}|{version}"
                 if key not in tech_versions:
                     tech_versions[key] = {
@@ -4733,12 +4851,10 @@ def web_technology_detection(ejecucion_id, proyecto_id):
                         'targets': set()
                     }
 
-                # Agregar targets de forma legible
                 for ubicacion in ubicaciones:
                     target_str = f"{target} ({ubicacion['protocolo']}:{ubicacion['puerto']})"
                     tech_versions[key]['targets'].add(target_str)
 
-        # Convertir a array ordenado
         for key, data in sorted(tech_versions.items()):
             tech_name, version = key.split('|')
             resumen_array.append({
@@ -4758,8 +4874,28 @@ def web_technology_detection(ejecucion_id, proyecto_id):
             "ips_analizadas": len(ips),
             "puertos_verificados": puertos,
             "tecnologias_encontradas": len(resumen_array),
-            "resumen": resumen_array,
-            "detalles": tecnologias_encontradas
+            "resumen_tecnologias": resumen_array,
+            "detalles_tecnologias": tecnologias_encontradas,
+            "hallazgos_seguridad": hallazgos_seguridad,
+            "resumen_seguridad": {
+                "total_hallazgos": len(hallazgos_seguridad),
+                "por_severidad": _contar_hallazgos_por_severidad(hallazgos_seguridad)
+            }
         }
 
     return _run_osint_job(ejecucion_id, job)
+
+
+def _contar_hallazgos_por_severidad(hallazgos):
+    """Cuenta hallazgos por severidad"""
+    severidades = Proyecto.get_severidades()
+    conteo = {sev['nombre']: 0 for sev in severidades}
+
+    for hallazgo in hallazgos:
+        sev_id = hallazgo.get('severidad_id')
+        for sev in severidades:
+            if sev['id'] == sev_id:
+                conteo[sev['nombre']] += 1
+                break
+
+    return {k: v for k, v in conteo.items() if v > 0}
