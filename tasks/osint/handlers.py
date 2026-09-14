@@ -4964,14 +4964,13 @@ def _contar_hallazgos_por_severidad(hallazgos):
 # HANDLER  DETECCION IA TOOLS
 # =======================================================================================
 
-def _make_safe_request_ia(url: str, timeout: int = 5, method: str = 'GET') -> Optional[str]:
+def _make_safe_request_ia(url: str, timeout: int = 5) -> Optional[str]:
     """
     Realiza petición HTTP segura con reintentos y manejo de errores.
 
     Args:
         url: URL a escanear
         timeout: Timeout en segundos
-        method: Método HTTP (GET, HEAD, OPTIONS)
 
     Returns:
         Contenido HTML si exitoso, None si falló
@@ -4982,7 +4981,7 @@ def _make_safe_request_ia(url: str, timeout: int = 5, method: str = 'GET') -> Op
         total=2,
         backoff_factor=0.5,
         status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["GET", "HEAD", "OPTIONS"]
+        allowed_methods=["GET"]
     )
     adapter = HTTPAdapter(max_retries=retry_strategy)
     session.mount("http://", adapter)
@@ -4998,33 +4997,16 @@ def _make_safe_request_ia(url: str, timeout: int = 5, method: str = 'GET') -> Op
     }
 
     try:
-        if method == 'HEAD':
-            response = session.head(
-                url,
-                headers=headers,
-                timeout=timeout,
-                verify=False,
-                allow_redirects=True
-            )
-        elif method == 'OPTIONS':
-            response = session.options(
-                url,
-                headers=headers,
-                timeout=timeout,
-                verify=False,
-                allow_redirects=True
-            )
-        else:
-            response = session.get(
-                url,
-                headers=headers,
-                timeout=timeout,
-                verify=False,
-                allow_redirects=True
-            )
+        response = session.get(
+            url,
+            headers=headers,
+            timeout=timeout,
+            verify=False,
+            allow_redirects=True
+        )
 
-        if response.status_code in [200, 201, 204, 400, 401, 403]:
-            return response.text if method == 'GET' else str(response.status_code)
+        if response.status_code == 200:
+            return response.text
 
         return None
 
@@ -5040,152 +5022,72 @@ def _make_safe_request_ia(url: str, timeout: int = 5, method: str = 'GET') -> Op
         session.close()
 
 
-def _validate_ia_poc(provider: str, url_base: str, pattern_found: str) -> dict:
-    """
-    Valida si un hallazgo de IA es explotable (POC).
-
-    Args:
-        provider: Proveedor IA (OpenAI, Claude, etc.)
-        url_base: URL base del sitio
-        pattern_found: Patrón específico que se encontró
-
-    Returns:
-        Dict con resultado de POC: {explotable, metodo, detalles}
-    """
-
-    poc_result = {
-        'explotable': False,
-        'metodo': 'detección_pasiva',
-        'detalles': [],
-        'endpoints_accesibles': []
-    }
-
-    # Endpoints específicos por proveedor
-    endpoints_to_test = {
-        'OpenAI': ['/api/chat', '/v1/chat/completions', '/v1/completions', '/.well-known/openai.json'],
-        'Anthropic Claude': ['/api/messages', '/api/chat', '/v1/messages'],
-        'Google Gemini': ['/api/generate', '/v1/generate', '/.well-known/google.json'],
-        'API_Endpoint': ['/api/chat', '/api/completions', '/api/messages', '/api/generate'],
-    }
-
-    endpoints = endpoints_to_test.get(
-        provider, ['/api/chat', '/api/completions'])
-
-    # Intentar acceder a endpoints conocidos
-    for endpoint in endpoints:
-        test_url = url_base.rstrip('/') + endpoint
-
-        try:
-            response = _make_safe_request_ia(
-                test_url, timeout=3, method='HEAD')
-            if response:
-                status_code = response if response.isdigit() else '200'
-
-                # Si responde sin autenticación es POC
-                if status_code in ['200', '201', '204']:
-                    poc_result['explotable'] = True
-                    poc_result['metodo'] = 'acceso_sin_autenticacion'
-                    poc_result['endpoints_accesibles'].append({
-                        'endpoint': endpoint,
-                        'status': status_code,
-                        'url': test_url
-                    })
-                    poc_result['detalles'].append(
-                        f"Endpoint accesible sin auth: {endpoint}")
-
-                # Si responde con 401/403 pero existe, es información válida
-                elif status_code in ['401', '403']:
-                    poc_result['endpoints_accesibles'].append({
-                        'endpoint': endpoint,
-                        'status': status_code,
-                        'url': test_url,
-                        'nota': 'Requiere autenticación pero endpoint existe'
-                    })
-                    poc_result['detalles'].append(
-                        f"Endpoint existe (requiere auth): {endpoint}")
-
-        except Exception:
-            pass
-
-    # Buscar credenciales o configuración expuesta en patrón
-    if 'sk-' in pattern_found or 'key' in pattern_found.lower():
-        poc_result['detalles'].append('Posible credencial detectada en HTML')
-        poc_result['explotable'] = True
-        poc_result['metodo'] = 'credencial_expuesta'
-
-    # Detectar iframes de terceros
-    if 'iframe' in pattern_found.lower():
-        poc_result['detalles'].append(
-            'iframe de chatbot integrado - potencial XSS')
-        poc_result['metodo'] = 'iframe_chatbot'
-
-    return poc_result
-
-
 def deteccion_ia_tools(ejecucion_id, proyecto_id):
     """
     HANDLER: Detección de Herramientas IA en Infraestructura de Cliente
 
     Detecta uso de servicios y herramientas IA (OpenAI, Claude, Gemini, etc.)
-    en sitios web, APIs y servicios del cliente con POC validation.
+    en sitios web, APIs y servicios del cliente mediante análisis HTTP pasivo.
 
     Tipo de Análisis: ACTIVO (hace peticiones HTTP)
-    Severidad: Variable según explotabilidad
+    Severidad: Variable (INFORMATIONAL a MEDIUM según hallazgos)
     Fuentes de Datos: Scope + Discovery Subdominios + Mapeo IPs
     """
 
     def job():
         print("\n" + "="*80)
-        print("[DETECCIÓN IA TOOLS] Iniciando handler con POC validation...")
+        print("[DETECCIÓN IA TOOLS] Iniciando handler...")
         print("="*80)
 
         # ==========================================
         # PASO 1: Obtener Scope Completo
         # ==========================================
-        print("\n[1/7] Obteniendo scope completo...")
+        print("\n[1/6] Obteniendo scope completo...")
 
         scope_completo = OsintEjecucion.get_scope_completo(proyecto_id)
-        print(
-            f"  ├─ Scope dominios: {len(scope_completo.get('dominio', []))} items")
-        print(
-            f"  ├─ Scope subdominios: {len(scope_completo.get('subdominio', []))} items")
+        print(f"  ├─ Scope dominios: {len(scope_completo.get('dominio', []))} items")
+        print(f"  ├─ Scope subdominios: {len(scope_completo.get('subdominio', []))} items")
         print(f"  ├─ Scope IPs: {len(scope_completo.get('ips', []))} items")
-        print(
-            f"  └─ Scope servicios: {len(scope_completo.get('servicios', []))} items")
+        print(f"  └─ Scope servicios: {len(scope_completo.get('servicios', []))} items")
 
         # ==========================================
         # PASO 2: Obtener Subdominios Descubiertos
         # ==========================================
-        print("\n[2/7] Obteniendo subdominios descubiertos...")
+        print("\n[2/6] Obteniendo subdominios descubiertos...")
 
-        discovered_subdomains = OsintEjecucion.get_discovered_subdomains(
-            proyecto_id)
-        print(
-            f"  └─ Subdominios descubiertos: {len(discovered_subdomains)} items")
+        discovered_subdomains = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        print(f"  └─ Subdominios descubiertos: {len(discovered_subdomains)} items")
+        if len(discovered_subdomains) > 0:
+            print(f"      Ejemplos: {discovered_subdomains[:3]}")
 
         # ==========================================
         # PASO 3: Agregar todos los targets
         # ==========================================
-        print("\n[3/7] Consolidando targets...")
+        print("\n[3/6] Consolidando targets...")
 
         all_targets = set()
 
+        # Agregar dominio principal
         for d in scope_completo.get('dominio', []):
             if d:
                 all_targets.add(d)
 
+        # Agregar subdominios del scope
         for s in scope_completo.get('subdominio', []):
             if s:
                 all_targets.add(s)
 
+        # Agregar servicios (si son dominios)
         for srv in scope_completo.get('servicios', []):
             if srv and not re.match(r'^\d+\.\d+\.\d+\.\d+', srv):
                 all_targets.add(srv)
 
+        # Agregar subdominios descubiertos
         for sub in discovered_subdomains:
             if sub:
                 all_targets.add(sub)
 
+        # Agregar IPs
         for ip in scope_completo.get('ips', []):
             if ip:
                 all_targets.add(ip)
@@ -5200,7 +5102,7 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
         # ==========================================
         # PASO 4: Obtener Severidades de BD
         # ==========================================
-        print("\n[4/7] Obteniendo mapa de severidades...")
+        print("\n[4/6] Obteniendo mapa de severidades...")
 
         proyecto = Proyecto.query.filter_by(id=proyecto_id).first()
         severidades = proyecto.get_severidades() if proyecto else []
@@ -5210,116 +5112,126 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
             mapa_severidades[sev.get('nombre', '').upper()] = sev
 
         print(f"  └─ Severidades cargadas: {len(severidades)}")
+        for sev in severidades[:3]:
+            print(f"      - {sev.get('nombre')}")
 
         # ==========================================
-        # PASO 5: Definir patrones de detección
+        # PASO 5: Escanear targets por herramientas IA
         # ==========================================
-        print("\n[5/7] Definiendo patrones de detección...")
+        print("\n[5/6] Escaneando targets por herramientas IA...")
 
         ports = [80, 8080, 8443, 3000, 3001, 5000, 8000]
         protocols = ['http', 'https']
 
-        ai_patterns = {
-            'OpenAI': [
-                (r'api\.openai\.com', 'referencia_openai_api'),
-                (r'openai\.com/v1', 'openai_v1_endpoint'),
-                (r'sk-[a-zA-Z0-9]{20,}', 'openai_api_key'),
-                (r'openai_api_key', 'openai_key_variable'),
-                (r'chatgpt', 'chatgpt_reference'),
-            ],
-            'Anthropic Claude': [
-                (r'claude\.ai', 'claude_ai_reference'),
-                (r'messages\.anthropic\.com', 'anthropic_messages_api'),
-                (r'sk-ant-[a-zA-Z0-9]+', 'anthropic_api_key'),
-                (r'claude-api', 'claude_api_reference'),
-            ],
-            'Google Gemini': [
-                (r'generativelanguage\.googleapis\.com', 'google_generative_api'),
-                (r'gemini\.google\.com', 'gemini_reference'),
-                (r'google\.ai/generative', 'google_ai_generative'),
-                (r'palm\.api\.google\.com', 'google_palm_api'),
-            ],
-            'Microsoft Copilot': [
-                (r'copilot\.microsoft\.com', 'copilot_reference'),
-                (r'api\.github\.com/copilot', 'github_copilot_api'),
-                (r'github\.com/copilot', 'copilot_github'),
-            ],
-            'Hugging Face': [
-                (r'huggingface\.co/api', 'huggingface_api'),
-                (r'huggingface\.js', 'huggingface_js'),
-                (r'hf_[a-zA-Z0-9]+', 'huggingface_token'),
-            ],
-            'Intercom': [
-                (r'intercom\.io', 'intercom_reference'),
-                (r'intercom-embed', 'intercom_widget'),
-                (r'intercom_id', 'intercom_id_variable'),
-            ],
-            'Drift': [
-                (r'drift\.com', 'drift_reference'),
-                (r'drift-embed', 'drift_widget'),
-                (r'driftapi', 'drift_api'),
-            ],
-            'Zendesk': [
-                (r'zendesk\.com', 'zendesk_reference'),
-                (r'zd_embed', 'zendesk_embed'),
-                (r'zendesk_api', 'zendesk_api_key'),
-            ],
-            'Rasa': [
-                (r'rasa\.com', 'rasa_reference'),
-                (r'rasa-server', 'rasa_server'),
-                (r'rasa_nlu', 'rasa_nlu'),
-            ],
-            'LangChain': [
-                (r'langchain', 'langchain_reference'),
-                (r'chain\.js', 'chain_js'),
-            ],
-            'LlamaIndex': [
-                (r'llamaindex', 'llamaindex_reference'),
-                (r'llama-index', 'llama_index'),
-                (r'gpt_index', 'gpt_index'),
-            ],
-            'Cohere': [
-                (r'cohere\.ai', 'cohere_reference'),
-                (r'cohere\.com/api', 'cohere_api'),
-                (r'co-[a-zA-Z0-9]+', 'cohere_token'),
-            ],
-            'Together AI': [
-                (r'together\.ai', 'together_reference'),
-                (r'together\.com', 'together_com'),
-            ],
-            'Replicate': [
-                (r'replicate\.com/api', 'replicate_api'),
-                (r'replicate\.ai', 'replicate_reference'),
-            ],
-            'Vercel AI': [
-                (r'vercel\.ai', 'vercel_ai_reference'),
-                (r'vercel/ai', 'vercel_ai_package'),
-            ],
-        }
-
-        api_endpoints = [
-            (r'/api/chat', 'chat_endpoint'),
-            (r'/api/completions', 'completions_endpoint'),
-            (r'/api/messages', 'messages_endpoint'),
-            (r'/api/generate', 'generate_endpoint'),
-            (r'/api/embedding', 'embedding_endpoint'),
-            (r'/api/stream', 'stream_endpoint'),
-            (r'/v1/chat/completions', 'openai_chat_completions'),
-            (r'/v1/completions', 'openai_completions'),
-            (r'/v1/embeddings', 'openai_embeddings'),
-        ]
-
-        # ==========================================
-        # PASO 6: Escanear targets
-        # ==========================================
-        print("\n[6/7] Escaneando targets por herramientas IA...")
+        print(f"  └─ Puertos: {ports}")
+        print(f"  └─ Protocolos: {protocols}")
+        print(f"  └─ Total requests/target: {len(ports) * len(protocols)}")
 
         ai_findings = {}
         scanned_urls = set()
 
+        # Patrones de detección por proveedor IA
+        ai_patterns = {
+            'OpenAI': [
+                r'api\.openai\.com',
+                r'openai\.com/v1',
+                r'sk-[a-zA-Z0-9]{20,}',
+                r'openai_api_key',
+                r'chatgpt',
+            ],
+            'Anthropic Claude': [
+                r'claude\.ai',
+                r'messages\.anthropic\.com',
+                r'sk-ant-[a-zA-Z0-9]+',
+                r'claude-api',
+            ],
+            'Google Gemini': [
+                r'generativelanguage\.googleapis\.com',
+                r'gemini\.google\.com',
+                r'google\.ai/generative',
+                r'palm\.api\.google\.com',
+            ],
+            'Microsoft Copilot': [
+                r'copilot\.microsoft\.com',
+                r'api\.github\.com/copilot',
+                r'github\.com/copilot',
+            ],
+            'Hugging Face': [
+                r'huggingface\.co/api',
+                r'huggingface\.js',
+                r'hf_[a-zA-Z0-9]+',
+            ],
+            'Intercom': [
+                r'intercom\.io',
+                r'intercom-embed',
+                r'intercom_id',
+            ],
+            'Drift': [
+                r'drift\.com',
+                r'drift-embed',
+                r'driftapi',
+            ],
+            'Zendesk': [
+                r'zendesk\.com',
+                r'zd_embed',
+                r'zendesk_api',
+            ],
+            'Rasa': [
+                r'rasa\.com',
+                r'rasa-server',
+                r'rasa_nlu',
+            ],
+            'LangChain': [
+                r'langchain',
+                r'chain\.js',
+                r'lang_chain',
+            ],
+            'LlamaIndex': [
+                r'llamaindex',
+                r'llama-index',
+                r'gpt_index',
+            ],
+            'Cohere': [
+                r'cohere\.ai',
+                r'cohere\.com/api',
+                r'co-[a-zA-Z0-9]+',
+            ],
+            'Together AI': [
+                r'together\.ai',
+                r'together\.com',
+                r'together_api',
+            ],
+            'Replicate': [
+                r'replicate\.com/api',
+                r'replicate_api',
+                r'replicate\.ai',
+            ],
+            'Vercel AI': [
+                r'vercel\.ai',
+                r'vercel/ai',
+                r'vercel-ai',
+            ],
+        }
+
+        # Patrones de endpoints IA
+        api_endpoints = [
+            r'/api/chat',
+            r'/api/completions',
+            r'/api/messages',
+            r'/api/generate',
+            r'/api/embedding',
+            r'/api/stream',
+            r'/v1/chat/completions',
+            r'/v1/completions',
+            r'/v1/embeddings',
+        ]
+
+        # Por cada target
         for target_idx, target in enumerate(all_targets, 1):
             print(f"\n  [{target_idx}/{len(all_targets)}] Escaneando: {target}")
+            target_found_ias = []
 
+            # Por cada puerto y protocolo
             for protocol in protocols:
                 for port in ports:
                     # Construir URL
@@ -5330,89 +5242,65 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
                     else:
                         url = f"{protocol}://{target}:{port}"
 
+                    # Evitar duplicados
                     if url in scanned_urls:
                         continue
                     scanned_urls.add(url)
 
+                    # Hacer petición - USAR EL NOMBRE CORRECTO
                     html_content = _make_safe_request_ia(url)
 
                     if html_content:
                         print(f"      ✓ {url} (200 OK)")
+
+                        # Detectar IAs
+                        detected_ias = []
                         html_lower = html_content.lower()
 
                         # Detectar por proveedor
                         for provider, patterns in ai_patterns.items():
-                            for pattern_regex, pattern_name in patterns:
-                                match = re.search(pattern_regex, html_lower)
-                                if match:
-                                    print(
-                                        f"        → {provider}: {pattern_name}")
-
-                                    if provider not in ai_findings:
-                                        ai_findings[provider] = []
-
-                                    # POC Validation
-                                    poc = _validate_ia_poc(
-                                        provider, url, pattern_name)
-
-                                    ai_findings[provider].append({
-                                        'url': url,
-                                        'target': target,
-                                        'patron_detectado': pattern_name,
-                                        'patron_regex': pattern_regex,
-                                        'metodo_deteccion': 'regex_html',
-                                        'poc': poc,
-                                        'timestamp': datetime.utcnow().isoformat()
-                                    })
+                            for pattern in patterns:
+                                if re.search(pattern, html_lower):
+                                    if provider not in detected_ias:
+                                        detected_ias.append(provider)
+                                    break
 
                         # Detectar endpoints IA
-                        for endpoint_pattern, endpoint_name in api_endpoints:
+                        for endpoint_pattern in api_endpoints:
                             if re.search(endpoint_pattern, html_lower):
-                                print(
-                                    f"        → API Endpoint: {endpoint_name}")
-
-                                provider = 'API_Endpoint'
-                                if provider not in ai_findings:
-                                    ai_findings[provider] = []
-
-                                poc = _validate_ia_poc(
-                                    provider, url, endpoint_name)
-
-                                ai_findings[provider].append({
-                                    'url': url,
-                                    'target': target,
-                                    'patron_detectado': endpoint_name,
-                                    'patron_regex': endpoint_pattern,
-                                    'metodo_deteccion': 'endpoint_regex',
-                                    'poc': poc,
-                                    'timestamp': datetime.utcnow().isoformat()
-                                })
+                                if 'API_Endpoint' not in detected_ias:
+                                    detected_ias.append('API_Endpoint')
+                                break
 
                         # Detectar iframes de chatbots
                         if re.search(r'<iframe[^>]*src=["\'].*(?:chat|bot|assistant)', html_lower):
-                            print(f"        → Chatbot iframe detectado")
+                            if 'Chatbot_Iframe' not in detected_ias:
+                                detected_ias.append('Chatbot_Iframe')
 
-                            provider = 'Chatbot_Iframe'
-                            if provider not in ai_findings:
-                                ai_findings[provider] = []
+                        if detected_ias:
+                            print(f"        → Detectadas: {', '.join(detected_ias)}")
+                            target_found_ias.extend(detected_ias)
 
-                            ai_findings[provider].append({
-                                'url': url,
-                                'target': target,
-                                'patron_detectado': 'chatbot_iframe',
-                                'patron_regex': 'iframe_chatbot',
-                                'metodo_deteccion': 'html_iframe',
-                                'poc': {'explotable': False, 'metodo': 'iframe_chatbot', 'detalles': ['Widget de chatbot integrado']},
-                                'timestamp': datetime.utcnow().isoformat()
-                            })
+                            # Agregar a resultados
+                            for ia in detected_ias:
+                                if ia not in ai_findings:
+                                    ai_findings[ia] = {
+                                        'count': 0,
+                                        'targets': [],
+                                        'urls': []
+                                    }
+                                if target not in ai_findings[ia]['targets']:
+                                    ai_findings[ia]['targets'].append(target)
+                                ai_findings[ia]['urls'].append(url)
+                                ai_findings[ia]['count'] += 1
 
         print(f"\n  └─ Total URLs escaneadas: {len(scanned_urls)}")
         print(f"  └─ Total herramientas IA encontradas: {len(ai_findings)}")
 
         # ==========================================
-        # PASO 7: Compilar resultados finales
+        # PASO 6: Compilar resultados finales
         # ==========================================
-        print("\n[7/7] Compilando resultados finales...")
+        print("\n[6/6] Compilando resultados finales...")
 
         resultado = {
             'timestamp': datetime.utcnow().isoformat(),
@@ -5423,44 +5311,43 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
             'detalle_por_ia': {}
         }
 
-        for provider, hallazgos in sorted(ai_findings.items()):
+        # Agregar detalles por cada IA encontrada
+        for ia, info in sorted(ai_findings.items(), key=lambda x: x[1]['count'], reverse=True):
 
-            # Contar explotables
-            explotables = [h for h in hallazgos if h['poc']['explotable']]
-
-            # Determinar severidad
-            if explotables:
-                sev_key = 'HIGH' if len(explotables) > 1 else 'MEDIUM'
+            # Determinar severidad por nombre
+            if 'openai' in ia.lower() or 'chatgpt' in ia.lower():
+                sev_key = 'MEDIUM'
+            elif 'claude' in ia.lower():
+                sev_key = 'MEDIUM'
+            elif 'gemini' in ia.lower():
+                sev_key = 'MEDIUM'
+            elif 'endpoint' in ia.lower():
+                sev_key = 'HIGH'
             else:
-                sev_key = 'MEDIUM' if 'endpoint' in provider.lower() else 'LOW'
-
-            if 'key' in str(hallazgos).lower():
-                sev_key = 'CRITICAL'
+                sev_key = 'LOW'
 
             severidad_obj = mapa_severidades.get(sev_key, {})
 
-            resultado['detalle_por_ia'][provider] = {
-                'nombre_ia': provider,
-                'total_hallazgos': len(hallazgos),
-                'hallazgos_explotables': len(explotables),
-                'targets_afectados': len(set(h['target'] for h in hallazgos)),
-                'hallazgos': hallazgos,
+            resultado['detalle_por_ia'][ia] = {
+                'nombre_ia': ia,
+                'ocurrencias': info['count'],
+                'targets_afectados': len(info['targets']),
+                'targets': info['targets'],
+                'urls_encontradas': info['urls'],
                 'severidad_id': severidad_obj.get('id'),
                 'severidad_nombre': severidad_obj.get('nombre'),
-                'descripcion': f"{provider}: {len(hallazgos)} hallazgos ({len(explotables)} explotables) en {len(set(h['target'] for h in hallazgos))} target(s)"
+                'descripcion': f"Se detectó {ia} en {len(info['targets'])} target(s)"
             }
 
-            print(f"  ├─ {provider}")
-            print(f"  │  ├─ Hallazgos: {len(hallazgos)}")
-            print(f"  │  ├─ Explotables: {len(explotables)}")
-            print(
-                f"  │  ├─ Targets: {len(set(h['target'] for h in hallazgos))}")
+            print(f"  ├─ {ia}")
+            print(f"  │  ├─ Ocurrencias: {info['count']}")
+            print(f"  │  ├─ Targets: {len(info['targets'])}")
             print(f"  │  └─ Severidad: {severidad_obj.get('nombre')}")
 
         # ==========================================
-        # PASO 8: Persistir resultados
+        # PASO 7: Persistir resultados
         # ==========================================
-        print("\n[8/8] Persistiendo resultados...")
+        print("\n[7/7] Persistiendo resultados...")
 
         try:
             OsintEjecucion.guardar_resultado(
