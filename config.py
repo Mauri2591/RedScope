@@ -79,5 +79,6 @@ OSINT_JOB_TIMEOUTS = {
     'username_enumeration': 2700,               # 45 min
     'phishing_domain_detection': 1200,          # 20 min
     'web_technology_detection': 7200,          # 2 horas
+    'deteccion-ia-tools': 2700,                 # 45 minutos
     'default': 3600                             # Fallback 1 hora
 }

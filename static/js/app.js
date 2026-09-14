@@ -1820,7 +1820,7 @@ if (mdlOsint) {
                         </span>
                     </td>
                     <td>
-                        <span class="badge bg-light text-secondary" title="Ver detalle" type="button" onclick="verDetalleOSINT(${exec.id})">
+                        <span class="badge bg-light text-secondary" title="Ver detalle" type="button" onclick="gestionarResultadoChecksOsint(${exec.id})">
                             <i class="bi bi-rocket-takeoff-fill"></i>
                         </span>
                     </td>
@@ -1905,6 +1905,6 @@ if (mdlOsint) {
             });
     }
 
-    function editarProyecto(params) {
+    function gestionarResultadoChecksOsint(params) {
         alert(params)
     }
