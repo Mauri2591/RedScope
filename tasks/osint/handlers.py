@@ -28,7 +28,6 @@ import phonenumbers
 from phonenumbers import PhoneNumberType, carrier, geocoder, timezone
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from typing import Optional
 CACHE_FILE = '/tmp/ipinfo_cache.json'
 
 
@@ -5105,7 +5104,8 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
         # ==========================================
         print("\n[4/6] Obteniendo mapa de severidades...")
 
-        severidades = Proyecto.get_severidades()
+        proyecto = Proyecto.query.filter_by(id=proyecto_id).first()
+        severidades = proyecto.get_severidades() if proyecto else []
 
         mapa_severidades = {}
         for sev in severidades:
@@ -5343,36 +5343,6 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
             print(f"  │  ├─ Ocurrencias: {info['count']}")
             print(f"  │  ├─ Targets: {len(info['targets'])}")
             print(f"  │  └─ Severidad: {severidad_obj.get('nombre')}")
-
-        # ==========================================
-        # PASO 7: Persistir resultados
-        # ==========================================
-        print("\n[7/7] Persistiendo resultados...")
-
-        try:
-            OsintEjecucion.guardar_resultado(
-                proyecto_id=proyecto_id,
-                tipo_analisis='Detección de Herramientas IA',
-                resultado=resultado
-            )
-
-            OsintEjecucion.mark_completed(
-                proyecto_id=proyecto_id,
-                servicio_id=os.environ.get('SERVICIO_ID'),
-                resultado=resultado
-            )
-
-            print(f"  └─ ✓ Resultados persistidos correctamente")
-
-        except Exception as e:
-            print(f"  └─ ✗ Error al persistir: {str(e)}")
-            OsintEjecucion.mark_failed(
-                proyecto_id=proyecto_id,
-                servicio_id=os.environ.get('SERVICIO_ID'),
-                error=str(e)
-            )
-            raise
-
         print("\n" + "="*80)
         print("[DETECCIÓN IA TOOLS] Handler completado correctamente ✓")
         print("="*80 + "\n")
