@@ -4958,7 +4958,7 @@ def _contar_hallazgos_por_severidad(hallazgos):
     return {k: v for k, v in conteo.items() if v > 0}
 
 
-def detect_ai_tools(ejecucion_id, proyecto_id):
+def deteccion_ia_tools(ejecucion_id, proyecto_id):
     """
     Detecta uso de herramientas de IA/agentes en sitios web del scope.
     Fuentes: dominios, subdominios, IPs, discovery_subdominios, mapeo_ips, análisis_dns
