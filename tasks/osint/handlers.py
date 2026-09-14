@@ -28,6 +28,7 @@ import phonenumbers
 from phonenumbers import PhoneNumberType, carrier, geocoder, timezone
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from typing import Optional
 CACHE_FILE = '/tmp/ipinfo_cache.json'
 
 
