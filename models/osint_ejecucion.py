@@ -835,7 +835,7 @@ class OsintEjecucion:
             'Username Enumeration' : 'username_enumeration',
             'Phishing Domain Detection' : 'phishing_domain_detection',
             'Web Technology Detection' : 'web_technology_detection',
-            'Deteccion IA Tools' : 'deteccion-ia-tools'
+            'Deteccion IA Tools' : 'deteccion_ia_tools'
         }
 
         servicios_map = OsintEjecucion.get_servicios_map()
