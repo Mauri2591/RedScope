@@ -5105,8 +5105,7 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
         # ==========================================
         print("\n[4/6] Obteniendo mapa de severidades...")
 
-        proyecto = Proyecto.query.filter_by(id=proyecto_id).first()
-        severidades = proyecto.get_severidades() if proyecto else []
+        severidades = Proyecto.get_severidades()
 
         mapa_severidades = {}
         for sev in severidades:
