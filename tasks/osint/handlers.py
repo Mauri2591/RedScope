@@ -5,6 +5,7 @@ from urllib.parse import urljoin, urlparse
 from pathlib import Path
 import re
 import json
+from typing import Optional
 from config import Config
 from models.proyecto import Proyecto
 from models.osint_ejecucion import OsintEjecucion
