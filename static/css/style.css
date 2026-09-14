@@ -322,7 +322,7 @@ th {
 .username-enumeration { font-size: .7rem; font-weight: bold; background-color: #4f2fff; color: var(--color-blanco-primario); padding: 0; }
 .phishing-domain-detection { font-size: .7rem; font-weight: bold; background-color: #e7435e; color: var(--color-blanco-primario); padding: 0; }
 .web-technology-detection { font-size: .7rem; font-weight: bold; background-color: #ff5521; color: var(--color-blanco-primario); padding: 0; }
-.deteccion-ia-tools { font-size: .7rem; font-weight: bold;color:#0d1117; background-color: #00ffbf; color: var(--color-blanco-primario); padding: 0; }
+.deteccion-ia-tools { font-size: .7rem; font-weight: bold; background-color: #00bcf5; color: var(--color-blanco-primario); padding: 0; }
 
 .icono-spin {
     display: inline-block;
