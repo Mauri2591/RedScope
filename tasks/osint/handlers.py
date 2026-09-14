@@ -5041,69 +5041,52 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
         print("="*80)
 
         # ==========================================
-        # PASO 1: Obtener Scope Completo
+        # PASO 1: Obtener Configuración del Proyecto
         # ==========================================
-        print("\n[1/6] Obteniendo scope completo...")
+        print("\n[1/7] Obteniendo configuración del proyecto...")
 
-        scope_completo = OsintEjecucion.get_scope_completo(proyecto_id)
-        print(f"  ├─ Scope dominios: {len(scope_completo.get('dominio', []))} items")
-        print(f"  ├─ Scope subdominios: {len(scope_completo.get('subdominio', []))} items")
-        print(f"  ├─ Scope IPs: {len(scope_completo.get('ips', []))} items")
-        print(f"  └─ Scope servicios: {len(scope_completo.get('servicios', []))} items")
+        config = Proyecto.get_osint_config(proyecto_id)
+        dominio_config = config.get('DOMINIO', '').strip()
+        ips_config = config.get('IPS', '').strip()
+
+        # Extraer dominios del scope
+        dominios_scope = _parse_multiline_config(dominio_config) if dominio_config else []
+        print(f"  ├─ Dominios del scope: {len(dominios_scope)} items")
+        if dominios_scope:
+            print(f"      Ejemplos: {dominios_scope[:3]}")
+
+        # Extraer IPs del scope
+        ips_scope = _parse_multiline_config(ips_config) if ips_config else []
+        print(f"  └─ IPs del scope: {len(ips_scope)} items")
+        if ips_scope:
+            print(f"      Ejemplos: {ips_scope[:3]}")
 
         # ==========================================
         # PASO 2: Obtener Subdominios Descubiertos
         # ==========================================
-        print("\n[2/6] Obteniendo subdominios descubiertos...")
+        print("\n[2/7] Obteniendo subdominios descubiertos...")
 
-        discovered_subdomains = OsintEjecucion.get_discovered_subdomains(proyecto_id)
-        print(f"  └─ Subdominios descubiertos: {len(discovered_subdomains)} items")
-        if len(discovered_subdomains) > 0:
-            print(f"      Ejemplos: {discovered_subdomains[:3]}")
+        subdominios_descubiertos = OsintEjecucion.get_discovered_subdomains(proyecto_id)
+        print(f"  └─ Subdominios descubiertos: {len(subdominios_descubiertos)} items")
+        if len(subdominios_descubiertos) > 0:
+            print(f"      Ejemplos: {subdominios_descubiertos[:3]}")
 
         # ==========================================
-        # PASO 3: Agregar todos los targets
+        # PASO 3: Consolidar Dominios
         # ==========================================
-        print("\n[3/6] Consolidando targets...")
+        print("\n[3/7] Consolidando dominios...")
 
-        all_targets = set()
-
-        # Agregar dominio principal
-        for d in scope_completo.get('dominio', []):
-            if d:
-                all_targets.add(d)
-
-        # Agregar subdominios del scope
-        for s in scope_completo.get('subdominio', []):
-            if s:
-                all_targets.add(s)
-
-        # Agregar servicios (si son dominios)
-        for srv in scope_completo.get('servicios', []):
-            if srv and not re.match(r'^\d+\.\d+\.\d+\.\d+', srv):
-                all_targets.add(srv)
-
-        # Agregar subdominios descubiertos
-        for sub in discovered_subdomains:
-            if sub:
-                all_targets.add(sub)
-
-        # Agregar IPs
-        for ip in scope_completo.get('ips', []):
-            if ip:
-                all_targets.add(ip)
-
-        all_targets = sorted(list(all_targets))
-        print(f"  └─ Total targets únicos: {len(all_targets)}")
-        for idx, target in enumerate(all_targets[:5], 1):
-            print(f"      {idx}. {target}")
-        if len(all_targets) > 5:
-            print(f"      ... y {len(all_targets) - 5} más")
+        todos_los_dominios = list(set(dominios_scope + subdominios_descubiertos))
+        print(f"  └─ Total dominios únicos: {len(todos_los_dominios)}")
+        for idx, dom in enumerate(todos_los_dominios[:5], 1):
+            print(f"      {idx}. {dom}")
+        if len(todos_los_dominios) > 5:
+            print(f"      ... y {len(todos_los_dominios) - 5} más")
 
         # ==========================================
         # PASO 4: Obtener Severidades de BD
         # ==========================================
-        print("\n[4/6] Obteniendo mapa de severidades...")
+        print("\n[4/7] Obteniendo mapa de severidades...")
 
         severidades = Proyecto.get_severidades()
 
@@ -5116,19 +5099,9 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
             print(f"      - {sev.get('nombre')}")
 
         # ==========================================
-        # PASO 5: Escanear targets por herramientas IA
+        # PASO 5: Configurar Patrones de Detección
         # ==========================================
-        print("\n[5/6] Escaneando targets por herramientas IA...")
-
-        ports = [80, 8080, 8443, 3000, 3001, 5000, 8000]
-        protocols = ['http', 'https']
-
-        print(f"  └─ Puertos: {ports}")
-        print(f"  └─ Protocolos: {protocols}")
-        print(f"  └─ Total requests/target: {len(ports) * len(protocols)}")
-
-        ai_findings = {}
-        scanned_urls = set()
+        print("\n[5/7] Configurando patrones de detección...")
 
         # Patrones de detección por proveedor IA
         ai_patterns = {
@@ -5226,87 +5199,172 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
             r'/v1/embeddings',
         ]
 
-        # Por cada target
-        for target_idx, target in enumerate(all_targets, 1):
-            print(f"\n  [{target_idx}/{len(all_targets)}] Escaneando: {target}")
-            target_found_ias = []
+        print(f"  └─ {len(ai_patterns)} proveedores IA configurados")
 
-            # Por cada puerto y protocolo
-            for protocol in protocols:
-                for port in ports:
-                    # Construir URL
-                    if port == 443 or (port == 8443 and protocol == 'https'):
-                        url = f"https://{target}" if port == 443 else f"https://{target}:{port}"
-                    elif port == 80 and protocol == 'http':
-                        url = f"http://{target}"
-                    else:
-                        url = f"{protocol}://{target}:{port}"
+        # ==========================================
+        # PASO 6: Escanear targets por herramientas IA
+        # ==========================================
+        print("\n[6/7] Escaneando targets por herramientas IA...")
 
-                    # Evitar duplicados
-                    if url in scanned_urls:
-                        continue
-                    scanned_urls.add(url)
+        puertos = ["", "8080", "8443", "3000", "3001", "5000", "8000"]
+        protocolos = ["http", "https"]
 
-                    # Hacer petición - USAR EL NOMBRE CORRECTO
-                    html_content = _make_safe_request_ia(url)
+        print(f"  ├─ Puertos: {puertos}")
+        print(f"  ├─ Protocolos: {protocolos}")
 
-                    if html_content:
-                        print(f"      ✓ {url} (200 OK)")
+        ai_findings = {}
+        scanned_urls = set()
 
-                        # Detectar IAs
-                        detected_ias = []
-                        html_lower = html_content.lower()
+        # PASO 6a: Escanear DOMINIOS
+        if todos_los_dominios:
+            print(f"\n  [6a] Escaneando {len(todos_los_dominios)} dominios...")
 
-                        # Detectar por proveedor
-                        for provider, patterns in ai_patterns.items():
-                            for pattern in patterns:
-                                if re.search(pattern, html_lower):
-                                    if provider not in detected_ias:
-                                        detected_ias.append(provider)
+            for domain_idx, dominio in enumerate(todos_los_dominios, 1):
+                print(f"\n    [{domain_idx}/{len(todos_los_dominios)}] Escaneando: {dominio}")
+
+                for protocolo in protocolos:
+                    for puerto in puertos:
+                        # Construir URL
+                        if puerto:
+                            url = f"{protocolo}://{dominio}:{puerto}"
+                        else:
+                            url = f"{protocolo}://{dominio}"
+
+                        # Evitar duplicados
+                        if url in scanned_urls:
+                            continue
+                        scanned_urls.add(url)
+
+                        # Hacer petición
+                        html_content = _make_safe_request_ia(url)
+
+                        if html_content:
+                            print(f"      ✓ {url} (200 OK)")
+
+                            # Detectar IAs
+                            detected_ias = []
+                            html_lower = html_content.lower()
+
+                            # Detectar por proveedor
+                            for provider, patterns in ai_patterns.items():
+                                for pattern in patterns:
+                                    if re.search(pattern, html_lower):
+                                        if provider not in detected_ias:
+                                            detected_ias.append(provider)
+                                        break
+
+                            # Detectar endpoints IA
+                            for endpoint_pattern in api_endpoints:
+                                if re.search(endpoint_pattern, html_lower):
+                                    if 'API_Endpoint' not in detected_ias:
+                                        detected_ias.append('API_Endpoint')
                                     break
 
-                        # Detectar endpoints IA
-                        for endpoint_pattern in api_endpoints:
-                            if re.search(endpoint_pattern, html_lower):
-                                if 'API_Endpoint' not in detected_ias:
-                                    detected_ias.append('API_Endpoint')
+                            # Detectar iframes de chatbots
+                            if re.search(r'<iframe[^>]*src=["\'].*(?:chat|bot|assistant)', html_lower):
+                                if 'Chatbot_Iframe' not in detected_ias:
+                                    detected_ias.append('Chatbot_Iframe')
+
+                            if detected_ias:
+                                print(f"        → Detectadas: {', '.join(detected_ias)}")
+
+                                # Agregar a resultados
+                                for ia in detected_ias:
+                                    if ia not in ai_findings:
+                                        ai_findings[ia] = {
+                                            'count': 0,
+                                            'targets': [],
+                                            'urls': []
+                                        }
+                                    if dominio not in ai_findings[ia]['targets']:
+                                        ai_findings[ia]['targets'].append(dominio)
+                                    ai_findings[ia]['urls'].append(url)
+                                    ai_findings[ia]['count'] += 1
+
+        # PASO 6b: Escanear IPs CON MÚLTIPLES PUERTOS
+        if ips_scope:
+            print(f"\n  [6b] Escaneando {len(ips_scope)} IPs con puertos...")
+
+            urls_from_ips = []
+            for ip in ips_scope:
+                for protocolo in protocolos:
+                    for puerto in puertos:
+                        if puerto:
+                            url = f"{protocolo}://{ip}:{puerto}"
+                        else:
+                            url = f"{protocolo}://{ip}"
+                        urls_from_ips.append(url)
+
+            print(f"    Total URLs a escanear: {len(urls_from_ips)}")
+
+            for ip_url_idx, url in enumerate(urls_from_ips, 1):
+                # Evitar duplicados
+                if url in scanned_urls:
+                    continue
+                scanned_urls.add(url)
+
+                # Hacer petición
+                html_content = _make_safe_request_ia(url)
+
+                if html_content:
+                    print(f"    [{ip_url_idx}/{len(urls_from_ips)}] ✓ {url} (200 OK)")
+
+                    # Detectar IAs
+                    detected_ias = []
+                    html_lower = html_content.lower()
+
+                    # Detectar por proveedor
+                    for provider, patterns in ai_patterns.items():
+                        for pattern in patterns:
+                            if re.search(pattern, html_lower):
+                                if provider not in detected_ias:
+                                    detected_ias.append(provider)
                                 break
 
-                        # Detectar iframes de chatbots
-                        if re.search(r'<iframe[^>]*src=["\'].*(?:chat|bot|assistant)', html_lower):
-                            if 'Chatbot_Iframe' not in detected_ias:
-                                detected_ias.append('Chatbot_Iframe')
+                    # Detectar endpoints IA
+                    for endpoint_pattern in api_endpoints:
+                        if re.search(endpoint_pattern, html_lower):
+                            if 'API_Endpoint' not in detected_ias:
+                                detected_ias.append('API_Endpoint')
+                            break
 
-                        if detected_ias:
-                            print(f"        → Detectadas: {', '.join(detected_ias)}")
-                            target_found_ias.extend(detected_ias)
+                    # Detectar iframes de chatbots
+                    if re.search(r'<iframe[^>]*src=["\'].*(?:chat|bot|assistant)', html_lower):
+                        if 'Chatbot_Iframe' not in detected_ias:
+                            detected_ias.append('Chatbot_Iframe')
 
-                            # Agregar a resultados
-                            for ia in detected_ias:
-                                if ia not in ai_findings:
-                                    ai_findings[ia] = {
-                                        'count': 0,
-                                        'targets': [],
-                                        'urls': []
-                                    }
-                                if target not in ai_findings[ia]['targets']:
-                                    ai_findings[ia]['targets'].append(target)
-                                ai_findings[ia]['urls'].append(url)
-                                ai_findings[ia]['count'] += 1
+                    if detected_ias:
+                        print(f"      → Detectadas: {', '.join(detected_ias)}")
+
+                        # Agregar a resultados (agrupar por IP)
+                        ip_addr = url.split('://')[1].split(':')[0]
+                        for ia in detected_ias:
+                            if ia not in ai_findings:
+                                ai_findings[ia] = {
+                                    'count': 0,
+                                    'targets': [],
+                                    'urls': []
+                                }
+                            if ip_addr not in ai_findings[ia]['targets']:
+                                ai_findings[ia]['targets'].append(ip_addr)
+                            ai_findings[ia]['urls'].append(url)
+                            ai_findings[ia]['count'] += 1
 
         print(f"\n  └─ Total URLs escaneadas: {len(scanned_urls)}")
         print(f"  └─ Total herramientas IA encontradas: {len(ai_findings)}")
 
         # ==========================================
-        # PASO 6: Compilar resultados finales
+        # PASO 7: Compilar resultados finales
         # ==========================================
-        print("\n[6/6] Compilando resultados finales...")
+        print("\n[7/7] Compilando resultados finales...")
 
         resultado = {
             'timestamp': datetime.utcnow().isoformat(),
             'tipo': 'deteccion_ia_tools',
-            'targets_escaneados': len(scanned_urls),
-            'urls_escaneadas': list(scanned_urls),
+            'dominios_escaneados': len(todos_los_dominios),
+            'ips_escaneadas': len(ips_scope),
+            'targets_totales': len(todos_los_dominios) + len(ips_scope),
+            'urls_escaneadas': len(scanned_urls),
             'ias_encontradas': len(ai_findings),
             'detalle_por_ia': {}
         }
@@ -5343,6 +5401,7 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
             print(f"  │  ├─ Ocurrencias: {info['count']}")
             print(f"  │  ├─ Targets: {len(info['targets'])}")
             print(f"  │  └─ Severidad: {severidad_obj.get('nombre')}")
+
         print("\n" + "="*80)
         print("[DETECCIÓN IA TOOLS] Handler completado correctamente ✓")
         print("="*80 + "\n")
