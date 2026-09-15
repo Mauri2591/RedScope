@@ -71,7 +71,7 @@ OSINT_JOB_TIMEOUTS = {
     'analisis_dns': 900,                        # 15 min
     'busqueda_endpoints': 7200,                 # 2 horas
     'google_dorking': 900,                      # 15 min
-    'urls_historicas': 21600,                   # 6 horas
+    'urls_historicas': 43200,                   # 12 horas
     'sensitive_data_extraction': 10800,         # 3 horas
     'data_emails': 1200,                        # 20 min
     'phone_intelligence': 1200,                 # 20 min
@@ -79,6 +79,6 @@ OSINT_JOB_TIMEOUTS = {
     'username_enumeration': 2700,               # 45 min
     'phishing_domain_detection': 1200,          # 20 min
     'web_technology_detection': 7200,           # 2 horas
-    'deteccion_ia_tools': 21600,                # 6 horas
+    'deteccion_ia_tools': 432000,               # 12 horas
     'default': 3600                             # Fallback 1 hora
 }
