@@ -397,7 +397,6 @@ def run_roles():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Siempre inserta una nueva ejecución
     cursor.execute("""
         INSERT INTO cloud_ejecuciones
         (proyecto_id, accion_id, usuario_id, estado, fecha_creacion, estado_id)
@@ -410,7 +409,8 @@ def run_roles():
     cursor.close()
     conn.close()
 
-    q = Queue('aws',connection=Config.redis_conn)
+    # ✅ CAMBIO: Especificar queue='aws'
+    q = Queue('aws', connection=Config.redis_conn)
 
     accion = Proyecto.get_accion_by_id(accion_id)
     if not accion:
@@ -431,7 +431,6 @@ def run_roles():
             "message": f"Error cargando handler: {str(e)}"
         }), 500
 
-    # q.enqueue(func, ejecucion_id, proyecto_id)
     full_path = f"tasks.{module_path}.{function_name}"
     q.enqueue(full_path, ejecucion_id, proyecto_id, job_timeout=3600)
     return jsonify({
