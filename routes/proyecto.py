@@ -410,7 +410,7 @@ def run_roles():
     cursor.close()
     conn.close()
 
-    q = Queue(connection=Config.redis_conn)
+    q = Queue('aws',connection=Config.redis_conn)
 
     accion = Proyecto.get_accion_by_id(accion_id)
     if not accion:
