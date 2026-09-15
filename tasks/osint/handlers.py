@@ -32,7 +32,7 @@ from urllib3.util.retry import Retry
 
 # Intenta cargar CVE Searcher (opcional)
 try:
-    from tasks.osint.cve_searcher import CVESearcher
+    from tasks.osint.nvd.preprocesar_nvd import CVESearcher
     CVE_SEARCH_AVAILABLE = True
 except ImportError:
     CVE_SEARCH_AVAILABLE = False
@@ -5534,7 +5534,9 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
         cve_searcher = None
         if CVE_SEARCH_AVAILABLE:
             try:
-                cves_path = os.path.join(os.path.dirname(__file__), 'cves_ia_tools.json')
+                # Ruta a datos NVD: C:\xampp\htdocs\RedScoe\data\nvd\cves_nvd.json
+                base_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # Sube a RedScoe
+                cves_path = os.path.join(base_path, 'data', 'nvd', 'cves_nvd.json')
                 cve_searcher = CVESearcher(cves_path)
             except Exception as e:
                 print(f"[WARN] No se pudo inicializar CVE Searcher: {e}")
@@ -5556,24 +5558,57 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
 
             severidad_obj = mapa_severidades.get(sev_key, {})
 
-            # NUEVO: Construir sección de validación manual
-            validaciones = []
+            # ═══════════════════════════════════════════════════════════════
+            # FASE 1: REVALIDACIÓN (Confirmar que el hallazgo existe)
+            # ═══════════════════════════════════════════════════════════════
+            revalidar = []
             if 'detalles_validacion' in info and info['detalles_validacion']:
                 for url, contextos in info['detalles_validacion'].items():
                     for ctx in contextos:
-                        # Generar comando curl para revalidar
-                        cmd_curl = f"curl -s '{url}' | grep -i '{ctx.get('patron', '')}'"
+                        patron = ctx.get('patron', '')
+                        fragmento = ctx.get('fragmento', '')
+                        linea = ctx.get('linea_aproximada', 0)
 
-                        validaciones.append({
+                        # Generar múltiples formas de revalidación
+                        revalidar.append({
                             'url': url,
-                            'patron': ctx.get('patron', ''),
-                            'fragmento_encontrado': ctx.get('fragmento', ''),
-                            'linea_aproximada': ctx.get('linea_aproximada', ''),
-                            'como_validar': cmd_curl,
-                            'validar_manual': f"Abre: {url} → Ctrl+F → Busca: {ctx.get('fragmento', '')[:80]}..."
+                            'patron': patron,
+                            'fragmento_encontrado': fragmento[:150],  # Limitar a 150 chars
+                            'linea_aproximada': linea,
+                            'comando_curl_directo': f"curl -s '{url}' | grep -i '{patron}'",
+                            'comando_con_guardado': f"curl -s '{url}' -o /tmp/revalidar.html && grep -i '{patron}' /tmp/revalidar.html",
+                            'comando_con_cabeceros': f"curl -s -H 'User-Agent: Mozilla/5.0' '{url}' | grep -i '{patron}'",
+                            'validar_manual': f"Navega a: {url} → Ctrl+F → Busca: '{fragmento[:50]}...'",
+                            'tipo': 'curl|grep - Confirma que el patrón existe en la respuesta HTTP'
+                        })
+            else:
+                # Fallback: Generar comandos de revalidación genéricos
+                for url in info.get('urls', [])[:3]:
+                    patrones = {
+                        'OpenAI': ['openai', 'chatgpt', 'sk-'],
+                        'Anthropic Claude': ['claude', 'anthropic'],
+                        'Google Gemini': ['gemini', 'generativelanguage'],
+                        'Cohere': ['cohere', 'co-'],
+                        'API_Endpoint': ['/api/', 'v1/'],
+                    }
+                    patrones_ia = patrones.get(ia, [ia.lower()])
+
+                    for patron in patrones_ia[:2]:  # Máximo 2 patrones por URL
+                        revalidar.append({
+                            'url': url,
+                            'patron': patron,
+                            'fragmento_encontrado': 'N/A (fallback)',
+                            'linea_aproximada': 0,
+                            'comando_curl_directo': f"curl -s '{url}' | grep -i '{patron}'",
+                            'comando_con_guardado': f"curl -s '{url}' -o /tmp/revalidar.html && grep -i '{patron}' /tmp/revalidar.html",
+                            'comando_con_cabeceros': f"curl -s -H 'User-Agent: Mozilla/5.0' '{url}' | grep -i '{patron}'",
+                            'validar_manual': f"Navega a: {url} → Ctrl+F → Busca: '{patron}'",
+                            'tipo': 'curl|grep - Confirma que el patrón existe en la respuesta HTTP'
                         })
 
-            # NUEVO: Buscar vulnerabilidades asociadas
+            # ═══════════════════════════════════════════════════════════════
+            # FASE 2: VULNERABILIDADES (POCs de explotación si aplica)
+            # ═══════════════════════════════════════════════════════════════
             vulnerabilidades = []
             if cve_searcher:
                 try:
@@ -5586,13 +5621,14 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
                             'cve': vuln.get('cve', 'N/A'),
                             'nombre': vuln.get('nombre', 'Sin título'),
                             'severidad': vuln.get('severidad', 0),
-                            'descripcion': vuln.get('descripcion', '')[:200],
+                            'descripcion': vuln.get('descripcion', '')[:300],
                             'ano': vuln.get('año', vuln.get('ano', 2024)),
                             'afecta': vuln.get('afecta', 'Versiones múltiples'),
-                            'poc': vuln.get('poc', 'No disponible')[:150],
+                            'poc': vuln.get('poc', 'No disponible'),  # POC COMPLETO para explotación
                             'mitigacion': vuln.get('mitigacion', 'Actualizar paquete'),
-                            'referencias': vuln.get('referencias', [])[:2],
-                            'fuente': vuln.get('fuente', 'BD local')
+                            'referencias': vuln.get('referencias', [])[:3],
+                            'fuente': vuln.get('fuente', 'BD local'),
+                            'tipo': 'Explotación - Intenta explotar la vulnerabilidad'
                         })
                 except Exception as e:
                     print(f"    Error buscando CVEs para {ia}: {e}")
@@ -5606,16 +5642,21 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
                 'severidad_id': severidad_obj.get('id'),
                 'severidad_nombre': severidad_obj.get('nombre'),
                 'descripcion': f"Se detectó {ia} en {len(info['targets'])} target(s)",
-                'validar': validaciones if validaciones else _generar_comandos_validacion(ia, info['urls']),
-                'vulnerabilidades': vulnerabilidades
+                '_workflow': {
+                    'paso_1': 'Ejecutar comandos en sección "revalidar" para CONFIRMAR hallazgo',
+                    'paso_2': 'Si revalidación exitosa, usar comandos en sección "vulnerabilidades" para EXPLOTAR (si aplica)',
+                    'paso_3': 'Aplicar mitigaciones sugeridas'
+                },
+                'revalidar': revalidar,  # CONFIRMAR: Hallazgo existe
+                'vulnerabilidades': vulnerabilidades  # EXPLOTAR: Si es explotable
             }
 
             print(f"  ├─ {ia}")
             print(f"  │  ├─ Ocurrencias: {info['count']}")
             print(f"  │  ├─ Targets: {len(info['targets'])}")
             print(f"  │  ├─ Severidad: {severidad_obj.get('nombre')}")
-            print(f"  │  ├─ Métodos de validación: {len(validaciones)}")
-            print(f"  │  └─ CVEs encontrados: {len(vulnerabilidades)}")
+            print(f"  │  ├─ Métodos de REVALIDACIÓN: {len(revalidar)}")
+            print(f"  │  └─ CVEs/POCs de EXPLOTACIÓN: {len(vulnerabilidades)}")
 
         print("\n" + "="*80)
         print("[DETECCIÓN IA TOOLS] Handler completado correctamente ✓")
