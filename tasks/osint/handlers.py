@@ -29,6 +29,14 @@ import phonenumbers
 from phonenumbers import PhoneNumberType, carrier, geocoder, timezone
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+# Intenta cargar CVE Searcher (opcional)
+try:
+    from tasks.osint.cve_searcher import CVESearcher
+    CVE_SEARCH_AVAILABLE = True
+except ImportError:
+    CVE_SEARCH_AVAILABLE = False
+    print("[WARN] cve_searcher no disponible. Las vulnerabilidades serán básicas.")
 CACHE_FILE = '/tmp/ipinfo_cache.json'
 
 
@@ -5522,6 +5530,15 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
             'detalle_por_ia': {}
         }
 
+        # Inicializar CVE Searcher
+        cve_searcher = None
+        if CVE_SEARCH_AVAILABLE:
+            try:
+                cves_path = os.path.join(os.path.dirname(__file__), 'cves_ia_tools.json')
+                cve_searcher = CVESearcher(cves_path)
+            except Exception as e:
+                print(f"[WARN] No se pudo inicializar CVE Searcher: {e}")
+
         # Agregar detalles por cada IA encontrada
         for ia, info in sorted(ai_findings.items(), key=lambda x: x[1]['count'], reverse=True):
 
@@ -5556,6 +5573,30 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
                             'validar_manual': f"Abre: {url} → Ctrl+F → Busca: {ctx.get('fragmento', '')[:80]}..."
                         })
 
+            # NUEVO: Buscar vulnerabilidades asociadas
+            vulnerabilidades = []
+            if cve_searcher:
+                try:
+                    print(f"    Buscando CVEs para {ia}...")
+                    vulns = cve_searcher.buscar(ia)
+
+                    # Limitar a máximo 5 CVEs más relevantes
+                    for vuln in vulns[:5]:
+                        vulnerabilidades.append({
+                            'cve': vuln.get('cve', 'N/A'),
+                            'nombre': vuln.get('nombre', 'Sin título'),
+                            'severidad': vuln.get('severidad', 0),
+                            'descripcion': vuln.get('descripcion', '')[:200],
+                            'ano': vuln.get('año', vuln.get('ano', 2024)),
+                            'afecta': vuln.get('afecta', 'Versiones múltiples'),
+                            'poc': vuln.get('poc', 'No disponible')[:150],
+                            'mitigacion': vuln.get('mitigacion', 'Actualizar paquete'),
+                            'referencias': vuln.get('referencias', [])[:2],
+                            'fuente': vuln.get('fuente', 'BD local')
+                        })
+                except Exception as e:
+                    print(f"    Error buscando CVEs para {ia}: {e}")
+
             resultado['detalle_por_ia'][ia] = {
                 'nombre_ia': ia,
                 'ocurrencias': info['count'],
@@ -5565,14 +5606,16 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
                 'severidad_id': severidad_obj.get('id'),
                 'severidad_nombre': severidad_obj.get('nombre'),
                 'descripcion': f"Se detectó {ia} en {len(info['targets'])} target(s)",
-                'validar': validaciones if validaciones else _generar_comandos_validacion(ia, info['urls'])
+                'validar': validaciones if validaciones else _generar_comandos_validacion(ia, info['urls']),
+                'vulnerabilidades': vulnerabilidades
             }
 
             print(f"  ├─ {ia}")
             print(f"  │  ├─ Ocurrencias: {info['count']}")
             print(f"  │  ├─ Targets: {len(info['targets'])}")
             print(f"  │  ├─ Severidad: {severidad_obj.get('nombre')}")
-            print(f"  │  └─ Métodos de validación: {len(validaciones)}")
+            print(f"  │  ├─ Métodos de validación: {len(validaciones)}")
+            print(f"  │  └─ CVEs encontrados: {len(vulnerabilidades)}")
 
         print("\n" + "="*80)
         print("[DETECCIÓN IA TOOLS] Handler completado correctamente ✓")
