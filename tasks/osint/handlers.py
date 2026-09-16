@@ -29,14 +29,6 @@ import phonenumbers
 from phonenumbers import PhoneNumberType, carrier, geocoder, timezone
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-
-# Intenta cargar CVE Searcher (opcional)
-try:
-    from tasks.osint.nvd.preprocesar_nvd import CVESearcher
-    CVE_SEARCH_AVAILABLE = True
-except ImportError:
-    CVE_SEARCH_AVAILABLE = False
-    print("[WARN] cve_searcher no disponible. Las vulnerabilidades serán básicas.")
 CACHE_FILE = '/tmp/ipinfo_cache.json'
 
 
@@ -5031,51 +5023,6 @@ def _make_safe_request_ia(url: str, timeout: int = 5) -> Optional[str]:
         session.close()
 
 
-def _generar_comandos_validacion(ia_name, urls):
-    """
-    Genera comandos curl para revalidar hallazgos de IA manualmente.
-
-    Args:
-        ia_name: Nombre de la herramienta IA detectada
-        urls: Lista de URLs donde se encontró
-
-    Returns:
-        Lista de diccionarios con comandos de validación
-    """
-    validaciones = []
-
-    # Mapear IA a patrones de búsqueda comunes
-    patrones_busqueda = {
-        'OpenAI': ['openai', 'chatgpt', 'sk-'],
-        'Anthropic Claude': ['claude', 'anthropic'],
-        'Google Gemini': ['gemini', 'generativelanguage'],
-        'Cohere': ['cohere', 'co-'],
-        'Chatbot_Iframe': ['iframe', 'chat', 'bot'],
-        'API_Endpoint': ['/api/', 'v1/'],
-    }
-
-    patrones = patrones_busqueda.get(ia_name, [ia_name.lower()])
-
-    for url in urls[:3]:  # Máximo 3 URLs por IA
-        for patron in patrones:
-            # Generar comando curl con grep
-            cmd_curl = f"curl -s '{url}' | grep -i '{patron}'"
-
-            # Generar comando curl que guarde en archivo
-            cmd_save = f"curl -s '{url}' -o output.html && grep -i '{patron}' output.html"
-
-            validaciones.append({
-                'url': url,
-                'patron_busqueda': patron,
-                'comando_curl': cmd_curl,
-                'comando_guardar': cmd_save,
-                'validar_manual': f"Abre {url} → Ctrl+F → Busca '{patron}'",
-                'confianza': 'MEDIA'
-            })
-
-    return validaciones
-
-
 def deteccion_ia_tools(ejecucion_id, proyecto_id):
     """
     HANDLER: Detección de Herramientas IA en Infraestructura de Cliente
@@ -5297,76 +5244,26 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
                             # Detectar IAs
                             detected_ias = []
                             html_lower = html_content.lower()
-                            validation_contexts = {}  # NUEVO: guardar contextos
 
                             # Detectar por proveedor
                             for provider, patterns in ai_patterns.items():
                                 for pattern in patterns:
-                                    matches = list(re.finditer(pattern, html_lower))
-                                    if matches:
+                                    if re.search(pattern, html_lower):
                                         if provider not in detected_ias:
                                             detected_ias.append(provider)
-
-                                        # NUEVO: Guardar contexto de validación
-                                        if provider not in validation_contexts:
-                                            validation_contexts[provider] = []
-
-                                        for match in matches[:2]:  # Primeros 2 matches
-                                            inicio = max(0, match.start() - 150)
-                                            fin = min(len(html_content), match.end() + 150)
-                                            contexto = html_content[inicio:fin].strip()
-                                            contexto = ' '.join(contexto.split())
-
-                                            validation_contexts[provider].append({
-                                                'patron': pattern,
-                                                'fragmento': contexto[:300],
-                                                'linea_aproximada': html_content[:match.start()].count('\n') + 1
-                                            })
                                         break
 
                             # Detectar endpoints IA
                             for endpoint_pattern in api_endpoints:
-                                matches = list(re.finditer(endpoint_pattern, html_lower))
-                                if matches:
+                                if re.search(endpoint_pattern, html_lower):
                                     if 'API_Endpoint' not in detected_ias:
                                         detected_ias.append('API_Endpoint')
-
-                                    if 'API_Endpoint' not in validation_contexts:
-                                        validation_contexts['API_Endpoint'] = []
-
-                                    for match in matches[:2]:
-                                        inicio = max(0, match.start() - 150)
-                                        fin = min(len(html_content), match.end() + 150)
-                                        contexto = html_content[inicio:fin].strip()
-                                        contexto = ' '.join(contexto.split())
-
-                                        validation_contexts['API_Endpoint'].append({
-                                            'patron': endpoint_pattern,
-                                            'fragmento': contexto[:300],
-                                            'linea_aproximada': html_content[:match.start()].count('\n') + 1
-                                        })
                                     break
 
                             # Detectar iframes de chatbots
-                            iframe_pattern = r'<iframe[^>]*src=["\'].*(?:chat|bot|assistant)'
-                            matches = list(re.finditer(iframe_pattern, html_lower))
-                            if matches:
+                            if re.search(r'<iframe[^>]*src=["\'].*(?:chat|bot|assistant)', html_lower):
                                 if 'Chatbot_Iframe' not in detected_ias:
                                     detected_ias.append('Chatbot_Iframe')
-
-                                if 'Chatbot_Iframe' not in validation_contexts:
-                                    validation_contexts['Chatbot_Iframe'] = []
-
-                                for match in matches[:2]:
-                                    inicio = max(0, match.start() - 100)
-                                    fin = min(len(html_content), match.end() + 200)
-                                    contexto = html_content[inicio:fin].strip()
-
-                                    validation_contexts['Chatbot_Iframe'].append({
-                                        'patron': iframe_pattern,
-                                        'fragmento': contexto[:400],
-                                        'linea_aproximada': html_content[:match.start()].count('\n') + 1
-                                    })
 
                             if detected_ias:
                                 print(f"        → Detectadas: {', '.join(detected_ias)}")
@@ -5377,17 +5274,12 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
                                         ai_findings[ia] = {
                                             'count': 0,
                                             'targets': [],
-                                            'urls': [],
-                                            'detalles_validacion': {}  # NUEVO
+                                            'urls': []
                                         }
                                     if dominio not in ai_findings[ia]['targets']:
                                         ai_findings[ia]['targets'].append(dominio)
                                     ai_findings[ia]['urls'].append(url)
                                     ai_findings[ia]['count'] += 1
-
-                                    # NUEVO: Guardar contextos de validación por URL
-                                    if url not in ai_findings[ia]['detalles_validacion']:
-                                        ai_findings[ia]['detalles_validacion'][url] = validation_contexts.get(ia, [])
 
         # PASO 6b: Escanear IPs CON MÚLTIPLES PUERTOS
         if ips_scope:
@@ -5420,75 +5312,26 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
                     # Detectar IAs
                     detected_ias = []
                     html_lower = html_content.lower()
-                    validation_contexts = {}  # NUEVO
 
                     # Detectar por proveedor
                     for provider, patterns in ai_patterns.items():
                         for pattern in patterns:
-                            matches = list(re.finditer(pattern, html_lower))
-                            if matches:
+                            if re.search(pattern, html_lower):
                                 if provider not in detected_ias:
                                     detected_ias.append(provider)
-
-                                if provider not in validation_contexts:
-                                    validation_contexts[provider] = []
-
-                                for match in matches[:2]:
-                                    inicio = max(0, match.start() - 150)
-                                    fin = min(len(html_content), match.end() + 150)
-                                    contexto = html_content[inicio:fin].strip()
-                                    contexto = ' '.join(contexto.split())
-
-                                    validation_contexts[provider].append({
-                                        'patron': pattern,
-                                        'fragmento': contexto[:300],
-                                        'linea_aproximada': html_content[:match.start()].count('\n') + 1
-                                    })
                                 break
 
                     # Detectar endpoints IA
                     for endpoint_pattern in api_endpoints:
-                        matches = list(re.finditer(endpoint_pattern, html_lower))
-                        if matches:
+                        if re.search(endpoint_pattern, html_lower):
                             if 'API_Endpoint' not in detected_ias:
                                 detected_ias.append('API_Endpoint')
-
-                            if 'API_Endpoint' not in validation_contexts:
-                                validation_contexts['API_Endpoint'] = []
-
-                            for match in matches[:2]:
-                                inicio = max(0, match.start() - 150)
-                                fin = min(len(html_content), match.end() + 150)
-                                contexto = html_content[inicio:fin].strip()
-                                contexto = ' '.join(contexto.split())
-
-                                validation_contexts['API_Endpoint'].append({
-                                    'patron': endpoint_pattern,
-                                    'fragmento': contexto[:300],
-                                    'linea_aproximada': html_content[:match.start()].count('\n') + 1
-                                })
                             break
 
                     # Detectar iframes de chatbots
-                    iframe_pattern = r'<iframe[^>]*src=["\'].*(?:chat|bot|assistant)'
-                    matches = list(re.finditer(iframe_pattern, html_lower))
-                    if matches:
+                    if re.search(r'<iframe[^>]*src=["\'].*(?:chat|bot|assistant)', html_lower):
                         if 'Chatbot_Iframe' not in detected_ias:
                             detected_ias.append('Chatbot_Iframe')
-
-                        if 'Chatbot_Iframe' not in validation_contexts:
-                            validation_contexts['Chatbot_Iframe'] = []
-
-                        for match in matches[:2]:
-                            inicio = max(0, match.start() - 100)
-                            fin = min(len(html_content), match.end() + 200)
-                            contexto = html_content[inicio:fin].strip()
-
-                            validation_contexts['Chatbot_Iframe'].append({
-                                'patron': iframe_pattern,
-                                'fragmento': contexto[:400],
-                                'linea_aproximada': html_content[:match.start()].count('\n') + 1
-                            })
 
                     if detected_ias:
                         print(f"      → Detectadas: {', '.join(detected_ias)}")
@@ -5500,16 +5343,12 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
                                 ai_findings[ia] = {
                                     'count': 0,
                                     'targets': [],
-                                    'urls': [],
-                                    'detalles_validacion': {}  # NUEVO
+                                    'urls': []
                                 }
                             if ip_addr not in ai_findings[ia]['targets']:
                                 ai_findings[ia]['targets'].append(ip_addr)
                             ai_findings[ia]['urls'].append(url)
                             ai_findings[ia]['count'] += 1
-
-                            if url not in ai_findings[ia]['detalles_validacion']:
-                                ai_findings[ia]['detalles_validacion'][url] = validation_contexts.get(ia, [])
 
         print(f"\n  └─ Total URLs escaneadas: {len(scanned_urls)}")
         print(f"  └─ Total herramientas IA encontradas: {len(ai_findings)}")
@@ -5530,17 +5369,6 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
             'detalle_por_ia': {}
         }
 
-        # Inicializar CVE Searcher
-        cve_searcher = None
-        if CVE_SEARCH_AVAILABLE:
-            try:
-                # Ruta a datos NVD: C:\xampp\htdocs\RedScoe\data\nvd\cves_nvd.json
-                base_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # Sube a RedScoe
-                cves_path = os.path.join(base_path, 'data', 'nvd', 'cves_nvd.json')
-                cve_searcher = CVESearcher(cves_path)
-            except Exception as e:
-                print(f"[WARN] No se pudo inicializar CVE Searcher: {e}")
-
         # Agregar detalles por cada IA encontrada
         for ia, info in sorted(ai_findings.items(), key=lambda x: x[1]['count'], reverse=True):
 
@@ -5558,81 +5386,6 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
 
             severidad_obj = mapa_severidades.get(sev_key, {})
 
-            # ═══════════════════════════════════════════════════════════════
-            # FASE 1: REVALIDACIÓN (Confirmar que el hallazgo existe)
-            # ═══════════════════════════════════════════════════════════════
-            revalidar = []
-            if 'detalles_validacion' in info and info['detalles_validacion']:
-                for url, contextos in info['detalles_validacion'].items():
-                    for ctx in contextos:
-                        patron = ctx.get('patron', '')
-                        fragmento = ctx.get('fragmento', '')
-                        linea = ctx.get('linea_aproximada', 0)
-
-                        # Generar múltiples formas de revalidación
-                        revalidar.append({
-                            'url': url,
-                            'patron': patron,
-                            'fragmento_encontrado': fragmento[:150],  # Limitar a 150 chars
-                            'linea_aproximada': linea,
-                            'comando_curl_directo': f"curl -s '{url}' | grep -i '{patron}'",
-                            'comando_con_guardado': f"curl -s '{url}' -o /tmp/revalidar.html && grep -i '{patron}' /tmp/revalidar.html",
-                            'comando_con_cabeceros': f"curl -s -H 'User-Agent: Mozilla/5.0' '{url}' | grep -i '{patron}'",
-                            'validar_manual': f"Navega a: {url} → Ctrl+F → Busca: '{fragmento[:50]}...'",
-                            'tipo': 'curl|grep - Confirma que el patrón existe en la respuesta HTTP'
-                        })
-            else:
-                # Fallback: Generar comandos de revalidación genéricos
-                for url in info.get('urls', [])[:3]:
-                    patrones = {
-                        'OpenAI': ['openai', 'chatgpt', 'sk-'],
-                        'Anthropic Claude': ['claude', 'anthropic'],
-                        'Google Gemini': ['gemini', 'generativelanguage'],
-                        'Cohere': ['cohere', 'co-'],
-                        'API_Endpoint': ['/api/', 'v1/'],
-                    }
-                    patrones_ia = patrones.get(ia, [ia.lower()])
-
-                    for patron in patrones_ia[:2]:  # Máximo 2 patrones por URL
-                        revalidar.append({
-                            'url': url,
-                            'patron': patron,
-                            'fragmento_encontrado': 'N/A (fallback)',
-                            'linea_aproximada': 0,
-                            'comando_curl_directo': f"curl -s '{url}' | grep -i '{patron}'",
-                            'comando_con_guardado': f"curl -s '{url}' -o /tmp/revalidar.html && grep -i '{patron}' /tmp/revalidar.html",
-                            'comando_con_cabeceros': f"curl -s -H 'User-Agent: Mozilla/5.0' '{url}' | grep -i '{patron}'",
-                            'validar_manual': f"Navega a: {url} → Ctrl+F → Busca: '{patron}'",
-                            'tipo': 'curl|grep - Confirma que el patrón existe en la respuesta HTTP'
-                        })
-
-            # ═══════════════════════════════════════════════════════════════
-            # FASE 2: VULNERABILIDADES (POCs de explotación si aplica)
-            # ═══════════════════════════════════════════════════════════════
-            vulnerabilidades = []
-            if cve_searcher:
-                try:
-                    print(f"    Buscando CVEs para {ia}...")
-                    vulns = cve_searcher.buscar(ia)
-
-                    # Limitar a máximo 5 CVEs más relevantes
-                    for vuln in vulns[:5]:
-                        vulnerabilidades.append({
-                            'cve': vuln.get('cve', 'N/A'),
-                            'nombre': vuln.get('nombre', 'Sin título'),
-                            'severidad': vuln.get('severidad', 0),
-                            'descripcion': vuln.get('descripcion', '')[:300],
-                            'ano': vuln.get('año', vuln.get('ano', 2024)),
-                            'afecta': vuln.get('afecta', 'Versiones múltiples'),
-                            'poc': vuln.get('poc', 'No disponible'),  # POC COMPLETO para explotación
-                            'mitigacion': vuln.get('mitigacion', 'Actualizar paquete'),
-                            'referencias': vuln.get('referencias', [])[:3],
-                            'fuente': vuln.get('fuente', 'BD local'),
-                            'tipo': 'Explotación - Intenta explotar la vulnerabilidad'
-                        })
-                except Exception as e:
-                    print(f"    Error buscando CVEs para {ia}: {e}")
-
             resultado['detalle_por_ia'][ia] = {
                 'nombre_ia': ia,
                 'ocurrencias': info['count'],
@@ -5641,22 +5394,13 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
                 'urls_encontradas': info['urls'],
                 'severidad_id': severidad_obj.get('id'),
                 'severidad_nombre': severidad_obj.get('nombre'),
-                'descripcion': f"Se detectó {ia} en {len(info['targets'])} target(s)",
-                '_workflow': {
-                    'paso_1': 'Ejecutar comandos en sección "revalidar" para CONFIRMAR hallazgo',
-                    'paso_2': 'Si revalidación exitosa, usar comandos en sección "vulnerabilidades" para EXPLOTAR (si aplica)',
-                    'paso_3': 'Aplicar mitigaciones sugeridas'
-                },
-                'revalidar': revalidar,  # CONFIRMAR: Hallazgo existe
-                'vulnerabilidades': vulnerabilidades  # EXPLOTAR: Si es explotable
+                'descripcion': f"Se detectó {ia} en {len(info['targets'])} target(s)"
             }
 
             print(f"  ├─ {ia}")
             print(f"  │  ├─ Ocurrencias: {info['count']}")
             print(f"  │  ├─ Targets: {len(info['targets'])}")
-            print(f"  │  ├─ Severidad: {severidad_obj.get('nombre')}")
-            print(f"  │  ├─ Métodos de REVALIDACIÓN: {len(revalidar)}")
-            print(f"  │  └─ CVEs/POCs de EXPLOTACIÓN: {len(vulnerabilidades)}")
+            print(f"  │  └─ Severidad: {severidad_obj.get('nombre')}")
 
         print("\n" + "="*80)
         print("[DETECCIÓN IA TOOLS] Handler completado correctamente ✓")
