@@ -1154,12 +1154,14 @@ def proyecto_osint_workspace(proyecto_id):
     if proyecto['tipo_proyecto'] != 'OSINT':
         abort(403)
 
-    servicios_osint = Proyecto.get_servicios_osint_pasivo()
-    
+    get_servicios_osint_pasivo = Proyecto.get_servicios_osint_pasivo()
+    get_servicios_osint_full = Proyecto.get_servicios_osint_full()
+
     return render_template(
         'proyecto/proyectos-osint/index.html',
         proyecto=proyecto,
-        servicios_osint=servicios_osint
+        get_servicios_osint_pasivo=get_servicios_osint_pasivo,
+        get_servicios_osint_full = get_servicios_osint_full
     )
 
     

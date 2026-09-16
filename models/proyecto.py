@@ -1506,4 +1506,19 @@ class Proyecto:
         conn.close()
         return servicios
 
+    @staticmethod
+    def get_servicios_osint_full():
+        """Retorna servicios OSINT disponibles"""
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT id, nombre, descripcion, tipo_analisis, orden
+            FROM servicios_osint
+            WHERE tipos_servicio_id = 4 AND estado_id = 1
+            ORDER BY (orden IS NULL), orden ASC, id ASC;
+        """)
+        servicios = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return servicios
    
