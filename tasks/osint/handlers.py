@@ -2135,18 +2135,23 @@ def busqueda_endpoints(ejecucion_id, proyecto_id):
 def _search_waybackurls(dominio):
     """Busca URLs en Wayback Machine"""
     endpoints = set()
+    blacklist_ext = ('svg', 'css', 'js', 'woff', 'woff2', 'ttf', 'eot', 'otf', 'ico', 'map')
+    
     try:
         print(f"[waybackurls] Buscando en Wayback Machine para {dominio}...")
         result = subprocess.run(
-            ['waybackurls', '--blacklist',
-                'svg,css,js,woff,woff2,ttf,eot,otf,ico,map', dominio],
+            ['waybackurls', dominio],
             capture_output=True,
             text=True,
             timeout=30
         )
         if result.stdout:
             urls = result.stdout.strip().split('\n')
-            endpoints.update([url for url in urls if url])
+            # Filtrar extensiones blacklist
+            endpoints.update([
+                url for url in urls 
+                if url and not any(url.lower().endswith(f'.{ext}') for ext in blacklist_ext)
+            ])
             print(f"[waybackurls] Encontrados {len(endpoints)} endpoints")
     except FileNotFoundError:
         print(f"[waybackurls] No instalado")
@@ -2156,7 +2161,6 @@ def _search_waybackurls(dominio):
         print(f"[waybackurls] Error: {e}")
 
     return endpoints
-
 
 def urls_historicas(ejecucion_id, proyecto_id):
     """Búsqueda de URLs históricas con GAU"""
