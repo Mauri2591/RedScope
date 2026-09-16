@@ -2144,20 +2144,21 @@ def _search_waybackurls(dominio):
             ['waybackurls', dominio],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=120 
         )
-        if result.stdout:
+        if result.returncode == 0 and result.stdout:  # ← Verificar código de retorno
             urls = result.stdout.strip().split('\n')
-            # Filtrar extensiones blacklist
             endpoints.update([
                 url for url in urls 
                 if url and not any(url.lower().endswith(f'.{ext}') for ext in blacklist_ext)
             ])
             print(f"[waybackurls] Encontrados {len(endpoints)} endpoints")
+        elif result.returncode != 0:
+            print(f"[waybackurls] Comando falló con código {result.returncode}: {result.stderr}")
     except FileNotFoundError:
         print(f"[waybackurls] No instalado")
     except subprocess.TimeoutExpired:
-        print(f"[waybackurls] Timeout")
+        print(f"[waybackurls] Timeout después de 300s")
     except Exception as e:
         print(f"[waybackurls] Error: {e}")
 

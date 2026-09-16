@@ -1,0 +1,216 @@
+# ======================== REDSCOPE OPERATIONS ========================
+
+# ===== STATUS Y DIAGNÓSTICO =====
+alias redscope-workers-status='redscope_all_workers_status'
+alias redscope-check-jobs='redscope_check_jobs'
+alias redscope-logs-app='tail -f /var/log/redscope/error.log'
+alias redscope-logs-access='tail -f /var/log/redscope/access.log'
+alias redscope-osint-logs='/usr/local/bin/redscope-osint-logs.sh'
+alias redscope-redis-reality='redscope_redis_jobs_reality'
+alias redscope-redis-health='redscope_redis_health'
+alias redscope-redis-full='redscope_redis_full_diagnostics'
+
+# ===== REINICIO =====
+alias redscope-reload-app='sudo systemctl restart redscope'
+alias redscope-reload-aws='redscope_reload_aws_safe'
+alias redscope-reload-osint='redscope_reload_osint_safe'
+alias redscope-reload-osint-clean='redscope_workers_clean_restart osint'
+alias redscope-reload-ia='sudo systemctl restart redscope-rq-worker-ia'
+alias redscope-reload-all='sudo systemctl restart redscope redscope-rq-worker-aws redscope-rq-worker-osint-{1..4} redscope-rq-worker-ia'
+alias redscope-reload-all-clean='redscope_workers_clean_restart all'
+alias redscope-safe-restart='redscope_safe_restart'
+alias redscope-start='redscope_start_app'
+
+# ===== FUNCIONES DIAGNOSTICO REDIS =====
+redscope_redis_jobs_reality() {
+    echo "=== REDIS JOBS REALITY CHECK ==="
+    echo "Logs show jobs executing (from worker log files):"
+    grep -h "heartbeat\|processing\|worker:" /var/log/redscope/rq-worker-osint-*.log 2>/dev/null | tail -3 | sed 's/^/  /'
+
+    echo ""
+    echo "Redis rq:started registries report:"
+    echo "  rq:started:osint: $(redis-cli -n 1 LLEN rq:started:osint 2>/dev/null || echo 'ERROR') jobs"
+    echo "  rq:started:aws:   $(redis-cli -n 1 LLEN rq:started:aws 2>/dev/null || echo 'ERROR') jobs"
+    echo "  rq:started:ia:    $(redis-cli -n 1 LLEN rq:started:ia 2>/dev/null || echo 'ERROR') jobs"
+
+    echo ""
+    echo "Job data in Redis (rq:job:* keys):"
+    job_count=$(redis-cli -n 1 KEYS "rq:job:*" 2>/dev/null | wc -l)
+    echo "  Total job records: $job_count"
+
+    if [ $job_count -gt 0 ]; then
+        echo "  First job TTL: $(redis-cli -n 1 KEYS "rq:job:*" 2>/dev/null | head -1 | xargs -I {} redis-cli -n 1 TTL {} 2>/dev/null || echo 'N/A') seconds"
+    fi
+}
+
+redscope_redis_health() {
+    echo "=== REDIS REGISTRY HEALTH CHECK ==="
+    echo "Data type verification:"
+    echo "  rq:workers type: $(redis-cli -n 1 TYPE rq:workers 2>/dev/null || echo 'ERROR')"
+    echo "  rq:queue:osint type: $(redis-cli -n 1 TYPE rq:queue:osint 2>/dev/null || echo 'ERROR') (should be 'list')"
+    echo "  rq:started:osint type: $(redis-cli -n 1 TYPE rq:started:osint 2>/dev/null || echo 'ERROR') (should be 'list')"
+
+    echo ""
+    if redis-cli -n 1 TYPE rq:workers 2>/dev/null | grep -q "WRONGTYPE\|string\|hash"; then
+        echo "⚠️  CORRUPTION DETECTED: rq:workers has wrong type!"
+        echo "   Fix with: redis-cli -n 1 DEL rq:workers"
+    else
+        echo "✓ Registry types OK"
+    fi
+}
+
+redscope_redis_full_diagnostics() {
+    echo "=== FULL REDIS STATE DIAGNOSTICS ==="
+
+    # Show all job IDs in logs
+    echo "Job IDs found in worker logs:"
+    grep -oh "[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}" \
+        /var/log/redscope/rq-worker-osint-*.log 2>/dev/null | sort -u | head -5 | sed 's/^/  /'
+
+    echo ""
+    echo "Redis registry status:"
+    echo "  Pending (rq:queue:*): $(redis-cli -n 1 LLEN rq:queue:osint 2>/dev/null || echo 'N/A') + $(redis-cli -n 1 LLEN rq:queue:aws 2>/dev/null || echo 'N/A') + $(redis-cli -n 1 LLEN rq:queue:ia 2>/dev/null || echo 'N/A')"
+    echo "  Started (rq:started:*): $(redis-cli -n 1 LLEN rq:started:osint 2>/dev/null || echo 'N/A') + $(redis-cli -n 1 LLEN rq:started:aws 2>/dev/null || echo 'N/A') + $(redis-cli -n 1 LLEN rq:started:ia 2>/dev/null || echo 'N/A')"
+    echo "  Job data (rq:job:*): $(redis-cli -n 1 KEYS 'rq:job:*' 2>/dev/null | wc -l) records"
+
+    echo ""
+    echo "Recommendation: Check /var/www/html/redscope/config.py for REDIS_DB setting"
+}
+
+# ===== FUNCIONES =====
+redscope_all_workers_status() {
+    echo "=== REDSCOPE WORKERS STATUS ==="
+    status=$(systemctl is-active redscope 2>/dev/null)
+    [[ "$status" == "active" || "$status" == "activating" ]] && echo "Flask: ✅ Running ($status)" || echo "Flask: ❌ Stopped"
+
+    status=$(systemctl is-active redscope-rq-worker-aws.service 2>/dev/null)
+    [[ "$status" == "active" ]] && echo "AWS: ✅ Running" || echo "AWS: ❌ Stopped"
+
+    echo "OSINT:"
+    for i in {1..4}; do
+        status=$(systemctl is-active redscope-rq-worker-osint-$i.service 2>/dev/null)
+        [[ "$status" == "active" ]] && echo "  Worker $i: ✅" || echo "  Worker $i: ❌"
+    done
+
+    status=$(systemctl is-active redscope-rq-worker-ia.service 2>/dev/null)
+    [[ "$status" == "active" ]] && echo "IA: ✅ Running" || echo "IA: ❌ Stopped"
+}
+
+redscope_check_jobs() {
+    echo "=== ACTIVE JOBS BY QUEUE ==="
+    echo "AWS:"
+    redis-cli -n 1 llen rq:queue:aws
+    echo "OSINT:"
+    redis-cli -n 1 llen rq:queue:osint
+    echo "IA:"
+    redis-cli -n 1 llen rq:queue:ia
+}
+
+redscope_workers_clean_restart() {
+    local worker_type="${1:-osint}"
+
+    echo "🧹 Limpiando procesos y descriptores de archivo..."
+
+    case "$worker_type" in
+        osint)
+            echo "Eliminando procesos antiguos de RQ..."
+            sudo pkill -9 -f "rq worker" 2>/dev/null || true
+
+            echo "Eliminando logs antiguos..."
+            sudo rm -f /var/log/redscope/rq-worker-osint* 2>/dev/null || true
+
+            sleep 1
+
+            echo "Reiniciando OSINT workers..."
+            sudo systemctl restart redscope-rq-worker-osint-{1..4}
+            ;;
+        aws)
+            echo "Eliminando procesos antiguos de RQ..."
+            sudo pkill -9 -f "rq worker" 2>/dev/null || true
+
+            echo "Eliminando logs antiguos..."
+            sudo rm -f /var/log/redscope/rq-worker-aws* 2>/dev/null || true
+
+            sleep 1
+
+            echo "Reiniciando AWS worker..."
+            sudo systemctl restart redscope-rq-worker-aws
+            ;;
+        all)
+            echo "Eliminando procesos antiguos de RQ..."
+            sudo pkill -9 -f "rq worker" 2>/dev/null || true
+
+            echo "Eliminando logs antiguos..."
+            sudo rm -f /var/log/redscope/rq-worker-* 2>/dev/null || true
+
+            sleep 1
+
+            echo "Reiniciando todos los workers..."
+            sudo systemctl restart redscope redscope-rq-worker-aws redscope-rq-worker-osint-{1..4} redscope-rq-worker-ia
+            ;;
+    esac
+
+    sleep 2
+
+    echo "Verificando estado..."
+    redscope_all_workers_status
+    echo "✅ Limpieza y reinicio completado"
+}
+
+redscope_reload_aws_safe() {
+    echo "Verificando jobs AWS..."
+    jobs=$(redis-cli -n 1 llen rq:queue:aws 2>/dev/null || echo 0)
+    if [ $jobs -gt 0 ]; then
+        echo "⚠️  $jobs jobs en progreso"
+        read -p "¿Reiniciar? (s/n) " -n 1 -r
+        echo
+        [[ ! $REPLY =~ ^[Ss]$ ]] && return
+    fi
+    redscope_workers_clean_restart aws
+}
+
+redscope_reload_osint_safe() {
+    echo "Verificando jobs OSINT..."
+    jobs=$(redis-cli -n 1 llen rq:queue:osint 2>/dev/null || echo 0)
+    if [ $jobs -gt 0 ]; then
+        echo "⚠️  $jobs jobs en progreso"
+        read -p "¿Reiniciar? (s/n) " -n 1 -r
+        echo
+        [[ ! $REPLY =~ ^[Ss]$ ]] && return
+    fi
+    redscope_workers_clean_restart osint
+}
+
+redscope_safe_restart() {
+    echo "=== SAFE RESTART ==="
+    aws_jobs=$(redis-cli -n 1 llen rq:queue:aws 2>/dev/null || echo 0)
+    osint_jobs=$(redis-cli -n 1 llen rq:queue:osint 2>/dev/null || echo 0)
+    ia_jobs=$(redis-cli -n 1 llen rq:queue:ia 2>/dev/null || echo 0)
+
+    total=$((aws_jobs + osint_jobs + ia_jobs))
+    if [ $total -gt 0 ]; then
+        echo "⚠️  $total jobs en progreso (AWS: $aws_jobs, OSINT: $osint_jobs, IA: $ia_jobs)"
+        read -p "¿Reiniciar todo? (s/n) " -n 1 -r
+        echo
+        [[ ! $REPLY =~ ^[Ss]$ ]] && return
+    fi
+
+    redscope_workers_clean_restart all
+}
+
+redscope_start_app() {
+    echo "Deteniendo procesos anteriores..."
+    pkill -9 -f "/var/www/html/redscope/venv/bin/gunicorn" 2>/dev/null
+    sleep 1
+
+    echo "Iniciando Flask..."
+    sudo systemctl restart redscope
+    sleep 2
+
+    if pgrep -f "/var/www/html/redscope/venv/bin/gunicorn" > /dev/null; then
+        echo "✅ Flask corriendo"
+    else
+        echo "❌ Error iniciando Flask"
+        sudo systemctl status redscope
+    fi
+}
