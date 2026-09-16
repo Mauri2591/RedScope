@@ -5037,51 +5037,6 @@ def _make_safe_request_ia(url: str, timeout: int = 5) -> Optional[str]:
         session.close()
 
 
-def _generar_comandos_validacion(ia_name, urls):
-    """
-    Genera comandos curl para revalidar hallazgos de IA manualmente.
-
-    Args:
-        ia_name: Nombre de la herramienta IA detectada
-        urls: Lista de URLs donde se encontró
-
-    Returns:
-        Lista de diccionarios con comandos de validación
-    """
-    validaciones = []
-
-    # Mapear IA a patrones de búsqueda comunes
-    patrones_busqueda = {
-        'OpenAI': ['openai', 'chatgpt', 'sk-'],
-        'Anthropic Claude': ['claude', 'anthropic'],
-        'Google Gemini': ['gemini', 'generativelanguage'],
-        'Cohere': ['cohere', 'co-'],
-        'Chatbot_Iframe': ['iframe', 'chat', 'bot'],
-        'API_Endpoint': ['/api/', 'v1/'],
-    }
-
-    patrones = patrones_busqueda.get(ia_name, [ia_name.lower()])
-
-    for url in urls[:3]:  # Máximo 3 URLs por IA
-        for patron in patrones:
-            # Generar comando curl con grep
-            cmd_curl = f"curl -s '{url}' | grep -i '{patron}'"
-
-            # Generar comando curl que guarde en archivo
-            cmd_save = f"curl -s '{url}' -o output.html && grep -i '{patron}' output.html"
-
-            validaciones.append({
-                'url': url,
-                'patron_busqueda': patron,
-                'comando_curl': cmd_curl,
-                'comando_guardar': cmd_save,
-                'validar_manual': f"Abre {url} → Ctrl+F → Busca '{patron}'",
-                'confianza': 'MEDIA'
-            })
-
-    return validaciones
-
-
 def deteccion_ia_tools(ejecucion_id, proyecto_id):
     """
     HANDLER: Detección de Herramientas IA en Infraestructura de Cliente
@@ -5191,17 +5146,17 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
             'Hugging Face': [
                 r'huggingface\.co/api',
                 r'huggingface\.js',
-                r'hf_[a-zA-Z0-9]+',
+                r'hf_[a-zA-Z0-9]{20,}',
             ],
             'Intercom': [
                 r'intercom\.io',
                 r'intercom-embed',
-                r'intercom_id',
+                r'intercom\.js',
             ],
             'Drift': [
                 r'drift\.com',
                 r'drift-embed',
-                r'driftapi',
+                r'api\.drift\.com',
             ],
             'Zendesk': [
                 r'zendesk\.com',
@@ -5226,7 +5181,7 @@ def deteccion_ia_tools(ejecucion_id, proyecto_id):
             'Cohere': [
                 r'cohere\.ai',
                 r'cohere\.com/api',
-                r'co-[a-zA-Z0-9]+',
+                r'co-[a-zA-Z0-9]{20,}',
             ],
             'Together AI': [
                 r'together\.ai',
