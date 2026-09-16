@@ -2138,7 +2138,8 @@ def _search_waybackurls(dominio):
     try:
         print(f"[waybackurls] Buscando en Wayback Machine para {dominio}...")
         result = subprocess.run(
-            ['waybackurls', dominio],
+            ['waybackurls', '--blacklist',
+                'svg,css,js,woff,woff2,ttf,eot,otf,ico,map', dominio],
             capture_output=True,
             text=True,
             timeout=30
@@ -2148,8 +2149,7 @@ def _search_waybackurls(dominio):
             endpoints.update([url for url in urls if url])
             print(f"[waybackurls] Encontrados {len(endpoints)} endpoints")
     except FileNotFoundError:
-        print(
-            f"[waybackurls] No instalado")
+        print(f"[waybackurls] No instalado")
     except subprocess.TimeoutExpired:
         print(f"[waybackurls] Timeout")
     except Exception as e:
