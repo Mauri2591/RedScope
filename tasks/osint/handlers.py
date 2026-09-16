@@ -1719,7 +1719,7 @@ def _search_github(dominio):
                 encoded_query = urllib.parse.quote(search_query)
 
                 result = subprocess.run(
-                    ['curl', '-s', '-H', f'Authorization: token {GITHUB_TOKEN}',
+                    ['/usr/bin/curl', '-s', '-H', f'Authorization: token {GITHUB_TOKEN}',
                      f'https://api.github.com/search/code?q={encoded_query}&per_page=10'],
                     capture_output=True,
                     text=True,
