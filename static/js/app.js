@@ -796,8 +796,8 @@
             (findingRes.data.evidencias_img || []).forEach(ev => {
                 $("#evidence_preview").append(`
                 <div class="evidence-item position-relative" data-id="${ev.id}">
-                    <img src="${BASE_PATH}/uploads/findings/${ev.id}.png" width="300" height="300"
-                            style="object-fit:cover;border:1px solid #444;border-radius:6px;">
+                    <img src="${BASE_PATH}/${ev.file_path}" width="300" height="300"
+                        style="object-fit:cover;border:1px solid #444;border-radius:6px;">
                     <button type="button" class="btn btn-danger btn-sm delete-evidence">
                         <i class="bi bi-trash"></i>
                     </button>
